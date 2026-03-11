@@ -174,9 +174,9 @@ impl BlueState {
 
 // ── Run ───────────────────────────────────────────────────
 
-pub fn run(config: BlueConfig, backend_type: BackendType) -> Result<()> {
-    if std::env::var("WAYLAND_DISPLAY").is_ok() || std::env::var("DISPLAY").is_ok() {
-        info!("Nested mode → winit backend");
+pub fn run(config: BlueConfig, backend_type: BackendType, dev_mode: bool) -> Result<()> {
+    if dev_mode {
+        info!("Dev mode → winit backend (nested w bieżącej sesji)");
         backend::winit::run(config, backend_type)
     } else {
         info!("TTY mode → udev/DRM backend");
