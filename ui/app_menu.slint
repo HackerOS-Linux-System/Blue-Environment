@@ -1,0 +1,274 @@
+import { ScrollView } from "std-widgets.slint";
+
+// ── App row (compact menu) ───────────────────────────────
+component AppRow inherits Rectangle {
+    callback clicked();
+    in property <string> app-name;
+    in property <string> app-comment;
+    in property <image>  app-icon;
+    height: 42px; border-radius: 7px; background: transparent;
+    animate background { duration: 100ms; }
+    states [
+        hovered  when t.has-hover: { background: #3d8ef018; }
+        pressed  when t.pressed:   { background: #3d8ef030; }
+    ]
+    t := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 10px; spacing: 10px; alignment: start;
+        Rectangle {
+            width: 28px; height: 28px;
+            Image { source: app-icon; width: 28px; height: 28px; image-fit: contain; }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text { text: app-name; color: #e8f0fe; font-size: 13px; overflow: elide; }
+            if app-comment != "": Text { text: app-comment; color: #8899bb; font-size: 11px; overflow: elide; }
+        }
+    }
+}
+
+// ── App grid cell (fullscreen) ───────────────────────────
+component AppCell inherits Rectangle {
+    callback clicked();
+    in property <string> app-name;
+    in property <image>  app-icon;
+    width: 88px; height: 88px; border-radius: 10px; background: transparent;
+    animate background { duration: 100ms; }
+    states [
+        hovered when t.has-hover: { background: #3d8ef018; }
+        pressed when t.pressed:   { background: #3d8ef030; }
+    ]
+    t := TouchArea { clicked => { root.clicked(); } }
+    VerticalLayout {
+        padding: 8px; spacing: 4px; alignment: center;
+        Image { source: app-icon; width: 48px; height: 48px; image-fit: contain; horizontal-alignment: center; }
+        Text { text: app-name; color: #e8f0fe; font-size: 11px; horizontal-alignment: center; overflow: elide; }
+    }
+}
+
+// ── Category chip ────────────────────────────────────────
+component Chip inherits Rectangle {
+    callback clicked();
+    in property <string> label;
+    in property <bool>   active;
+    height: 28px; min-width: 60px; border-radius: 14px;
+    background:   active ? #3d8ef0 : #1a2540;
+    border-width: 1px;
+    border-color: active ? #3d8ef0 : #1e2d4a;
+    animate background { duration: 150ms; }
+    states [ hovered when t.has-hover && !active: { background: #243050; } ]
+    t := TouchArea { clicked => { root.clicked(); } }
+    Text { text: label; color: active ? #fff : #8899bb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; animate color { duration: 150ms; } }
+}
+
+// ═══════════════════════════════════════════════════════════
+// COMPACT APP MENU  (single Win press)
+// ═══════════════════════════════════════════════════════════
+export component CompactAppMenu inherits Window {
+    title: "Blue App Menu";
+    background: transparent;
+    no-frame: true;
+    always-on-top: true;
+    width: 380px;
+    height: 520px;
+
+    callback app-launched(string);
+    callback close-requested();
+    callback search-changed(string);
+
+    in-out property <string> search-text: "";
+    in      property <[{name: string, comment: string, icon: image, exec: string}]> apps: [];
+    in      property <string> username: "user";
+    in      property <string> hostname: "hackeros";
+
+    forward-focus: sbox;
+
+    Rectangle {
+        width: 100%; height: 100%; border-radius: 12px;
+        background: @linear-gradient(155deg, #0d1117f5 0%, #0a0e16f2 100%);
+        border-width: 1px; border-color: #1e2d4a; clip: true;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080;
+
+        Rectangle { y: 0; width: 100%; height: 2px; background: @linear-gradient(90deg, transparent 0%, #3d8ef0 50%, transparent 100%); }
+
+        VerticalLayout {
+            padding: 16px; spacing: 10px;
+
+            // User header
+            HorizontalLayout {
+                spacing: 10px; alignment: start;
+                Rectangle {
+                    width: 40px; height: 40px; border-radius: 20px;
+                    background: #1a2540; border-width: 2px; border-color: #3d8ef0; clip: true;
+                    Text { text: "👤"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Text { text: username; color: #e8f0fe; font-size: 14px; font-weight: 600; }
+                    Text { text: "@" + hostname; color: #3d8ef0; font-size: 11px; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Rectangle {
+                    width: 30px; height: 30px; border-radius: 15px; background: #1a2540;
+                    animate background { duration: 100ms; }
+                    states [ hovered when st.has-hover: { background: #243050; } ]
+                    st := TouchArea { clicked => { root.app-launched("blue-settings"); root.close-requested(); } }
+                    Text { text: "⚙"; font-size: 14px; color: #8899bb; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+
+            // Search
+            Rectangle {
+                height: 36px; border-radius: 10px; background: #141c2e;
+                border-width: 1px; border-color: sbox.has-focus ? #3d8ef0 : #1e2d4a;
+                animate border-color { duration: 150ms; }
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 8px; spacing: 8px;
+                    Text { text: "🔍"; font-size: 13px; color: #4a5d80; vertical-alignment: center; }
+                    sbox := TextInput {
+                        color: #e8f0fe; font-size: 13px; vertical-alignment: center;
+                        text: root.search-text;
+                        edited => { root.search-text = self.text; root.search-changed(self.text); }
+                    }
+                    if search-text == "": Text { text: "Search apps..."; color: #2a3a55; font-size: 13px; vertical-alignment: center; }
+                    if search-text != "": Rectangle {
+                        width: 18px; height: 18px; border-radius: 9px; background: #243050;
+                        animate background { duration: 100ms; }
+                        states [ hovered when cx.has-hover: { background: #2d3d66; } ]
+                        cx := TouchArea { clicked => { root.search-text = ""; root.search-changed(""); } }
+                        Text { text: "✕"; font-size: 10px; color: #8899bb; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                }
+            }
+
+            // App list
+            Rectangle {
+                height: 330px; clip: true;
+                ScrollView {
+                    VerticalLayout {
+                        spacing: 1px;
+                        for app in apps: AppRow {
+                            app-name: app.name; app-comment: app.comment; app-icon: app.icon;
+                            clicked => { root.app-launched(app.exec); root.close-requested(); }
+                        }
+                    }
+                }
+            }
+
+            // Bottom actions
+            HorizontalLayout {
+                spacing: 6px;
+                for action in [
+                    {label: "🔒 Lock",     exec: "loginctl lock-session"},
+                    {label: "🚪 Log Out",  exec: "blue-logout"},
+                    {label: "⏻ Power",    exec: "systemctl poweroff"},
+                ]: Rectangle {
+                    height: 30px; horizontal-stretch: 1; border-radius: 7px;
+                    background: #141c2e; border-width: 1px; border-color: #1e2d4a;
+                    animate background { duration: 100ms; }
+                    states [ hovered when bt.has-hover: { background: #1e2d4a; } ]
+                    bt := TouchArea { clicked => { root.app-launched(action.exec); root.close-requested(); } }
+                    Text { text: action.label; font-size: 11px; color: #8899bb; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// FULLSCREEN LAUNCHER  (Win + Win)
+// ═══════════════════════════════════════════════════════════
+export component FullscreenLauncher inherits Window {
+    title: "Blue Launcher";
+    background: transparent;
+    no-frame: true;
+    always-on-top: true;
+    width: 1920px;
+    height: 1080px;
+
+    callback app-launched(string);
+    callback close-requested();
+    callback search-changed(string);
+    callback category-changed(string);
+
+    in-out property <string> search-text: "";
+    in-out property <string> active-category: "All";
+    in      property <[string]> categories: ["All", "Internet", "Office", "Media", "Games", "System", "Other"];
+    in      property <[{name: string, icon: image, exec: string}]> apps: [];
+
+    forward-focus: fsearch;
+
+    Rectangle {
+        width: 100%; height: 100%; background: #060a12ef;
+
+        // Ambient glows
+        Rectangle { x: -150px; y: -150px; width: 500px; height: 500px; border-radius: 250px; background: @radial-gradient(circle, #3d8ef00a 0%, transparent 70%); }
+        Rectangle { x: 1550px; y: 750px;  width: 400px; height: 400px; border-radius: 200px; background: @radial-gradient(circle, #5b2ea60a 0%, transparent 70%); }
+
+        // Stars
+        for s in [{x:120,y:70},{x:350,y:200},{x:680,y:45},{x:950,y:160},{x:1250,y:85},{x:1520,y:195},{x:1820,y:55},{x:180,y:920},{x:520,y:810},{x:820,y:960},{x:1120,y:855},{x:1440,y:930},{x:1750,y:875}]:
+        Rectangle { x: s.x * 1px; y: s.y * 1px; width: 2px; height: 2px; border-radius: 1px; background: #ffffff; opacity: 0.25; }
+
+        VerticalLayout {
+            padding: 56px; spacing: 28px;
+
+            // Title row
+            HorizontalLayout {
+                Text { text: "Applications"; color: #e8f0fe; font-size: 30px; font-weight: 300; letter-spacing: 2px; }
+                Rectangle { horizontal-stretch: 1; }
+                Rectangle {
+                    width: 38px; height: 38px; border-radius: 19px; background: #141c2e;
+                    border-width: 1px; border-color: #1e2d4a;
+                    animate background { duration: 100ms; }
+                    states [ hovered when xt.has-hover: { background: #ff475720; } ]
+                    xt := TouchArea { clicked => { root.close-requested(); } }
+                    Text { text: "✕"; color: #8899bb; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+
+            // Large search
+            Rectangle {
+                height: 52px; max-width: 620px; border-radius: 14px; background: #0e1520;
+                border-width: 1px; border-color: fsearch.has-focus ? #3d8ef0 : #1e2d4a;
+                animate border-color { duration: 150ms; }
+                HorizontalLayout {
+                    padding-left: 18px; padding-right: 14px; spacing: 12px;
+                    Text { text: "🔍"; font-size: 18px; color: #4a5d80; vertical-alignment: center; }
+                    fsearch := TextInput {
+                        font-size: 16px; color: #e8f0fe; vertical-alignment: center;
+                        text: root.search-text;
+                        edited => { root.search-text = self.text; root.search-changed(self.text); }
+                    }
+                    if search-text == "": Text { text: "Search applications..."; color: #2a3a55; font-size: 16px; vertical-alignment: center; }
+                    Text { text: "ESC / ⊞⊞ to close"; color: #1e2d40; font-size: 11px; vertical-alignment: center; }
+                }
+            }
+
+            // Category chips
+            HorizontalLayout {
+                spacing: 8px; alignment: start;
+                for cat in categories: Chip {
+                    label: cat; active: cat == active-category;
+                    clicked => { root.active-category = cat; root.category-changed(cat); }
+                }
+            }
+
+            // App grid
+            Rectangle {
+                vertical-stretch: 1; clip: true;
+                ScrollView {
+                    VerticalLayout {
+                        padding: 4px;
+                        HorizontalLayout {
+                            spacing: 6px; alignment: start;
+                            for app in apps: AppCell {
+                                app-name: app.name; app-icon: app.icon;
+                                clicked => { root.app-launched(app.exec); root.close-requested(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
