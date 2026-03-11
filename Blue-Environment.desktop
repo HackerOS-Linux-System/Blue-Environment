@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=Blue Enviroment
+Name=Blue Environment
 Comment=Graphical environment for HackerOS.
 Exec=blue start
 Type=Application
