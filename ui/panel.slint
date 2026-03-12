@@ -70,10 +70,8 @@ component TaskBtn inherits Rectangle {
     animate background { duration: 120ms; }
     states [ hovered when t.has-hover && !focused: { background: #141c2e; } ]
     t := TouchArea { clicked => { root.clicked(); } }
-
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 5px; alignment: center;
-        // Kolorowy pasek po lewej (aktywne = niebieski, zminimalizowane = szary)
         Rectangle {
             width: 2px; height: 18px; border-radius: 1px;
             background: focused ? #3d8ef0 : (minimized ? #3a4d6a : transparent);
@@ -84,7 +82,6 @@ component TaskBtn inherits Rectangle {
             font-size: 12px;
         }
     }
-    // Dolny indykator dla aktywnego okna
     if focused: Rectangle {
         x: parent.width / 2 - 8px; y: parent.height - 2px;
         width: 16px; height: 2px; border-radius: 1px; background: #3d8ef0;
@@ -111,16 +108,15 @@ component Sep inherits Rectangle {
 // ── Wskaźnik sieci ────────────────────────────────────────
 component NetworkIndicator inherits Rectangle {
     callback clicked();
-    in property <bool>   connected:  true;
-    in property <bool>   wifi:       true;
-    in property <string> ssid:       "";
-    in property <int>    strength:   100;  // 0-100
+    in property <bool>   connected: true;
+    in property <bool>   wifi:      true;
+    in property <string> ssid:      "";
+    in property <int>    strength:  100;
 
     width: 52px; height: 34px; border-radius: 6px; background: transparent;
     animate background { duration: 100ms; }
     states [ hovered when nt.has-hover: { background: #1a2540; } ]
     nt := TouchArea { clicked => { root.clicked(); } }
-
     HorizontalLayout {
         padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
         Text {
@@ -136,41 +132,150 @@ component NetworkIndicator inherits Rectangle {
                 color: connected ? #e8f0fe : #5a6d8a;
                 font-size: 9px; overflow: elide;
             }
-            if connected && wifi: Text {
-                text: strength + "%";
-                color: #5a6d8a; font-size: 8px;
+            if connected && wifi: Text { text: strength + "%"; color: #5a6d8a; font-size: 8px; }
+        }
+    }
+}
+
+// ── Battery indicator ─────────────────────────────────────
+component BatteryIndicator inherits Rectangle {
+    callback clicked();
+    in property <int>  percent:  100;
+    in property <bool> charging: false;
+    in property <bool> full:     false;
+
+    width: 58px; height: 34px; border-radius: 6px; background: transparent;
+    animate background { duration: 100ms; }
+    states [ hovered when bat-ta.has-hover: { background: #1a2540; } ]
+    bat-ta := TouchArea { clicked => { root.clicked(); } }
+
+    property <color> bar-color:
+        charging ? #2ecc71 : (percent <= 10 ? #ff4757 : (percent <= 30 ? #ffa502 : #3d8ef0));
+
+    HorizontalLayout {
+        padding-left: 4px; padding-right: 4px; spacing: 3px; alignment: center;
+        Rectangle {
+            width: 22px; height: 11px; border-radius: 2px;
+            border-width: 1px; border-color: #3a4a6a; background: #0d1117;
+            Rectangle {
+                x: 1px; y: 1px;
+                width: Math.max(1px, (parent.width - 2px) * root.percent / 100);
+                height: parent.height - 2px; border-radius: 1px; background: bar-color;
+                animate width { duration: 800ms; easing: ease-out; }
+                animate background { duration: 400ms; }
+            }
+            Rectangle {
+                x: parent.width; y: 3px; width: 2px; height: 5px;
+                border-radius: 1px; background: #3a4a6a;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: charging ? "⚡" + percent + "%" : (full ? "🔋" : percent + "%");
+                color: bar-color; font-size: 9px; font-weight: 600;
+                animate color { duration: 400ms; }
             }
         }
     }
 }
 
-// ── Volume control ────────────────────────────────────────
-component VolumeControl inherits Rectangle {
+// ── Bluetooth indicator ───────────────────────────────────
+component BluetoothIndicator inherits Rectangle {
     callback clicked();
-    in property <float>  volume:  0.75;
-    in property <bool>   muted:   false;
-    width: 46px; height: 34px; border-radius: 6px; background: transparent;
+    in property <bool>   enabled:   false;
+    in property <bool>   connected: false;
+    in property <string> device:    "";
+
+    width: 34px; height: 34px; border-radius: 6px; background: transparent;
     animate background { duration: 100ms; }
-    states [ hovered when vt.has-hover: { background: #1a2540; } ]
-    vt := TouchArea { clicked => { root.clicked(); } }
+    states [ hovered when bt-ta.has-hover: { background: #1a2540; } ]
+    bt-ta := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        text: "BT";
+        color: !enabled ? #2a3a55 : (connected ? #3d8ef0 : #8899bb);
+        font-size: 10px; font-weight: 700;
+        horizontal-alignment: center; vertical-alignment: center;
+        animate color { duration: 200ms; }
+    }
+    if connected: Rectangle {
+        x: 22px; y: 4px; width: 7px; height: 7px; border-radius: 4px;
+        background: #2ecc71; border-width: 1px; border-color: #0c1118;
+    }
+}
+
+// ── Volume popup (pionowy slider NAD panelem) ─────────────
+component VolumePopup inherits Rectangle {
+    callback value-changed(float);
+    callback mute-toggle();
+    callback close-popup();
+    in-out property <float> volume: 0.75;
+    in      property <bool>  muted:  false;
+
+    width: 48px; height: 160px; border-radius: 12px;
+    background: @linear-gradient(180deg, #0f1520f8 0%, #0c1118f8 100%);
+    border-width: 1px; border-color: #1e2d4a;
+    drop-shadow-blur: 16px; drop-shadow-color: #00000066;
+
     VerticalLayout {
-        alignment: center; padding: 4px;
-        Text {
-            text: muted ? "🔇" : (volume > 0.65 ? "🔊" : (volume > 0.2 ? "🔉" : "🔈"));
-            font-size: 13px; horizontal-alignment: center;
+        padding: 8px; spacing: 6px; alignment: center;
+
+        Rectangle {
+            height: 28px; border-radius: 6px; background: transparent;
+            animate background { duration: 100ms; }
+            states [ hovered when mute-ta.has-hover: { background: #1a2540; } ]
+            mute-ta := TouchArea { clicked => { root.mute-toggle(); } }
+            Text {
+                text: muted ? "🔇" : (volume > 0.65 ? "🔊" : (volume > 0.2 ? "🔉" : "🔈"));
+                font-size: 14px; horizontal-alignment: center; vertical-alignment: center;
+            }
         }
+
+        track := Rectangle {
+            height: 90px; width: 20px;
+            x: (parent.width - self.width) / 2;
+            border-radius: 4px; background: #141c2e;
+            border-width: 1px; border-color: #1e2d4a;
+            Rectangle {
+                width: 100%;
+                height: Math.max(4px, track.height * volume);
+                y: track.height - self.height;
+                border-radius: 4px;
+                background: muted ? #3a4a6a : #3d8ef0;
+                animate height { duration: 80ms; }
+                animate background { duration: 200ms; }
+            }
+            Rectangle {
+                width: 16px; height: 16px; border-radius: 8px;
+                background: #e8f0fe; x: 2px;
+                y: Math.clamp((track.height - self.height) * (1.0 - volume), 0px, track.height - self.height);
+                border-width: 1px; border-color: #3d8ef0;
+                animate y { duration: 80ms; }
+                slider-ta := TouchArea {
+                    moved => {
+                        // mouse-y w px / track.height w px → float 0..1
+                        let rel = (slider-ta.mouse-y / track.height);
+                        let new-val = (1.0 - rel).clamp(0.0, 1.0);
+                        root.volume = new-val;
+                        root.value-changed(new-val);
+                    }
+                }
+            }
+        }
+
         Text {
-            text: muted ? "mute" : (Math.round(volume * 100) + "%");
-            color: muted ? #ff4757 : #5a6d8a; font-size: 8px; horizontal-alignment: center;
+            text: muted ? "mute" : Math.round(volume * 100) + "%";
+            color: muted ? #ff4757 : #8899bb;
+            font-size: 9px; font-weight: 600; horizontal-alignment: center;
         }
     }
 }
 
 // ── Kalendarz popup ───────────────────────────────────────
 component CalendarPopup inherits Rectangle {
-    in property <string> month-name:  "Styczeń 2026";
-    in property <int>    today-day:   1;
-    in property <[CalDay]> days: [];
+    in property <string>   month-name: "Styczeń 2026";
+    in property <int>      today-day:  1;
+    in property <[CalDay]> days:       [];
     callback close();
 
     width: 280px; border-radius: 12px;
@@ -179,13 +284,11 @@ component CalendarPopup inherits Rectangle {
     drop-shadow-blur: 24px; drop-shadow-color: #00000080;
     clip: true;
 
-    // Glow line na górze
     Rectangle { y: 0; width: 100%; height: 1px; background: @linear-gradient(90deg, transparent 0%, #3d8ef044 50%, transparent 100%); }
 
     VerticalLayout {
         padding: 14px; spacing: 10px;
 
-        // Nagłówek miesiąca
         HorizontalLayout {
             Text { text: "◀"; color: #3a4d6a; font-size: 12px; vertical-alignment: center; }
             Rectangle { horizontal-stretch: 1; }
@@ -194,7 +297,6 @@ component CalendarPopup inherits Rectangle {
             Text { text: "▶"; color: #3a4d6a; font-size: 12px; vertical-alignment: center; }
         }
 
-        // Nagłówki dni tygodnia
         HorizontalLayout {
             spacing: 2px;
             for d in ["Pn", "Wt", "Śr", "Cz", "Pt", "Sb", "Nd"]: Rectangle {
@@ -205,40 +307,35 @@ component CalendarPopup inherits Rectangle {
 
         Rectangle { height: 1px; background: #1e2d4a; }
 
-        // Siatka dni
         VerticalLayout {
             spacing: 2px;
-            // 6 tygodni × 7 dni = 42 komórki
             for week-start in [0, 7, 14, 21, 28, 35]: HorizontalLayout {
                 spacing: 2px;
                 for col in [0, 1, 2, 3, 4, 5, 6]: Rectangle {
                     horizontal-stretch: 1; height: 28px; border-radius: 6px;
                     background: (week-start + col) < days.length && days[week-start + col].today
-                        ? #3d8ef0
-                        : transparent;
+                        ? #3d8ef0 : transparent;
                     animate background { duration: 100ms; }
-                    states [ hovered when dt.has-hover: { background: #1a2540; } ]
-                    dt := TouchArea {}
+                    states [ hovered when cal-ta.has-hover: { background: #1a2540; } ]
+                    cal-ta := TouchArea {}
                     Text {
                         text: (week-start + col) < days.length ? days[week-start + col].day : 0;
                         color: (week-start + col) < days.length && days[week-start + col].today ? #fff
-                             : ((week-start + col) < days.length && days[week-start + col].other-month ? #2a3a55
-                             : #8899bb);
+                             : ((week-start + col) < days.length && days[week-start + col].other-month ? #2a3a55 : #8899bb);
                         font-size: 11px; horizontal-alignment: center; vertical-alignment: center;
                     }
                 }
             }
         }
 
-        // Stopka — dziś
         HorizontalLayout {
             Rectangle { horizontal-stretch: 1; }
             Rectangle {
                 height: 24px; min-width: 64px; border-radius: 6px; background: #141c2e;
                 border-width: 1px; border-color: #1e2d4a;
                 animate background { duration: 100ms; }
-                states [ hovered when th.has-hover: { background: #1e2d4a; } ]
-                th := TouchArea { clicked => { root.close(); } }
+                states [ hovered when today-ta.has-hover: { background: #1e2d4a; } ]
+                today-ta := TouchArea { clicked => { root.close(); } }
                 Text { text: "Dziś"; color: #3d8ef0; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
@@ -249,14 +346,14 @@ component CalendarPopup inherits Rectangle {
 // GŁÓWNY PANEL
 // ═══════════════════════════════════════════════════════════
 export component BluePanel inherits Window {
-    title: "Blue Panel";
+    title: "BluePanel";
     background: transparent;
     no-frame: true;
     always-on-top: true;
     width: 1920px;
     height: 42px;
 
-    // ── Callbacks ─────────────────────────────────────────
+    // ── Callbacks (każdy DOKŁADNIE RAZ) ───────────────────
     callback launcher-clicked();
     callback workspace-clicked(int);
     callback window-clicked(int);
@@ -266,51 +363,58 @@ export component BluePanel inherits Window {
     callback clock-clicked();
     callback network-clicked();
     callback volume-clicked();
-    callback tray-clicked(string);  // nazwa serwisu
+    callback volume-changed(float);
+    callback volume-mute-toggle();
+    callback bluetooth-clicked();
+    callback tray-clicked(string);
 
     // ── Properties ────────────────────────────────────────
-    in-out property <bool>   launcher-open:     false;
-    in-out property <bool>   calendar-visible:  false;
+    in-out property <bool> launcher-open:     false;
+    in-out property <bool> calendar-visible:  false;
+    in-out property <bool> vol-popup-visible: false;
 
-    in property <string> clock-time:       "00:00";
-    in property <string> clock-date:       "Pon 01 Sty";
-    in property <string> calendar-month:   "Styczeń 2026";
-    in property <int>    today-day:        1;
-    in property <[CalDay]> calendar-days: [];
+    in property <string>   clock-time:     "00:00";
+    in property <string>   clock-date:     "Pon 01 Sty";
+    in property <string>   calendar-month: "Styczeń 2026";
+    in property <int>      today-day:      1;
+    in property <[CalDay]> calendar-days:  [];
 
-    in property <int>   active-workspace:  0;
-    in property <int>   workspace-count:   4;
+    in property <int>  active-workspace: 0;
+    in property <int>  workspace-count:  4;
 
-    in property <float> volume:            0.75;
-    in property <bool>  muted:             false;
+    in property <float> volume: 0.75;
+    in property <bool>  muted:  false;
 
-    in property <bool>   net-connected:    true;
-    in property <bool>   net-wifi:         true;
-    in property <string> net-ssid:         "";
-    in property <int>    net-strength:     80;
+    in property <bool>   net-connected: true;
+    in property <bool>   net-wifi:      true;
+    in property <string> net-ssid:      "";
+    in property <int>    net-strength:  80;
 
-    in property <int>    unread-notifs:    0;
+    in property <int> unread-notifs: 0;
 
-    // Okna w taskbarze
+    // Bateria
+    in property <bool> bat-present:  false;
+    in property <int>  bat-percent:  100;
+    in property <bool> bat-charging: false;
+    in property <bool> bat-full:     false;
+
+    // Bluetooth
+    in property <bool>   bt-enabled:   false;
+    in property <bool>   bt-connected: false;
+    in property <string> bt-device:    "";
+
+    // Taskbar + tray
     in property <[WindowItem]> open-windows: [];
-
-    // System tray
-    in property <[TrayEntry]> tray-items: [];
+    in property <[TrayEntry]>  tray-items:   [];
 
     // ── Tło panelu ────────────────────────────────────────
     Rectangle {
         width: 100%; height: 100%;
         background: @linear-gradient(180deg, #0c1118f8 0%, #090d14f8 100%);
-        border-width: 0px;
-        // Dolna linia
         Rectangle {
             y: parent.height - 1px; width: 100%; height: 1px;
-            background: @linear-gradient(90deg,
-                transparent 0%, #3d8ef030 15%,
-                #1e2d4a 50%,
-                #3d8ef030 85%, transparent 100%);
+            background: @linear-gradient(90deg, transparent 0%, #3d8ef030 15%, #1e2d4a 50%, #3d8ef030 85%, transparent 100%);
         }
-        // Górna poświata
         Rectangle { y: 0; width: 100%; height: 1px; background: #ffffff08; }
     }
 
@@ -324,7 +428,6 @@ export component BluePanel inherits Window {
             active: launcher-open;
             clicked => { root.launcher-clicked(); }
         }
-
         Sep {}
 
         // ── Workspace switcher ────────────────────────────
@@ -335,28 +438,21 @@ export component BluePanel inherits Window {
                 clicked => { root.workspace-clicked(i); }
             }
         }
-
         Sep {}
 
         // ── Taskbar ───────────────────────────────────────
         HorizontalLayout {
             spacing: 2px; padding-left: 6px; padding-right: 4px;
             alignment: start; horizontal-stretch: 1;
-
             if open-windows.length == 0: Text {
-                text: "Brak okien";
-                color: #2a3a55; font-size: 11px; vertical-alignment: center;
-                padding-left: 4px;
+                text: "Brak okien"; color: #2a3a55; font-size: 11px;
+                vertical-alignment: center; padding-left: 4px;
             }
-
             for w in open-windows: TaskBtn {
-                label:     w.title;
-                focused:   w.focused;
-                minimized: w.minimized;
+                label: w.title; focused: w.focused; minimized: w.minimized;
                 clicked => { root.window-clicked(w.id); }
             }
         }
-
         Sep {}
 
         // ── System tray ───────────────────────────────────
@@ -373,10 +469,9 @@ export component BluePanel inherits Window {
         Rectangle {
             width: 32px; height: 34px; border-radius: 6px; background: transparent;
             animate background { duration: 100ms; }
-            states [ hovered when bt.has-hover: { background: #1a2540; } ]
-            bt := TouchArea { clicked => { root.notifications-clicked(); } }
+            states [ hovered when notif-ta.has-hover: { background: #1a2540; } ]
+            notif-ta := TouchArea { clicked => { root.notifications-clicked(); } }
             Text { text: "🔔"; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
-            // Badge z liczbą nieprzeczytanych
             if unread-notifs > 0: Rectangle {
                 x: 18px; y: 2px; width: 14px; height: 14px; border-radius: 7px;
                 background: #ff4757; border-width: 1px; border-color: #0c1118;
@@ -388,6 +483,19 @@ export component BluePanel inherits Window {
             }
         }
 
+        // ── Bluetooth ─────────────────────────────────────
+        if bt-enabled || bt-connected: BluetoothIndicator {
+            enabled: bt-enabled; connected: bt-connected; device: bt-device;
+            clicked => { root.bluetooth-clicked(); }
+        }
+        if bt-enabled || bt-connected: Sep {}
+
+        // ── Bateria ───────────────────────────────────────
+        if bat-present: BatteryIndicator {
+            percent: bat-percent; charging: bat-charging; full: bat-full;
+        }
+        if bat-present: Sep {}
+
         // ── Sieć ──────────────────────────────────────────
         NetworkIndicator {
             connected: net-connected; wifi: net-wifi;
@@ -395,29 +503,46 @@ export component BluePanel inherits Window {
             clicked => { root.network-clicked(); }
         }
 
-        // ── Głośność ──────────────────────────────────────
-        VolumeControl {
-            volume: volume; muted: muted;
-            clicked => { root.volume-clicked(); }
+        // ── Głośność (kliknięcie → popup) ─────────────────
+        Rectangle {
+            width: 54px; height: 34px; border-radius: 6px; background: transparent;
+            animate background { duration: 100ms; }
+            states [ hovered when vol-ta.has-hover: { background: #1a2540; } ]
+            vol-ta := TouchArea {
+                clicked => {
+                    root.vol-popup-visible = !root.vol-popup-visible;
+                    root.volume-clicked();
+                }
+            }
+            HorizontalLayout {
+                padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
+                Text {
+                    text: muted ? "🔇" : (volume > 0.65 ? "🔊" : (volume > 0.2 ? "🔉" : "🔈"));
+                    font-size: 13px; vertical-alignment: center;
+                }
+                Text {
+                    text: muted ? "mute" : Math.round(volume * 100) + "%";
+                    color: muted ? #ff4757 : #5a6d8a; font-size: 9px; vertical-alignment: center;
+                }
+            }
         }
 
         // ── Ustawienia ────────────────────────────────────
         Rectangle {
             width: 30px; height: 34px; border-radius: 6px; background: transparent;
             animate background { duration: 100ms; }
-            states [ hovered when st.has-hover: { background: #1a2540; } ]
-            st := TouchArea { clicked => { root.settings-clicked(); } }
+            states [ hovered when set-ta.has-hover: { background: #1a2540; } ]
+            set-ta := TouchArea { clicked => { root.settings-clicked(); } }
             Text { text: "⚙"; font-size: 14px; color: #8899bb; horizontal-alignment: center; vertical-alignment: center; }
         }
-
         Sep {}
 
-        // ── Zegar + kalendarz popup ───────────────────────
+        // ── Zegar + kalendarz ─────────────────────────────
         Rectangle {
             min-width: 80px; height: 34px; border-radius: 6px; background: transparent;
             animate background { duration: 100ms; }
-            states [ hovered when ct.has-hover: { background: #1a2540; } ]
-            ct := TouchArea {
+            states [ hovered when clk-ta.has-hover: { background: #1a2540; } ]
+            clk-ta := TouchArea {
                 clicked => {
                     root.calendar-visible = !root.calendar-visible;
                     root.clock-clicked();
@@ -434,20 +559,31 @@ export component BluePanel inherits Window {
         Rectangle {
             width: 28px; height: 34px; border-radius: 6px; background: transparent;
             animate background { duration: 100ms; }
-            states [ hovered when pt.has-hover: { background: #ff47571a; } ]
-            pt := TouchArea { clicked => { root.show-power-menu(); } }
+            states [ hovered when pwr-ta.has-hover: { background: #ff47571a; } ]
+            pwr-ta := TouchArea { clicked => { root.show-power-menu(); } }
             Text { text: "⏻"; font-size: 15px; color: #8899bb; horizontal-alignment: center; vertical-alignment: center; }
         }
     }
 
-    // ── Kalendarz popup (nad panelem) ─────────────────────
+    // ── Volume popup (NAD panelem) ────────────────────────
+    if vol-popup-visible: VolumePopup {
+        x: parent.width - 360px;
+        y: -165px;
+        volume: volume;
+        muted:  muted;
+        value-changed(v) => { root.volume-changed(v); }
+        mute-toggle      => { root.volume-mute-toggle(); }
+        close-popup      => { root.vol-popup-visible = false; }
+    }
+
+    // ── Kalendarz popup (NAD panelem) ─────────────────────
     if calendar-visible: CalendarPopup {
         x: parent.width - 296px;
-        y: 44px;  // pod panelem
+        y: -326px;
         height: 320px;
-        month-name:  calendar-month;
-        today-day:   today-day;
-        days:        calendar-days;
+        month-name: calendar-month;
+        today-day:  today-day;
+        days:       calendar-days;
         close => { root.calendar-visible = false; }
     }
 }
