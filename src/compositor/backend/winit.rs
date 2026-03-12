@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use smithay::{
     backend::{
-        renderer::gles::GlesRenderer,
         winit::{self, WinitEvent},
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
@@ -118,6 +117,27 @@ pub fn run(config: BlueConfig, backend_type: BackendType) -> Result<()> {
                 if let Err(e) = crate::panel::run_panel() {
                     error!("Panel error: {}", e);
                 }
+            }
+        });
+    }
+
+    // DOCK
+    {
+        let dock_bin = exe_dir.join("blue-dock");
+        let pwd = parent_wayland.clone();
+        let pd  = parent_display.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            if dock_bin.exists() {
+                info!("Spawning blue-dock (on parent session: {})", pwd);
+                let mut cmd = std::process::Command::new(&dock_bin);
+                cmd.env("WAYLAND_DISPLAY", &pwd);
+                if let Some(d) = pd { cmd.env("DISPLAY", d); }
+                if let Err(e) = cmd.spawn() {
+                    warn!("blue-dock spawn failed: {}", e);
+                }
+            } else {
+                warn!("blue-dock binary not found — run cargo build first");
             }
         });
     }
@@ -268,11 +288,10 @@ fn do_render(
 ) -> RenderResult {
     use smithay::{
         backend::renderer::{
-            gles::GlesRenderer,
             Frame, Renderer, ImportMem, Texture,
         },
         reexports::drm::buffer::DrmFourcc,
-        utils::{Size, Physical, Buffer, Transform, Rectangle, Point},
+        utils::{Size, Physical, Buffer, Transform, Rectangle},
     };
 
     let output_size = Size::<i32, Physical>::from((w, h));
