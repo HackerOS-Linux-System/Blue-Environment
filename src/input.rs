@@ -11,44 +11,70 @@ use tracing::info;
 
 use crate::ipc::{self, IpcMessage};
 
-// xkeysym constants — raw u32 values, convert to Keysym for comparison
+// ── Keysym constants (raw u32) ────────────────────────────
 mod keys {
-    pub const SUPER_L: u32  = 0xffeb;
-    pub const SUPER_R: u32  = 0xffec;
-    pub const KEY_1:   u32  = 0x31;
-    pub const KEY_9:   u32  = 0x39;
-    pub const KEY_D:   u32  = 0x64;
-    pub const KEY_L:   u32  = 0x6c;
-    pub const KEY_Q:   u32  = 0x71;
-    pub const KEY_T:   u32  = 0x74;
-    pub const KEY_TAB: u32  = 0xff09;
-    pub const KEY_F4:  u32  = 0xffc1;
-    pub const KEY_LEFT: u32 = 0xff51;
-    pub const KEY_RIGHT:u32 = 0xff53;
-    pub const KEY_UP:   u32 = 0xff52;
-    pub const KEY_DOWN: u32 = 0xff54;
-    pub const KEY_PRINT:u32 = 0xff61;
-    pub const KEY_DELETE:u32= 0xffff;
+    pub const SUPER_L:   u32 = 0xffeb;
+    pub const SUPER_R:   u32 = 0xffec;
+    pub const KEY_0:     u32 = 0x30;
+    pub const KEY_1:     u32 = 0x31;
+    pub const KEY_4:     u32 = 0x34;
+    pub const KEY_9:     u32 = 0x39;
+    pub const KEY_D:     u32 = 0x64;
+    pub const KEY_L:     u32 = 0x6c;
+    pub const KEY_Q:     u32 = 0x71;
+    pub const KEY_T:     u32 = 0x74;
+    pub const KEY_TAB:   u32 = 0xff09;
+    pub const KEY_F4:    u32 = 0xffc1;
+    pub const KEY_F5:    u32 = 0xffc2;
+    pub const KEY_LEFT:  u32 = 0xff51;
+    pub const KEY_RIGHT: u32 = 0xff53;
+    pub const KEY_UP:    u32 = 0xff52;
+    pub const KEY_DOWN:  u32 = 0xff54;
+    pub const KEY_PRINT: u32 = 0xff61;
+    pub const KEY_DELETE:u32 = 0xffff;
+    pub const KEY_ESC:   u32 = 0xff1b;
+    pub const KEY_RETURN:u32 = 0xff0d;
+    pub const KEY_SPACE: u32 = 0x0020;
+
+    // XF86 media keys
+    pub const XF86_VOL_UP:     u32 = 0x1008ff13;
+    pub const XF86_VOL_DOWN:   u32 = 0x1008ff11;
+    pub const XF86_VOL_MUTE:   u32 = 0x1008ff12;
+    pub const XF86_BRIGHT_UP:  u32 = 0x1008ff02;
+    pub const XF86_BRIGHT_DOWN:u32 = 0x1008ff03;
+    pub const XF86_AUDIO_PLAY: u32 = 0x1008ff14;
+    pub const XF86_AUDIO_STOP: u32 = 0x1008ff15;
+    pub const XF86_AUDIO_NEXT: u32 = 0x1008ff17;
+    pub const XF86_AUDIO_PREV: u32 = 0x1008ff16;
 }
 
 const WIN_DOUBLE_MS: u128 = 350;
 
 pub struct InputState {
-    pub ptr_pos: Point<f64, Logical>,
-    pub mods:    ModifiersState,
-    last_win_release: Option<Instant>,
-    win_held:         bool,
+    pub ptr_pos:          Point<f64, Logical>,
+    pub mods:             ModifiersState,
+    last_win_release:     Option<Instant>,
+    win_held:             bool,
+    super_just_pressed:   bool,   // Super wciśnięty w tej ramce
 }
 
 impl InputState {
     pub fn new() -> Self {
         Self {
-            ptr_pos:          Point::from((0.0, 0.0)),
-            mods:             ModifiersState::default(),
-            last_win_release: None,
-            win_held:         false,
+            ptr_pos:            Point::from((0.0, 0.0)),
+            mods:               ModifiersState::default(),
+            last_win_release:   None,
+            win_held:           false,
+            super_just_pressed: false,
         }
     }
+}
+
+impl Default for InputState {
+    fn default() -> Self { Self::new() }
+}
+
+impl InputState {
 
     pub fn handle<I: InputBackend>(
         &mut self,
@@ -56,8 +82,8 @@ impl InputState {
         state: &mut crate::compositor::BlueState,
     ) {
         match event {
-            InputEvent::Keyboard { event }             => self.on_key::<I>(event, state),
-            InputEvent::PointerMotion { event }        => {
+            InputEvent::Keyboard { event }              => self.on_key::<I>(event, state),
+            InputEvent::PointerMotion { event }         => {
                 let d = event.delta();
                 self.ptr_pos.x = (self.ptr_pos.x + d.x).max(0.0);
                 self.ptr_pos.y = (self.ptr_pos.y + d.y).max(0.0);
@@ -68,7 +94,7 @@ impl InputState {
                 self.ptr_pos = Point::from((raw.x, raw.y));
                 self.forward_ptr(state);
             }
-            InputEvent::PointerButton { event }        => self.on_button::<I>(event, state),
+            InputEvent::PointerButton { event }         => self.on_button::<I>(event, state),
             _ => {}
         }
     }
@@ -108,39 +134,49 @@ impl InputState {
             time,
             |cs, mods, keysym| {
                 cs.input_state.mods = *mods;
-                // Keysym.raw() zwraca u32 w smithay 0.6
                 let raw = keysym.modified_sym().raw();
 
+                // ── Super / Win key ───────────────────────
                 let is_super = raw == keys::SUPER_L || raw == keys::SUPER_R;
-
                 if is_super {
                     match key_state {
                         KeyState::Pressed => {
                             cs.input_state.win_held = true;
+                            cs.input_state.super_just_pressed = true;
                         }
                         KeyState::Released => {
-                            let now    = Instant::now();
-                            let double = cs
-                            .input_state
-                            .last_win_release
+                            let now = Instant::now();
+                            // Double-tap Super → fullscreen launcher
+                            let double = cs.input_state.last_win_release
                             .map(|t| now.duration_since(t).as_millis() < WIN_DOUBLE_MS)
                             .unwrap_or(false);
 
                             if double {
-                                info!("Win+Win → fullscreen launcher");
+                                info!("Super+Super → FullscreenLauncher");
                                 ipc::send(&IpcMessage::ToggleFullscreenLauncher);
                                 cs.input_state.last_win_release = None;
                             } else {
-                                info!("Win → app menu");
-                                ipc::send(&IpcMessage::ToggleAppMenu);
+                                // Single tap tylko jeśli nie było kombinacji z innym klawiszem
+                                if cs.input_state.super_just_pressed {
+                                    info!("Super → ToggleAppMenu");
+                                    ipc::send(&IpcMessage::ToggleAppMenu);
+                                }
                                 cs.input_state.last_win_release = Some(now);
                             }
-                            cs.input_state.win_held = false;
+                            cs.input_state.win_held             = false;
+                            cs.input_state.super_just_pressed   = false;
                         }
                     }
                     return FilterResult::Intercept(());
                 }
 
+                // Jeśli inny klawisz wciśnięty przy trzymaniu Super
+                // → nie traktuj jako "single tap"
+                if cs.input_state.win_held && key_state == KeyState::Pressed {
+                    cs.input_state.super_just_pressed = false;
+                }
+
+                // Tylko Pressed events dla pozostałych skrótów
                 if key_state != KeyState::Pressed {
                     return FilterResult::Forward;
                 }
@@ -151,33 +187,75 @@ impl InputState {
                 let shift = mods.shift;
 
                 match (logo, ctrl, alt, shift, raw) {
+
+                    // ── Super + klawisze ──────────────────
+
+                    // Super+L → Lock screen
+                    (true, false, false, false, k) if k == keys::KEY_L => {
+                        info!("Super+L → LockScreen");
+                        ipc::send(&IpcMessage::ShowLogoutDialog);
+                        // Uruchom blue-lock jeśli dostępny
+                        let _ = std::process::Command::new("blue-lock")
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("loginctl")
+                        .arg("lock-session").spawn());
+                        FilterResult::Intercept(())
+                    }
+
+                    // Super+D → Show/Hide Desktop
                     (true, false, false, false, k) if k == keys::KEY_D => {
+                        info!("Super+D → ShowDesktop");
                         cs.workspaces.toggle_show_desktop();
                         FilterResult::Intercept(())
                     }
-                    (true, false, false, false, k) if k == keys::KEY_L => {
-                        let _ = std::process::Command::new("loginctl").arg("lock-session").spawn();
-                        FilterResult::Intercept(())
-                    }
+
+                    // Super+Tab lub Alt+Tab → Window Switcher
                     (true, false, false, false, k) if k == keys::KEY_TAB => {
+                        info!("Super+Tab → WindowSwitcher");
                         ipc::send(&IpcMessage::ShowWindowSwitcher);
                         FilterResult::Intercept(())
                     }
-                    // Super+1..9 — przełącz workspace
-                    (true, false, false, false, k)
-                    if k >= keys::KEY_1 && k <= keys::KEY_9 =>
-                    {
-                        cs.workspaces.switch_to((k - keys::KEY_1) as usize);
+                    (false, false, true, false, k) if k == keys::KEY_TAB => {
+                        info!("Alt+Tab → WindowSwitcher");
+                        ipc::send(&IpcMessage::ShowWindowSwitcher);
                         FilterResult::Intercept(())
                     }
-                    // Super+Shift+1..9 — przenieś okno na workspace
+
+                    // Super+1..4 → Przełącz workspace (4 workspace'y)
+                    (true, false, false, false, k)
+                    if k >= keys::KEY_1 && k <= keys::KEY_4 =>
+                    {
+                        let idx = (k - keys::KEY_1) as usize;
+                        info!("Super+{} → SwitchWorkspace({})", idx + 1, idx);
+                        cs.workspaces.switch_to(idx);
+                        ipc::send(&IpcMessage::WorkspaceChanged {
+                            active: idx,
+                            total:  cs.workspaces.count(),
+                        });
+                        FilterResult::Intercept(())
+                    }
+
+                    // Super+1..9 → obsługa extra workspace'ów
+                    (true, false, false, false, k)
+                    if k > keys::KEY_4 && k <= keys::KEY_9 =>
+                    {
+                        let idx = (k - keys::KEY_1) as usize;
+                        cs.workspaces.switch_to(idx);
+                        FilterResult::Intercept(())
+                    }
+
+                    // Super+Shift+1..4 → Przenieś okno na workspace
                     (true, false, false, true, k)
                     if k >= keys::KEY_1 && k <= keys::KEY_9 =>
                     {
-                        cs.workspaces.move_focused_to((k - keys::KEY_1) as usize);
+                        let idx = (k - keys::KEY_1) as usize;
+                        info!("Super+Shift+{} → MoveToWorkspace({})", idx + 1, idx);
+                        cs.workspaces.move_focused_to(idx);
                         FilterResult::Intercept(())
                     }
-                    (true, false, false, false, k) if k == keys::KEY_LEFT  => {
+
+                    // Super+strzałki → Tiling
+                    (true, false, false, false, k) if k == keys::KEY_LEFT => {
                         cs.workspaces.tile_focused_left();
                         FilterResult::Intercept(())
                     }
@@ -185,38 +263,145 @@ impl InputState {
                         cs.workspaces.tile_focused_right();
                         FilterResult::Intercept(())
                     }
-                    (true, false, false, false, k) if k == keys::KEY_UP   => {
+                    (true, false, false, false, k) if k == keys::KEY_UP => {
                         cs.workspaces.maximize_focused();
                         FilterResult::Intercept(())
                     }
-                    (true, false, false, false, k) if k == keys::KEY_DOWN  => {
+                    (true, false, false, false, k) if k == keys::KEY_DOWN => {
                         cs.workspaces.restore_or_minimize_focused();
                         FilterResult::Intercept(())
                     }
+
+                    // Super+Q / Super+F4 → Zamknij okno
                     (true, false, false, false, k)
                     if k == keys::KEY_Q || k == keys::KEY_F4 =>
                     {
                         cs.workspaces.close_focused();
                         FilterResult::Intercept(())
                     }
+
+                    // ── Alt + klawisze ────────────────────
+
+                    // Alt+F4 → Zamknij okno
                     (false, false, true, false, k) if k == keys::KEY_F4 => {
                         cs.workspaces.close_focused();
                         FilterResult::Intercept(())
                     }
+
+                    // ── Ctrl+Alt ──────────────────────────
+
+                    // Ctrl+Alt+T → Terminal
                     (false, true, true, false, k) if k == keys::KEY_T => {
-                        let _ = std::process::Command::new("alacritty").spawn()
+                        info!("Ctrl+Alt+T → Terminal");
+                        let _ = std::process::Command::new("konsole").spawn()
+                        .or_else(|_| std::process::Command::new("alacritty").spawn())
                         .or_else(|_| std::process::Command::new("foot").spawn())
                         .or_else(|_| std::process::Command::new("xterm").spawn());
                         FilterResult::Intercept(())
                     }
+
+                    // Ctrl+Alt+Delete → Logout dialog
                     (false, true, true, false, k) if k == keys::KEY_DELETE => {
                         ipc::send(&IpcMessage::ShowLogoutDialog);
                         FilterResult::Intercept(())
                     }
+
+                    // ── Klawisze funkcyjne ────────────────
+
+                    // Print → Screenshot
                     (false, false, false, false, k) if k == keys::KEY_PRINT => {
-                        let _ = std::process::Command::new("blue-screenshot").spawn();
+                        let _ = std::process::Command::new("blue-screenshot").spawn()
+                        .or_else(|_| std::process::Command::new("spectacle").spawn())
+                        .or_else(|_| std::process::Command::new("gnome-screenshot").spawn());
                         FilterResult::Intercept(())
                     }
+                    // Super+Print → Region screenshot
+                    (true, false, false, false, k) if k == keys::KEY_PRINT => {
+                        let _ = std::process::Command::new("blue-screenshot")
+                        .arg("--region").spawn()
+                        .or_else(|_| std::process::Command::new("spectacle")
+                        .arg("-r").spawn());
+                        FilterResult::Intercept(())
+                    }
+
+                    // ── XF86 Media Keys ───────────────────
+
+                    // Głośność +
+                    (_, _, _, _, k) if k == keys::XF86_VOL_UP => {
+                        let _ = std::process::Command::new("wpctl")
+                        .args(["set-volume", "-l", "1.0",
+                              "@DEFAULT_AUDIO_SINK@", "5%+"])
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("pactl")
+                        .args(["set-sink-volume", "@DEFAULT_SINK@", "+5%"])
+                        .spawn());
+                        FilterResult::Intercept(())
+                    }
+                    // Głośność -
+                    (_, _, _, _, k) if k == keys::XF86_VOL_DOWN => {
+                        let _ = std::process::Command::new("wpctl")
+                        .args(["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"])
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("pactl")
+                        .args(["set-sink-volume", "@DEFAULT_SINK@", "-5%"])
+                        .spawn());
+                        FilterResult::Intercept(())
+                    }
+                    // Mute
+                    (_, _, _, _, k) if k == keys::XF86_VOL_MUTE => {
+                        let _ = std::process::Command::new("wpctl")
+                        .args(["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("pactl")
+                        .args(["set-sink-mute", "@DEFAULT_SINK@", "toggle"])
+                        .spawn());
+                        FilterResult::Intercept(())
+                    }
+                    // Jasność +
+                    (_, _, _, _, k) if k == keys::XF86_BRIGHT_UP => {
+                        let _ = std::process::Command::new("brightnessctl")
+                        .args(["set", "10%+"])
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("xbacklight")
+                        .args(["-inc", "10"])
+                        .spawn());
+                        FilterResult::Intercept(())
+                    }
+                    // Jasność -
+                    (_, _, _, _, k) if k == keys::XF86_BRIGHT_DOWN => {
+                        let _ = std::process::Command::new("brightnessctl")
+                        .args(["set", "10%-"])
+                        .spawn()
+                        .or_else(|_| std::process::Command::new("xbacklight")
+                        .args(["-dec", "10"])
+                        .spawn());
+                        FilterResult::Intercept(())
+                    }
+                    // Media: Play/Pause
+                    (_, _, _, _, k) if k == keys::XF86_AUDIO_PLAY => {
+                        let _ = std::process::Command::new("playerctl")
+                        .arg("play-pause").spawn();
+                        FilterResult::Intercept(())
+                    }
+                    // Media: Next
+                    (_, _, _, _, k) if k == keys::XF86_AUDIO_NEXT => {
+                        let _ = std::process::Command::new("playerctl")
+                        .arg("next").spawn();
+                        FilterResult::Intercept(())
+                    }
+                    // Media: Previous
+                    (_, _, _, _, k) if k == keys::XF86_AUDIO_PREV => {
+                        let _ = std::process::Command::new("playerctl")
+                        .arg("previous").spawn();
+                        FilterResult::Intercept(())
+                    }
+
+                    // ── F5 → Reload config ────────────────
+                    (true, false, false, false, k) if k == keys::KEY_F5 => {
+                        ipc::send(&IpcMessage::ConfigReload);
+                        FilterResult::Intercept(())
+                    }
+
                     _ => FilterResult::Forward,
                 }
             },
