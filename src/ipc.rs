@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum IpcMessage {
-    // Compositor → Panel / AppMenu
+    // Compositor → Panel / AppMenu (broadcast)
     ToggleAppMenu,
     ToggleFullscreenLauncher,
     ShowWindowSwitcher,
@@ -62,31 +62,37 @@ pub fn socket_path() -> PathBuf {
 }
 
 // ──────────────────────────────────────────────────────────
-// IPC Server (runs inside compositor thread)
+// IPC Server (hub — działa w compositorze)
 // ──────────────────────────────────────────────────────────
 
 type Callback = Box<dyn Fn(IpcMessage) + Send + 'static>;
 
+/// Aktywne połączenie klienta (panel, app_menu, etc.)
+struct Client {
+    writer: UnixStream,
+}
+
 pub struct IpcServer {
-    pub path: PathBuf,
-    listeners: Arc<Mutex<Vec<Callback>>>,
+    pub path:    PathBuf,
+    /// Callback wywoływany gdy compositor dostanie wiadomość od klienta
+    listeners:   Arc<Mutex<Vec<Callback>>>,
+    /// Aktywne połączenia klientów — do broadcastu
+    clients:     Arc<Mutex<Vec<Client>>>,
 }
 
 impl IpcServer {
     pub fn new() -> Result<Self> {
         let path = socket_path();
 
-        // Remove stale socket
-        if path.exists() {
-            std::fs::remove_file(&path).ok();
-        }
-        if let Some(p) = path.parent() {
-            std::fs::create_dir_all(p).ok();
-        }
+        if path.exists() { std::fs::remove_file(&path).ok(); }
+        if let Some(p) = path.parent() { std::fs::create_dir_all(p).ok(); }
 
         let listeners: Arc<Mutex<Vec<Callback>>> = Arc::new(Mutex::new(Vec::new()));
+        let clients:   Arc<Mutex<Vec<Client>>>   = Arc::new(Mutex::new(Vec::new()));
+
         let listeners_bg = listeners.clone();
-        let path_bg = path.clone();
+        let clients_bg   = clients.clone();
+        let path_bg      = path.clone();
 
         thread::spawn(move || {
             match UnixListener::bind(&path_bg) {
@@ -95,8 +101,14 @@ impl IpcServer {
                     for stream in listener.incoming() {
                         match stream {
                             Ok(s) => {
+                                // Zapisz klon strumienia do listy klientów (do broadcastu)
+                                if let Ok(writer) = s.try_clone() {
+                                    clients_bg.lock().unwrap()
+                                    .push(Client { writer });
+                                }
                                 let ls = listeners_bg.clone();
-                                thread::spawn(move || handle_conn(s, ls));
+                                let cs = clients_bg.clone();
+                                thread::spawn(move || handle_conn(s, ls, cs));
                             }
                             Err(e) => error!("IPC accept: {}", e),
                         }
@@ -106,23 +118,33 @@ impl IpcServer {
             }
         });
 
-        Ok(Self { path, listeners })
+        Ok(Self { path, listeners, clients })
     }
 
-    /// Register a handler for messages received from external clients
+    /// Zarejestruj handler dla wiadomości od klientów
     pub fn on_message<F: Fn(IpcMessage) + Send + 'static>(&self, f: F) {
         self.listeners.lock().unwrap().push(Box::new(f));
     }
 
-    /// Broadcast a message to all clients currently connected to the socket
+    /// Wyślij wiadomość do WSZYSTKICH połączonych klientów (panel, app_menu, etc.)
     pub fn broadcast(&self, msg: &IpcMessage) {
-        send_to(&self.path, msg);
+        if let Ok(json) = serde_json::to_string(msg) {
+            let payload = format!("{}\n", json);
+            let mut clients = self.clients.lock().unwrap();
+            clients.retain_mut(|c| {
+                c.writer.write_all(payload.as_bytes()).is_ok()
+            });
+        }
     }
 }
 
-fn handle_conn(stream: UnixStream, listeners: Arc<Mutex<Vec<Callback>>>) {
+fn handle_conn(
+    stream:    UnixStream,
+    listeners: Arc<Mutex<Vec<Callback>>>,
+    clients:   Arc<Mutex<Vec<Client>>>,
+) {
     let mut reader = BufReader::new(stream);
-    let mut buf = String::new();
+    let mut buf    = String::new();
     loop {
         buf.clear();
         match reader.read_line(&mut buf) {
@@ -130,31 +152,36 @@ fn handle_conn(stream: UnixStream, listeners: Arc<Mutex<Vec<Callback>>>) {
             Ok(_) => {
                 if let Ok(msg) = serde_json::from_str::<IpcMessage>(buf.trim()) {
                     debug!("IPC recv: {:?}", msg);
+
+                    // 1. Powiadom lokalne handlery (compositor logic)
                     let ls = listeners.lock().unwrap();
-                    for cb in ls.iter() {
-                        cb(msg.clone());
+                    for cb in ls.iter() { cb(msg.clone()); }
+                    drop(ls);
+
+                    // 2. Broadcast do wszystkich klientów (panel, app_menu)
+                    //    — dzięki temu panel może wysłać ToggleAppMenu a app_menu to dostanie
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        let payload = format!("{}\n", json);
+                        let mut cs = clients.lock().unwrap();
+                        cs.retain_mut(|c| {
+                            c.writer.write_all(payload.as_bytes()).is_ok()
+                        });
                     }
                 }
             }
-            Err(e) => {
-                debug!("IPC read error: {}", e);
-                break;
-            }
+            Err(e) => { debug!("IPC read: {}", e); break; }
         }
     }
 }
 
 // ──────────────────────────────────────────────────────────
-// Client helpers (used by panel/app_menu threads)
+// Client helpers (panel, app_menu, settings)
 // ──────────────────────────────────────────────────────────
 
-/// Send one message to the compositor IPC socket
+/// Wyślij jedną wiadomość do hub (compositor)
 pub fn send(msg: &IpcMessage) {
-    send_to(&socket_path(), msg);
-}
-
-fn send_to(path: &PathBuf, msg: &IpcMessage) {
-    match UnixStream::connect(path) {
+    let path = socket_path();
+    match UnixStream::connect(&path) {
         Ok(mut s) => {
             if let Ok(j) = serde_json::to_string(msg) {
                 s.write_all(j.as_bytes()).ok();
@@ -165,18 +192,20 @@ fn send_to(path: &PathBuf, msg: &IpcMessage) {
     }
 }
 
-/// Blocking listener — run this in a dedicated thread
+/// Persistent listener — łączy się do hubu i czeka na broadcast wiadomości.
+/// Uruchom w osobnym wątku. Automatycznie reconnectuje po utracie połączenia.
 pub fn listen<F: Fn(IpcMessage) + Send + 'static>(callback: F) {
     let path = socket_path();
     loop {
         match UnixStream::connect(&path) {
             Ok(s) => {
+                debug!("IPC listener connected");
                 let mut reader = BufReader::new(s);
-                let mut buf = String::new();
+                let mut buf    = String::new();
                 loop {
                     buf.clear();
                     match reader.read_line(&mut buf) {
-                        Ok(0) => break,
+                        Ok(0) => break,  // serwer zamknął połączenie
                         Ok(_) => {
                             if let Ok(msg) =
                                 serde_json::from_str::<IpcMessage>(buf.trim())
@@ -187,9 +216,11 @@ pub fn listen<F: Fn(IpcMessage) + Send + 'static>(callback: F) {
                         Err(_) => break,
                     }
                 }
+                debug!("IPC listener disconnected — reconnecting...");
             }
             Err(_) => {
-                thread::sleep(std::time::Duration::from_millis(500));
+                // Compositor jeszcze nie gotowy — poczekaj
+                thread::sleep(std::time::Duration::from_millis(200));
             }
         }
     }
