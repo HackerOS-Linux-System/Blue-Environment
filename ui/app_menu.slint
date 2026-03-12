@@ -1,5 +1,19 @@
 import { ScrollView } from "std-widgets.slint";
 
+// ── Eksportowane typy ────────────────────────────────────
+export struct AppItem {
+    name:    string,
+    comment: string,
+    icon:    image,
+    exec:    string,
+}
+
+export struct FsAppItem {
+    name:  string,
+    icon:  image,
+    exec:  string,
+}
+
 // ── App row (compact menu) ───────────────────────────────
 component AppRow inherits Rectangle {
     callback clicked();
@@ -77,7 +91,7 @@ export component CompactAppMenu inherits Window {
     callback search-changed(string);
 
     in-out property <string> search-text: "";
-    in      property <[{name: string, comment: string, icon: image, exec: string}]> apps: [];
+    in      property <[AppItem]> apps: [];
     in      property <string> username: "user";
     in      property <string> hostname: "hackeros";
 
@@ -194,7 +208,7 @@ export component FullscreenLauncher inherits Window {
     in-out property <string> search-text: "";
     in-out property <string> active-category: "All";
     in      property <[string]> categories: ["All", "Internet", "Office", "Media", "Games", "System", "Other"];
-    in      property <[{name: string, icon: image, exec: string}]> apps: [];
+    in      property <[FsAppItem]> apps: [];
 
     forward-focus: fsearch;
 
