@@ -1,145 +1,229 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'dart:io' as io;
 
 void main() {
-  runApp(const MyApp());
+  runApp(const BlueEditApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class BlueEditApp extends StatelessWidget {
+  const BlueEditApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Editor',
+      title: 'Blue Edit',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+        primaryColor: const Color(0xFF2196F3),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1E1E1E),
+          elevation: 0,
+        ),
         textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Colors.white),
+          bodyMedium: TextStyle(color: Colors.white, fontSize: 13),
         ),
       ),
-      home: const EditorScreen(),
+      home: const BlueEditScreen(),
     );
   }
 }
 
-class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key});
+class BlueEditScreen extends StatefulWidget {
+  const BlueEditScreen({super.key});
 
   @override
-  State<EditorScreen> createState() => _EditorScreenState();
+  State<BlueEditScreen> createState() => _BlueEditScreenState();
 }
 
-class _EditorScreenState extends State<EditorScreen> {
+class _BlueEditScreenState extends State<BlueEditScreen> {
   List<Map<String, dynamic>> tabs = [];
   int currentTab = -1;
-  String statusText = 'Gotowy';
-
-  final List<String> explorerFiles = [
-    'main.dart',
-    'lib/app.dart',
-    'pubspec.yaml',
-    'README.md',
-    'example.txt',
-  ];
+  String? currentDir;
+  List<io.FileSystemEntity> dirContents = [];
+  bool isLoadingDir = false;
+  String statusText = 'Gotowy – otwórz folder projektu';
 
   @override
   void initState() {
     super.initState();
-    // Domyślna zakładka przy uruchomieniu
-    _addTab('main.dart', 'void main() {\n  print("Witaj w edytorze inspirowanym Kate i VS Code!");\n}');
+    // przykładowa zakładka startowa
+    _addNewTab();
   }
 
-  void _addTab(String name, [String initialText = '']) {
-    final controller = TextEditingController(text: initialText);
-    tabs.add({
+  // ==================== ZARZĄDZANIE ZAKŁADKAMI ====================
+
+  void _addNewTab({String name = 'untitled.txt', String? path, String content = ''}) {
+    final controller = TextEditingController(text: content);
+    final tab = {
       'name': name,
+      'path': path,
       'controller': controller,
+      'isDirty': false,
+    };
+    tabs.add(tab);
+
+    // listener do wykrywania zmian
+    controller.addListener(() {
+      final idx = tabs.indexWhere((t) => t['controller'] == controller);
+      if (idx != -1 && tabs[idx]['isDirty'] == false) {
+        setState(() => tabs[idx]['isDirty'] = true);
+      }
     });
+
     currentTab = tabs.length - 1;
     setState(() {});
     _updateStatus();
   }
 
-  void _closeTab(int index) {
-    if (tabs.length == 1) {
-      tabs[0]['controller'].clear();
+  Future<void> _saveTab(int index) async {
+    if (index < 0 || index >= tabs.length) return;
+    final tab = tabs[index];
+    final content = tab['controller'].text as String;
+    final path = tab['path'] as String?;
+
+    try {
+      if (path != null) {
+        await io.File(path).writeAsString(content);
+      } else {
+        final savePath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Zapisz plik jako...',
+          fileName: tab['name'],
+        );
+        if (savePath == null) return;
+        await io.File(savePath).writeAsString(content);
+        tab['path'] = savePath;
+        tab['name'] = p.basename(savePath);
+      }
+      tab['isDirty'] = false;
       setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✓ Zapisano'), backgroundColor: Colors.green),
+      );
       _updateStatus();
-      return;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd zapisu: $e'), backgroundColor: Colors.red),
+      );
     }
+  }
 
+  void _forceCloseTab(int index) {
+    (tabs[index]['controller'] as TextEditingController).dispose();
     tabs.removeAt(index);
-    if (currentTab >= tabs.length) {
-      currentTab = tabs.length - 1;
-    }
+    if (currentTab >= tabs.length) currentTab = tabs.length - 1;
     if (currentTab < 0) currentTab = 0;
-
     setState(() {});
     _updateStatus();
   }
 
-  void _openFile(String filename) {
-    final existingIndex = tabs.indexWhere((t) => t['name'] == filename);
-    if (existingIndex != -1) {
-      currentTab = existingIndex;
+  void _closeTab(int index) async {
+    final tab = tabs[index];
+    if (tab['isDirty'] == true) {
+      final result = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Niezapisane zmiany'),
+          content: Text('Plik „${tab['name']}” zawiera niezapisane zmiany.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Anuluj')),
+            TextButton(onPressed: () => Navigator.pop(ctx, 'discard'), child: const Text('Odrzuć')),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx, 'save');
+                await _saveTab(index);
+              },
+              child: const Text('Zapisz i zamknij'),
+            ),
+          ],
+        ),
+      );
+
+      if (result == 'cancel') return;
+      if (result == 'save') {
+        _forceCloseTab(index);
+        return;
+      }
+    }
+    _forceCloseTab(index);
+  }
+
+  // ==================== EKSPLORATOR PLIKÓW ====================
+
+  Future<void> _openFolder() async {
+    final selected = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Otwórz folder projektu');
+    if (selected == null) return;
+    currentDir = selected;
+    await _loadDirContents();
+  }
+
+  Future<void> _loadDirContents() async {
+    if (currentDir == null) return;
+    setState(() => isLoadingDir = true);
+    try {
+      final dir = io.Directory(currentDir!);
+      dirContents = await dir.list().toList();
+
+      dirContents.sort((a, b) {
+        final aDir = a is io.Directory;
+        final bDir = b is io.Directory;
+        if (aDir && !bDir) return -1;
+        if (!aDir && bDir) return 1;
+        return p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase());
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd wczytywania folderu: $e')));
+    }
+    setState(() => isLoadingDir = false);
+  }
+
+  Future<void> _openFile(String fullPath) async {
+    final file = io.File(fullPath);
+    if (!await file.exists()) return;
+
+    final existing = tabs.indexWhere((t) => t['path'] == fullPath);
+    if (existing != -1) {
+      currentTab = existing;
       setState(() {});
       _updateStatus();
       return;
     }
 
-    String initialText = '// Plik: $filename\n';
-    if (filename.endsWith('.dart')) {
-      initialText += 'void main() {\n  // kod Dart\n}\n';
-    } else if (filename.endsWith('.md')) {
-      initialText += '# Nagłówek\n\nTo jest przykładowy plik Markdown.';
-    } else if (filename.endsWith('.yaml')) {
-      initialText += 'name: text_editor_flutter\nversion: 1.0.0';
+    try {
+      final content = await file.readAsString();
+      final name = p.basename(fullPath);
+      _addNewTab(name: name, path: fullPath, content: content);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nie można otworzyć pliku (prawdopodobnie binarny)')),
+      );
     }
-
-    _addTab(filename, initialText);
-  }
-
-  void _newFile() {
-    final name = 'untitled${tabs.length + 1}.dart';
-    _addTab(name);
-  }
-
-  void _saveFile() {
-    if (tabs.isEmpty || currentTab < 0) return;
-
-    final content = tabs[currentTab]['controller'].text;
-    final fileName = tabs[currentTab]['name'];
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Zapisano plik'),
-        content: Text('Plik: $fileName\n\n${content.length > 300 ? content.substring(0, 300) + '...' : content}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _updateStatus() {
-    if (tabs.isEmpty || currentTab < 0 || currentTab >= tabs.length) {
-      statusText = 'Brak otwartych plików';
-    } else {
-      final ctrl = tabs[currentTab]['controller'] as TextEditingController;
-      final lines = ctrl.text.isEmpty ? 0 : ctrl.text.split('\n').length;
-      statusText = 'Ln 1, Col 1 • $lines linii • UTF-8 • Spaces: 4';
+    if (currentTab < 0 || tabs.isEmpty) {
+      statusText = 'Gotowy';
+      setState(() {});
+      return;
     }
+    final tab = tabs[currentTab];
+    final path = tab['path'] ?? 'Nowy plik';
+    final ctrl = tab['controller'] as TextEditingController;
+    final lines = ctrl.text.split('\n').length;
+    final dirty = tab['isDirty'] == true ? ' • Zmodyfikowany' : '';
+
+    statusText = '${p.basename(path)}$dirty • $lines linii • UTF-8';
     setState(() {});
   }
+
+  // ==================== BUILD ====================
 
   Widget _buildTab(int index) {
     final tab = tabs[index];
     final isActive = index == currentTab;
+    final dirty = tab['isDirty'] == true ? '*' : '';
 
     return GestureDetector(
       onTap: () {
@@ -148,27 +232,29 @@ class _EditorScreenState extends State<EditorScreen> {
         _updateStatus();
       },
       child: Container(
-        height: 35,
+        height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        color: isActive ? const Color(0xFF2D2D2D) : const Color(0xFF1E1E1E),
+        decoration: BoxDecoration(
+          color: isActive ? const Color(0xFF2D2D2D) : const Color(0xFF1E1E1E),
+          border: isActive
+              ? const Border(bottom: BorderSide(color: Color(0xFF2196F3), width: 3))
+              : null,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              tab['name'],
+              '$dirty${tab['name']}',
               style: TextStyle(
                 color: isActive ? Colors.white : Colors.grey[400],
                 fontSize: 13,
+                fontWeight: isActive ? FontWeight.w500 : FontWeight.normal,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             GestureDetector(
               onTap: () => _closeTab(index),
-              child: Icon(
-                Icons.close,
-                size: 16,
-                color: isActive ? Colors.white : Colors.grey[500],
-              ),
+              child: const Icon(Icons.close, size: 16, color: Colors.grey),
             ),
           ],
         ),
@@ -180,53 +266,107 @@ class _EditorScreenState extends State<EditorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Flutter Editor – Kate / VS Code'),
+        title: const Row(
+          children: [
+            Icon(Icons.code, color: Color(0xFF2196F3), size: 28),
+            SizedBox(width: 8),
+            Text('Blue Edit'),
+          ],
+        ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.folder_open),
+            tooltip: 'Otwórz folder projektu',
+            onPressed: _openFolder,
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'Nowa zakładka',
-            onPressed: _newFile,
+            tooltip: 'Nowy plik',
+            onPressed: () => _addNewTab(),
           ),
           IconButton(
             icon: const Icon(Icons.save),
             tooltip: 'Zapisz',
-            onPressed: _saveFile,
+            onPressed: () => _saveTab(currentTab),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
         ],
       ),
       body: Row(
         children: [
-          // === PANEL BOCZNY – EKSPLORATOR ===
+          // ==================== EKSPLORATOR ====================
           Container(
-            width: 260,
+            width: 280,
             color: const Color(0xFF252526),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'EKSPLORATOR',
-                    style: TextStyle(fontSize: 12, color: Colors.grey, letterSpacing: 1.5),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Text('EKSPLORATOR', style: TextStyle(fontSize: 12, color: Colors.grey, letterSpacing: 1.5)),
+                      const Spacer(),
+                      if (currentDir != null)
+                        IconButton(
+                          icon: const Icon(Icons.refresh, size: 18),
+                          onPressed: _loadDirContents,
+                        ),
+                    ],
                   ),
                 ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: explorerFiles.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.insert_drive_file, size: 18, color: Colors.blue),
-                        title: Text(
-                          explorerFiles[index],
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        onTap: () => _openFile(explorerFiles[index]),
-                      );
-                    },
+                if (currentDir != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      p.basename(currentDir!),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2196F3)),
+                    ),
                   ),
+                const Divider(color: Colors.black38),
+                Expanded(
+                  child: currentDir == null
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.folder_open, size: 64, color: Colors.grey),
+                              const SizedBox(height: 16),
+                              const Text('Brak otwartego projektu', style: TextStyle(color: Colors.grey)),
+                              const SizedBox(height: 8),
+                              ElevatedButton.icon(
+                                onPressed: _openFolder,
+                                icon: const Icon(Icons.folder_open),
+                                label: const Text('Otwórz folder projektu'),
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+                              ),
+                            ],
+                          ),
+                        )
+                      : isLoadingDir
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView.builder(
+                              itemCount: dirContents.length,
+                              itemBuilder: (context, i) {
+                                final entity = dirContents[i];
+                                final isDir = entity is io.Directory;
+                                final name = p.basename(entity.path);
+                                return ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    isDir ? Icons.folder : Icons.insert_drive_file,
+                                    color: isDir ? Colors.amber : Colors.blue,
+                                  ),
+                                  title: Text(name, style: const TextStyle(fontSize: 13)),
+                                  onTap: isDir
+                                      ? () {
+                                          currentDir = entity.path;
+                                          _loadDirContents();
+                                        }
+                                      : () => _openFile(entity.path),
+                                );
+                              },
+                            ),
                 ),
               ],
             ),
@@ -234,34 +374,32 @@ class _EditorScreenState extends State<EditorScreen> {
 
           const VerticalDivider(width: 1, color: Colors.black),
 
-          // === GŁÓWNA CZĘŚĆ ===
+          // ==================== EDYTOR ====================
           Expanded(
             child: Column(
               children: [
-                // === PASEK ZAKŁADEK ===
+                // Pasek zakładek
                 Container(
-                  height: 35,
+                  height: 36,
                   color: const Color(0xFF1F1F1F),
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: List.generate(tabs.length, (i) => _buildTab(i)),
-                    ),
+                    child: Row(children: List.generate(tabs.length, _buildTab)),
                   ),
                 ),
 
-                // === EDYTOR ===
+                // Edytor
                 Expanded(
                   child: tabs.isEmpty || currentTab < 0
                       ? const Center(
                           child: Text(
-                            'Otwórz plik z eksploratora lub kliknij +',
+                            'Otwórz plik z eksploratora lub utwórz nowy',
                             style: TextStyle(color: Colors.grey, fontSize: 16),
                           ),
                         )
                       : Container(
-                          padding: const EdgeInsets.all(12),
                           color: const Color(0xFF1E1E1E),
+                          padding: const EdgeInsets.all(12),
                           child: TextField(
                             controller: tabs[currentTab]['controller'],
                             maxLines: null,
@@ -269,34 +407,27 @@ class _EditorScreenState extends State<EditorScreen> {
                             style: const TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 14,
-                              height: 1.4,
+                              height: 1.5,
                             ),
                             decoration: const InputDecoration(
                               border: InputBorder.none,
                               contentPadding: EdgeInsets.zero,
-                              isDense: true,
                             ),
                             onChanged: (_) => _updateStatus(),
                           ),
                         ),
                 ),
 
-                // === PASEK STATUSU ===
+                // Pasek statusu
                 Container(
                   height: 28,
                   color: const Color(0xFF007ACC),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      Text(
-                        statusText,
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                      ),
+                      Text(statusText, style: const TextStyle(color: Colors.white, fontSize: 12)),
                       const Spacer(),
-                      const Text(
-                        'Powered by Flutter • Dart',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
+                      const Text('Blue Edit • Linux • Dart + Flutter', style: TextStyle(color: Colors.white70, fontSize: 12)),
                     ],
                   ),
                 ),
