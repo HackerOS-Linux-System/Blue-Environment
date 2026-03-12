@@ -1,0 +1,9 @@
+name: blue
+version: 0.1.0
+authors:
+  - Blue CLI <blue@hackeros.pl>
+crystal: ">= 1.0.0"
+license: MIT
+description: |
+  CLI tools for Blue Environment
+  (czysta implementacja bez żadnych shardów – tylko stdlib + ręczne ANSI kolory)
