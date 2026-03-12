@@ -1,10 +1,7 @@
 // cargo
 // crystal
-! tools ^
-// libjavascriptcoregtk-4.1-dev 
-// libwebkit2gtk-4.1-dev
-// libsoup2.4-dev
-! libs ^
+// flutter
 
 > cargo build --release
 >>> cd launcher && crystal build main.cr --release
+>>> cd apps && cd blue-software && flutter create . && flutter build linux && cd .. && cd blue-edit && flutter create . && flutter build linux
