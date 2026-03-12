@@ -1,5 +1,5 @@
-name: blue-edit
-description: Edytor tekstu inspirowany Kate i Visual Studio Code (czystego Flutter)
+name: blue_edit
+description: Blue Edit – profesjonalny edytor tekstu inspirowany Kate i Visual Studio Code dla Blue Environment (Linux)
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  file_picker: ^10.3.10
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:
