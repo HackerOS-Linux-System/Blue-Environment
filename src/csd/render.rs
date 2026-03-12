@@ -1,8 +1,3 @@
-#![allow(deprecated)]
-// src/csd/render.rs
-// Renderowanie dekoracji okien (titlebar + przyciski + obramowanie)
-// Używane przez backend renderer (glow/pixman) podczas rysowania klatek
-
 use super::{
     DecoButton, DecoMode, WindowDecoration,
     BORDER_W, TITLEBAR_H, BTN_SIZE, BTN_MARGIN, BTN_Y_OFFSET,
