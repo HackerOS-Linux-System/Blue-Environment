@@ -2,7 +2,7 @@
 // tar
 
 > cd ~/.hackeros/
-> mkdir Blue-Enviroment
+> mkdir Blue-Environment
 > mkdir -p ~/.hackeros/Blue-Enviroment 
 > curl -L https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.3/bins.tar.gz | tar -xzf - -C ~/.hackeros/Blue-Enviroment
 > 
