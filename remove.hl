@@ -1,0 +1,3 @@
+> sudo rm -rf ~/.hackeros/Blue-Environment
+> sudo rm -rf /usr/bin/blue
+> sudo rm -rf ~/.config/Blue-Environment/
