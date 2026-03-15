@@ -1,1 +1,20 @@
+name: blue_screenshot
+description: Aplikacja do zrzutów ekranu inspirowana KDE Spectacle (tryb pełny ekran / okno / obszar). Niebieski motyw (Blue Environment). Desktop-only (Windows/macOS/Linux).
+publish_to: 'none'
+version: 1.0.0+1
 
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  screen_capturer: ^0.2.3          # natywny screenshot (region, screen, window)
+  path_provider: ^2.1.4            # ścieżka do folderu Pobrane
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
