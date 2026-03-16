@@ -1,0 +1,306 @@
+struct AppInfo {
+    name: string,
+    id: string,
+    desc: string,
+    backend: string,
+}
+
+component AppItem inherits Rectangle {
+    in property <string> name;
+    in property <string> desc;
+    in property <string> backend;
+
+    callback install();
+    callback remove();
+
+    height: 85px;
+    background: #1E3A8A;
+    border-radius: 12px;
+    drop-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); /* ładniejszy cień */
+
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+
+        VerticalLayout {
+            Text {
+                text: name;
+                font-size: 18px;
+                font-weight: bold;
+                color: white;
+            }
+            Text {
+                text: desc;
+                color: #b0b0b0;
+                wrap: word-wrap;
+                font-size: 14px;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 10px;
+
+            Button {
+                text: "Instaluj";
+                background: #22c55e;
+                color: white;
+                clicked => { root.install(); }
+            }
+            Button {
+                text: "Usuń";
+                background: #ef4444;
+                color: white;
+                clicked => { root.remove(); }
+            }
+        }
+    }
+}
+
+export component BlueSoftware inherits Window {
+    title: "Blue Software";
+    width: 920px;
+    height: 720px;
+    background: #0A0F1E;
+    no-frame: false;
+    always-on-top: false;
+
+    /* ==== PROPS I CALLBACKS ==== */
+    property <int> current-tab: 0;
+    property <string> search-query: "";
+    property <[AppInfo]> current-results: [];
+    property <bool> is-loading: false;
+    property <bool> show-dialog: false;
+    property <string> dialog-title: "";
+    property <string> dialog-output: "";
+
+    callback tab-changed(int);
+    callback search-changed(string);
+    callback install-app(AppInfo);
+    callback remove-app(AppInfo);
+    callback refresh;
+    callback install-appimage(string, string);
+
+    /* ==== GŁÓWNY LAYOUT ==== */
+    VerticalLayout {
+        spacing: 8px;
+
+        /* Nagłówek */
+        Rectangle {
+            height: 64px;
+            background: #1E3A8A;
+            HorizontalLayout {
+                padding: 20px;
+                Text {
+                    text: "Blue Software";
+                    font-size: 26px;
+                    font-weight: bold;
+                    color: white;
+                }
+            }
+        }
+
+        /* Zakładki + Odśwież */
+        HorizontalLayout {
+            height: 52px;
+            padding-left: 20px;
+            padding-right: 20px;
+            spacing: 6px;
+
+            for title[index] in ["Flatpak", "Snap", "LPM (APT)", "AppImage"] : Rectangle {
+                width: 130px;
+                height: 100%;
+                background: root.current-tab == index ? #1E3A8A : transparent;
+                border-bottom: root.current-tab == index ? 5px solid #60a5fa : transparent;
+                border-radius: 8px 8px 0 0;
+
+                TouchArea {
+                    clicked => {
+                        root.current-tab = index;
+                        root.tab-changed(index);
+                    }
+                }
+
+                Text {
+                    text: title;
+                    color: white;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            /* Przycisk odświeżania */
+            Button {
+                text: "🔄";
+                width: 48px;
+                clicked => { root.refresh(); }
+            }
+        }
+
+        /* Wyszukiwarka */
+        LineEdit {
+            padding: 14px;
+            text: root.search-query;
+            placeholder-text: "Szukaj aplikacji...";
+            font-size: 16px;
+            edited => {
+                root.search-query = self.text;
+                root.search-changed(self.text);
+            }
+        }
+
+        /* Zawartość główna */
+        Rectangle {
+            /* wypełnia resztę okna */
+            if (root.current-tab == 3) {
+                /* === APPIMAGE === */
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 32px;
+
+                    Text {
+                        text: "📦";
+                        font-size: 92px;
+                        color: #60a5fa;
+                    }
+
+                    Text {
+                        text: "AppImage — instalacja z URL";
+                        font-size: 26px;
+                        color: white;
+                        font-weight: bold;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 24px;
+
+                        VerticalLayout {
+                            Text {
+                                text: "Nazwa aplikacji";
+                                color: #b0b0b0;
+                                font-size: 14px;
+                            }
+                            LineEdit {
+                                id: name-field;
+                                placeholder-text: "np. MyApp";
+                                font-size: 16px;
+                            }
+                        }
+
+                        VerticalLayout {
+                            Text {
+                                text: "URL .AppImage";
+                                color: #b0b0b0;
+                                font-size: 14px;
+                            }
+                            LineEdit {
+                                id: url-field;
+                                placeholder-text: "https://example.com/app.AppImage";
+                                font-size: 16px;
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: "Zainstaluj AppImage z URL";
+                        background: #3b82f6;
+                        color: white;
+                        font-size: 18px;
+                        padding: 14px 48px;
+                        clicked => {
+                            root.install-appimage(name-field.text, url-field.text);
+                        }
+                    }
+                }
+            } else {
+                /* === WYNIKI WYSZUKIWANIA === */
+                if (root.is-loading) {
+                    Rectangle {
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 16px;
+                            Text {
+                                text: "Ładowanie...";
+                                color: #60a5fa;
+                                font-size: 22px;
+                            }
+                        }
+                    }
+                } else if (root.current-results.length == 0) {
+                    Rectangle {
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: root.search-query == "" ? "Wpisz coś w wyszukiwarkę..." : "Brak wyników dla tej frazy";
+                                color: #888888;
+                                font-size: 18px;
+                            }
+                        }
+                    }
+                } else {
+                    ListView {
+                        for app in root.current-results : AppItem {
+                            name: app.name;
+                            desc: app.desc;
+                            backend: app.backend;
+                            install => { root.install-app(app); }
+                            remove => { root.remove-app(app); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* ==== OVERLAY DIALOG (ładniejszy niż AlertDialog) ==== */
+    Rectangle {
+        visible: root.show-dialog;
+        width: 100%;
+        height: 100%;
+        background: rgba(10, 15, 30, 0.85);
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 620px;
+            height: 420px;
+            background: #1E3A8A;
+            border-radius: 16px;
+            drop-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: root.dialog-title;
+                    font-size: 22px;
+                    font-weight: bold;
+                    color: white;
+                }
+
+                ScrollView {
+                    height: 260px;
+                    Text {
+                        text: root.dialog-output;
+                        color: #d1d5db;
+                        font-family: "monospace";
+                        font-size: 14px;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    Button {
+                        text: "OK";
+                        background: #60a5fa;
+                        color: white;
+                        clicked => { root.show-dialog = false; }
+                    }
+                }
+            }
+        }
+    }
+}
