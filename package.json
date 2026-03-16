@@ -1,0 +1,33 @@
+{
+  "name": "blue-environment",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config ./src/vite.config.ts",
+    "build": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp src-tauri/target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment && echo 'Build OK'",
+    "preview": "vite preview --config ./src/vite.config.ts",
+    "tauri": "tauri",
+    "lint": "tsc -p ./src/tsconfig.json --noEmit",
+    "launcher": "python3 launcher/main.py"
+  },
+  "dependencies": {
+    "@google/genai": "^1.17.0",
+    "@tauri-apps/api": "^1.5.0",
+    "lucide-react": "^0.563.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.0",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.1"
+  }
+}
