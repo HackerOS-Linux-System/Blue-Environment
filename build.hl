@@ -1,7 +1,25 @@
 // cargo
 // crystal
 // flutter
+// npm
 
-> cargo build --release
->>> cd launcher && crystal build main.cr --release
->>> cd apps && cd blue-software && flutter create . && flutter build linux && cd .. && cd blue-edit && flutter create . && flutter build linux
+> npm install && npm run build
+> cd launcher && crystal build src/main.cr --release && mv main blue && cd ..
+! > cd apps
+! > cd blue-code
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-music
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-video
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-gallery
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-screenshot
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-virt
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-archive
+! > flutter create . && flutter build linux && cd ..
+! > cd blue-backup
+! > flutter create . && flutter build linux && cd ..
+! build apps ^^^^
