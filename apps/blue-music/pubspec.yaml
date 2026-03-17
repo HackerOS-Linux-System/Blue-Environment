@@ -1,0 +1,28 @@
+name: blu-music
+description: Odtwarzacz muzyki dla Blue Environment.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.9.38
+  audio_video_progress_bar: ^2.0.1
+  file_picker: ^8.0.0
+  path: ^1.9.0
+  path_provider: ^2.1.1
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon.png   # możesz dodać swoją ikonkę (opcjonalnie)
