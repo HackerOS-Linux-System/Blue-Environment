@@ -1,1 +1,20 @@
+name: blue_videos
+description: Blue Videos - odtwarzacz wideo dla Blue Environment.
+publish_to: 'none'
+version: 1.0.0+1
 
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  video_player: ^2.11.1
+  chewie: ^1.13.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
