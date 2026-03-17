@@ -1,1 +1,24 @@
+name: blue_archive
+description: Blue Archive - menedżer archiwów dla Blue Environment
+publish_to: 'none'
 
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^4.0.9
+  file_picker: ^10.3.10
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
