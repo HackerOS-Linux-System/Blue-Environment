@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::state::{BlueState, WindowInfo};
 
@@ -31,7 +31,7 @@ type Clients = Arc<Mutex<Vec<UnixStream>>>;
 
 pub fn ipc_socket_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-    .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc_getuid() }));
+    .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
     PathBuf::from(runtime_dir).join("blue-compositor.sock")
 }
 
@@ -41,7 +41,10 @@ pub fn init_ipc(_state: &mut BlueState, loop_handle: &LoopHandle<'static, BlueSt
 
     let listener = match UnixListener::bind(&socket_path) {
         Ok(l) => l,
-        Err(e) => { error!("Failed to bind IPC socket: {}", e); return; }
+        Err(e) => {
+            error!("Failed to bind IPC socket: {}", e);
+            return;
+        }
     };
     listener.set_nonblocking(true).unwrap();
     info!("IPC socket: {:?}", socket_path);
@@ -95,20 +98,30 @@ fn poll_clients(state: &mut BlueState, clients: &Clients) {
         loop {
             line.clear();
             match reader.read_line(&mut line) {
-                Ok(0) => { to_remove.push(i); break; }
+                Ok(0) => {
+                    to_remove.push(i);
+                    break;
+                }
                 Ok(_) => {
                     let trimmed = line.trim();
-                    if trimmed.is_empty() { continue; }
+                    if trimmed.is_empty() {
+                        continue;
+                    }
                     if let Ok(msg) = serde_json::from_str::<ShellMessage>(trimmed) {
                         handle_message(state, msg);
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(_) => { to_remove.push(i); break; }
+                Err(_) => {
+                    to_remove.push(i);
+                    break;
+                }
             }
         }
     }
-    for i in to_remove.into_iter().rev() { lock.swap_remove(i); }
+    for i in to_remove.into_iter().rev() {
+        lock.swap_remove(i);
+    }
 }
 
 fn handle_message(state: &mut BlueState, msg: ShellMessage) {
@@ -118,11 +131,11 @@ fn handle_message(state: &mut BlueState, msg: ShellMessage) {
                 state.space.raise_element(&window, true);
                 let serial = smithay::utils::SERIAL_COUNTER.next_serial();
                 if let Some(surface) = window.wl_surface() {
-                    state.seat.get_keyboard().unwrap().set_focus(
-                        state,
-                        Some(surface.into_owned()),
-                                                                 serial,
-                    );
+                    state
+                    .seat
+                    .get_keyboard()
+                    .unwrap()
+                    .set_focus(state, Some(surface.into_owned()), serial);
                 }
             }
         }
@@ -150,12 +163,8 @@ fn broadcast_windows(state: &BlueState, clients: &Clients) {
 fn send_to_stream(stream: &UnixStream, msg: &CompositorMessage) -> bool {
     let Ok(mut json) = serde_json::to_string(msg) else { return false };
     json.push('\n');
-    stream.try_clone().map(|mut s| s.write_all(json.as_bytes()).is_ok()).unwrap_or(false)
-}
-
-fn libc_getuid() -> u32 {
-    unsafe {
-        extern "C" { fn getuid() -> u32; }
-        getuid()
-    }
+    stream
+    .try_clone()
+    .map(|mut s| s.write_all(json.as_bytes()).is_ok())
+    .unwrap_or(false)
 }
