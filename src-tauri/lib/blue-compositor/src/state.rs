@@ -11,7 +11,7 @@ use smithay::{
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
             protocol::wl_surface::WlSurface,
-            Display, DisplayHandle,
+            Display, DisplayHandle, Resource,
         },
         wayland_protocols::xdg::shell::server::xdg_toplevel,
     },
@@ -26,7 +26,7 @@ use smithay::{
         selection::{
             data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler},
             primary_selection::{PrimarySelectionHandler, PrimarySelectionState},
-            SelectionHandler,
+            SelectionHandler, SelectionSource, SelectionTarget,
         },
         shell::{
             wlr_layer::{
@@ -42,7 +42,9 @@ use smithay::{
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
     },
+    input::dnd::DndGrabHandler, // ← poprawny import
 };
+use std::os::unix::io::OwnedFd;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
@@ -111,7 +113,7 @@ pub struct BlueState {
     pub cursor_status: Arc<Mutex<CursorImageStatus>>,
     pub outputs: Vec<Output>,
 
-    pub xwm: Option<smithay::xwayland::X11Wm>,
+    pub xwm: Option<smithay::xwayland::xwm::X11Wm>,
     pub x11_display: Option<u32>,
 
     pub backend_data: BackendData,
@@ -141,7 +143,7 @@ impl BlueState {
         let presentation_state =
         PresentationState::new::<Self>(&display_handle, clock.id() as u32);
         let fractional_scale_manager_state =
-        FractionalScaleManagerState::new::<Self>(&display_handle).ok();
+        Some(FractionalScaleManagerState::new::<Self>(&display_handle));
         let viewporter_state = ViewporterState::new::<Self>(&display_handle);
 
         let socket = ListeningSocketSource::new_auto()
@@ -159,17 +161,6 @@ impl BlueState {
                 }
         })
         .expect("Failed to init socket source");
-
-        // Flush display on each loop iteration via a fd-based generic source
-        let display_fd = calloop::generic::Generic::new(
-            calloop::generic::FdWrapper::new(
-                std::os::unix::io::IntoRawFd::into_raw_fd(display)
-            ),
-            calloop::Interest::READ,
-            calloop::Mode::Level,
-        );
-        // We store the display handle; actual dispatch happens in refresh()
-        // (Smithay recommends calling dispatch_clients directly each loop tick)
 
         BlueState {
             display_handle,
@@ -410,23 +401,49 @@ impl WlrLayerShellHandler for BlueState {
     fn layer_destroyed(&mut self, _surface: WlrLayerSurface) {}
 }
 
+// Implementacje wymaganych traitów selekcji
+impl SelectionHandler for BlueState {
+    type SelectionUserData = ();
+
+    fn send_selection(
+        &mut self,
+        _target: SelectionTarget,
+        _mime_type: String,
+        _fd: OwnedFd,
+        _seat: Seat<Self>,
+        _user_data: &Self::SelectionUserData,
+    ) {
+    }
+
+    fn new_selection(
+        &mut self,
+        _target: SelectionTarget,
+        _source: Option<SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+    }
+}
+
+impl WaylandDndGrabHandler for BlueState {}
+
 impl DataDeviceHandler for BlueState {
     fn data_device_state(&mut self) -> &mut DataDeviceState {
         &mut self.data_device_state
     }
 }
-impl WaylandDndGrabHandler for BlueState {}
-impl SelectionHandler for BlueState {
-    type SelectionUserData = ();
-}
+
 impl PrimarySelectionHandler for BlueState {
     fn primary_selection_state(&mut self) -> &mut PrimarySelectionState {
         &mut self.primary_selection_state
     }
 }
+
 impl FractionalScaleHandler for BlueState {
     fn new_fractional_scale(&mut self, _surface: WlSurface) {}
 }
+
+// XWayland DnD handler – poprawny import
+impl DndGrabHandler for BlueState {}
 
 delegate_compositor!(BlueState);
 delegate_shm!(BlueState);
