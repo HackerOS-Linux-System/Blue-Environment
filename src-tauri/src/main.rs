@@ -3,11 +3,13 @@
 mod session;
 mod cache;
 mod apps;
+mod window_tracker;
 
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use glob::glob;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cache::CachedApp;
 
 // ── Structs ────────────────────────────────────────────────────────────────
@@ -74,13 +76,17 @@ pub struct AudioSink {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct AudioSource {
-    id: u32,
+pub struct PowerProfile {
     name: String,
+    active: bool,
+    icon: Option<String>,
     description: String,
-    volume: f32,
-    muted: bool,
-    is_default: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct CommandOutput {
+    stdout: String,
+    stderr: String,
 }
 
 // ── Session ────────────────────────────────────────────────────────────────
@@ -125,14 +131,12 @@ fn launch_process(command: String, app_id: Option<String>) {
 
         match session {
             session::SessionType::WaylandClient => {
-                // Pass through current WAYLAND_DISPLAY
                 cmd.arg(format!("{} &", command));
             }
             session::SessionType::X11Client => {
                 cmd.arg(format!("{} &", command));
             }
             session::SessionType::Tty => {
-                // When in TTY, set our Wayland socket so apps connect to our compositor
                 cmd.env("WAYLAND_DISPLAY", "wayland-blue-1")
                 .arg(format!("{} &", command));
             }
@@ -161,10 +165,9 @@ fn list_files(path: String) -> Vec<FileEntry> {
                 let size = if is_dir {
                     "DIR".to_string()
                 } else {
-                    format!("{:.1} MB", meta.len() as f64 / 1_048_576.0)
+                    format!("{:.1} KB", meta.len() as f64 / 1024.0)
                 };
 
-                // Simple MIME detection by extension
                 let mime_type = if is_dir {
                     "inode/directory".to_string()
                 } else {
@@ -181,12 +184,17 @@ fn list_files(path: String) -> Vec<FileEntry> {
                     }.to_string()
                 };
 
-                entries.push(FileEntry { name, path: entry.path().to_string_lossy().to_string(), is_dir, size, mime_type });
+                entries.push(FileEntry {
+                    name,
+                    path: entry.path().to_string_lossy().to_string(),
+                             is_dir,
+                             size,
+                             mime_type,
+                });
             }
         }
     }
 
-    // Dirs first, then files, both sorted
     entries.sort_by(|a, b| {
         match (a.is_dir, b.is_dir) {
             (true, false) => std::cmp::Ordering::Less,
@@ -234,13 +242,13 @@ fn get_system_stats() -> SystemStats {
     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     .unwrap_or("Unknown".to_string());
 
-    let battery = get_battery_info();
+    let (battery, is_charging) = get_battery_info();
 
     SystemStats {
         cpu: sys.global_cpu_info().cpu_usage(),
         ram: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
-        battery: battery.0,
-        is_charging: battery.1,
+        battery,
+        is_charging,
         volume,
         brightness: get_brightness(),
         wifi_ssid,
@@ -250,7 +258,6 @@ fn get_system_stats() -> SystemStats {
 }
 
 fn get_battery_info() -> (f32, bool) {
-    // Try /sys/class/power_supply
     let bat_paths = [
         "/sys/class/power_supply/BAT0",
         "/sys/class/power_supply/BAT1",
@@ -267,7 +274,7 @@ fn get_battery_info() -> (f32, bool) {
             return (level, charging);
         }
     }
-    (100.0, true) // Desktop — assume plugged in
+    (100.0, true)
 }
 
 fn get_brightness() -> i32 {
@@ -285,18 +292,16 @@ fn get_brightness() -> i32 {
             return ((c / m) * 100.0) as i32;
         }
     }
-    -1 // Not available
+    -1
 }
 
 // ── PipeWire/PulseAudio audio ──────────────────────────────────────────────
 
 fn get_pipewire_volume() -> Option<i32> {
-    // Try pactl (works with both PulseAudio and PipeWire-pulse)
     let out = Command::new("pactl")
     .args(["get-sink-volume", "@DEFAULT_SINK@"])
     .output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
-    // Parse "Volume: front-left: 65536 / 100% ..."
     let vol: i32 = text.split('%')
     .next()?
     .rsplit('/')
@@ -406,7 +411,6 @@ fn set_volume(level: i32) {
 fn get_wifi_networks_real() -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
 
-    // Rescan first (non-blocking)
     let _ = Command::new("nmcli").args(["dev", "wifi", "rescan"]).output();
 
     let out = Command::new("nmcli")
@@ -419,7 +423,7 @@ fn get_wifi_networks_real() -> Vec<WifiNetwork> {
 
     if let Ok(o) = out {
         let text = String::from_utf8_lossy(&o.stdout);
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
 
         for line in text.lines() {
             let parts: Vec<&str> = line.splitn(10, ':').collect();
@@ -497,7 +501,6 @@ fn get_bluetooth_devices_real() -> Vec<BluetoothDevice> {
             let mac = parts[1].to_string();
             let name = parts[2].to_string();
 
-            // Get detailed info
             let info = Command::new("bluetoothctl")
             .args(["info", &mac])
             .output()
@@ -508,13 +511,11 @@ fn get_bluetooth_devices_real() -> Vec<BluetoothDevice> {
             let paired = info.contains("Paired: yes");
             let trusted = info.contains("Trusted: yes");
 
-            // Device type from Icon field
             let device_type = info.lines()
             .find(|l| l.trim_start().starts_with("Icon:"))
             .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
             .unwrap_or("unknown".to_string());
 
-            // Battery level (if supported)
             let battery = info.lines()
             .find(|l| l.trim_start().starts_with("Battery Percentage:"))
             .and_then(|l| {
@@ -555,11 +556,89 @@ fn bluetooth_pair(mac: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Power Profiles ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_power_profiles() -> Vec<PowerProfile> {
+    let mut profiles = Vec::new();
+
+    let out = Command::new("powerprofilesctl")
+    .arg("list")
+    .output();
+
+    if let Ok(o) = out {
+        let text = String::from_utf8_lossy(&o.stdout);
+        let mut active = "";
+
+        for line in text.lines() {
+            if line.contains("*") {
+                active = line.split_whitespace().next().unwrap_or("");
+            }
+        }
+
+        if text.contains("power-saver") {
+            profiles.push(PowerProfile {
+                name: "power-saver".to_string(),
+                          active: active == "power-saver:",
+                          icon: Some("Battery".to_string()),
+                          description: "Oszczędzanie energii".to_string(),
+            });
+        }
+        if text.contains("balanced") {
+            profiles.push(PowerProfile {
+                name: "balanced".to_string(),
+                          active: active == "balanced:",
+                          icon: Some("Wind".to_string()),
+                          description: "Zrównoważony".to_string(),
+            });
+        }
+        if text.contains("performance") {
+            profiles.push(PowerProfile {
+                name: "performance".to_string(),
+                          active: active == "performance:",
+                          icon: Some("Zap".to_string()),
+                          description: "Wydajność".to_string(),
+            });
+        }
+    }
+
+    if profiles.is_empty() {
+        profiles.push(PowerProfile {
+            name: "power-saver".to_string(),
+                      active: false,
+                      icon: Some("Battery".to_string()),
+                      description: "Oszczędzanie energii".to_string(),
+        });
+        profiles.push(PowerProfile {
+            name: "balanced".to_string(),
+                      active: true,
+                      icon: Some("Wind".to_string()),
+                      description: "Zrównoważony".to_string(),
+        });
+        profiles.push(PowerProfile {
+            name: "performance".to_string(),
+                      active: false,
+                      icon: Some("Zap".to_string()),
+                      description: "Wydajność".to_string(),
+        });
+    }
+
+    profiles
+}
+
+#[tauri::command]
+fn set_power_profile(profile: String) -> Result<(), String> {
+    Command::new("powerprofilesctl")
+    .args(["set", &profile])
+    .spawn()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Brightness ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn set_brightness(level: i32) {
-    // Try brightnessctl first, then xrandr
     if Command::new("brightnessctl")
         .args(["set", &format!("{}%", level)])
         .spawn()
@@ -609,23 +688,67 @@ path = path
     let _ = Command::new("sh").arg("-c").arg(cmd).spawn();
 }
 
+// ── Wallpapers ─────────────────────────────────────────────────────────────
+
 #[tauri::command]
 fn get_wallpapers() -> Vec<String> {
-    let mut wallpapers = vec![
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072".to_string(),
-    ];
+    let mut wallpapers: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let default_path = std::path::Path::new("/usr/share/wallpapers/default.png");
+    if default_path.exists() {
+        wallpapers.push(format!("file://{}", default_path.to_string_lossy()));
+        seen.insert("default.png".to_string());
+    }
+
     let search_patterns = [
-        "/usr/share/wallpapers/**/*.{jpg,png,jpeg}",
-        "/usr/share/backgrounds/**/*.{jpg,png,jpeg}",
+        "/usr/share/wallpapers/*.png",
+        "/usr/share/wallpapers/*.jpg",
+        "/usr/share/wallpapers/*.jpeg",
+        "/usr/share/wallpapers/**/*.png",
+        "/usr/share/wallpapers/**/*.jpg",
+        "/usr/share/backgrounds/*.png",
+        "/usr/share/backgrounds/*.jpg",
+        "/usr/share/backgrounds/**/*.png",
+        "/usr/share/backgrounds/**/*.jpg",
     ];
+
     for pat in &search_patterns {
         if let Ok(entries) = glob(pat) {
             for entry in entries.filter_map(Result::ok) {
-                wallpapers.push(format!("file://{}", entry.to_string_lossy()));
+                let fname = entry.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+                if !seen.contains(&fname) {
+                    seen.insert(fname.clone());
+                    wallpapers.push(format!("file://{}", entry.to_string_lossy()));
+                }
             }
         }
     }
+
+    if wallpapers.is_empty() {
+        wallpapers.push("file:///usr/share/wallpapers/default.png".to_string());
+    }
+
     wallpapers
+}
+
+#[tauri::command]
+fn get_wallpaper_preview(path: String) -> Result<String, String> {
+    let path = path.replace("file://", "");
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Err("File not found".to_string());
+    }
+    let data = fs::read(&path).map_err(|e| e.to_string())?;
+    let mime = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        _ => "application/octet-stream",
+    };
+    let base64 = BASE64.encode(data);
+    Ok(format!("data:{};base64,{}", mime, base64))
 }
 
 #[tauri::command]
@@ -690,10 +813,101 @@ fn load_window_state() -> Vec<cache::WindowCache> {
     cache::load_window_state()
 }
 
+// ── External window tracking ────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_external_windows() -> Vec<window_tracker::ExternalWindow> {
+    window_tracker::get_external_windows()
+}
+
+#[tauri::command]
+fn focus_external_window(win_id: String) {
+    window_tracker::focus_window(&win_id);
+}
+
+#[tauri::command]
+fn minimize_external_window(win_id: String) {
+    window_tracker::minimize_window(&win_id);
+}
+
+#[tauri::command]
+fn close_external_window(win_id: String) {
+    window_tracker::close_window(&win_id);
+}
+
+// ── File operations for Explorer ───────────────────────────────────────────
+
+#[tauri::command]
+fn read_file_as_data_url(path: String) -> Result<String, String> {
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Err("File not found".to_string());
+    }
+    let data = fs::read(&path).map_err(|e| e.to_string())?;
+    let mime = match path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("txt") | Some("md") | Some("rs") | Some("ts") | Some("js") | Some("py") | Some("toml") => "text/plain",
+        _ => "application/octet-stream",
+    };
+    let base64 = BASE64.encode(data);
+    Ok(format!("data:{};base64,{}", mime, base64))
+}
+
+#[tauri::command]
+fn create_folder(path: String, name: String) -> Result<(), String> {
+    let full_path = PathBuf::from(path).join(name);
+    fs::create_dir_all(full_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+    } else {
+        fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn copy_file(src: String, dest: String) -> Result<(), String> {
+    fs::copy(src, dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn move_file(src: String, dest: String) -> Result<(), String> {
+    fs::rename(src, dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Terminal execution ─────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn execute_command(command: String) -> Result<CommandOutput, String> {
+    use tokio::process::Command as TokioCommand;
+
+    let output = TokioCommand::new("sh")
+    .arg("-c")
+    .arg(&command)
+    .output()
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(CommandOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+       stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 fn main() {
-    // Ensure all cache/config dirs exist
     cache::ensure_dirs();
 
     tauri::Builder::default()
@@ -715,9 +929,10 @@ fn main() {
         get_processes,
         take_screenshot,
         get_wallpapers,
+        get_wallpaper_preview,
         load_distro_info,
         system_power,
-        // Audio (PipeWire/PulseAudio)
+        // Audio
         get_audio_sinks,
         set_sink_volume,
         set_default_sink,
@@ -733,6 +948,9 @@ fn main() {
         bluetooth_connect,
         bluetooth_disconnect,
         bluetooth_pair,
+        // Power profiles
+        get_power_profiles,
+        set_power_profile,
         // Brightness
         set_brightness,
         // Config & cache
@@ -740,6 +958,19 @@ fn main() {
         load_config,
         save_window_state,
         load_window_state,
+        // Window tracking
+        get_external_windows,
+        focus_external_window,
+        minimize_external_window,
+        close_external_window,
+        // File operations for Explorer
+        read_file_as_data_url,
+        create_folder,
+        delete_file,
+        copy_file,
+        move_file,
+        // Terminal execution
+        execute_command,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Blue Environment");
