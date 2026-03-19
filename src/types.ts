@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { LucideIcon } from 'lucide-react'; // jeśli używamy
 
 export enum AppId {
     TERMINAL       = 'terminal',
@@ -10,7 +11,6 @@ export enum AppId {
     // Internal apps
     CALCULATOR     = 'calculator',
     SYSTEM_MONITOR = 'system_monitor',
-    BLUE_CONNECT   = 'blue_connect',
     // External standalone apps (in ~/.hackeros/Blue-Environment/apps/)
     BLUE_EDIT      = 'blue_edit',
     BLUE_IMAGES    = 'blue_images',
@@ -18,6 +18,7 @@ export enum AppId {
     BLUE_MUSIC     = 'blue_music',
     BLUE_SCREEN    = 'blue_screen',
     EXTERNAL       = 'external',
+    NOTEPAD        = 'notepad',
 }
 
 export interface DesktopEntry {
@@ -35,7 +36,7 @@ export interface AppDefinition {
     icon: React.ComponentType<any> | string;
     component?: React.ComponentType<any>;
     isExternal?: boolean;
-    externalPath?: string;      // name under ~/.hackeros/Blue-Environment/apps/
+    externalPath?: string;
     defaultWidth?: number;
     defaultHeight?: number;
 }
@@ -58,9 +59,30 @@ export interface WindowState {
 export interface UserConfig {
     wallpaper: string;
     theme: 'dark' | 'light';
-    themeName: 'blue-default' | 'cyberpunk' | 'dracula' | 'light-glass';
+    themeName: string;
     accentColor: string;
     displayScale: number;
+    customThemes?: ThemeDefinition[];
+}
+
+export interface ThemeDefinition {
+    id: string;
+    name: string;
+    type: 'builtin' | 'custom';
+    css?: string;
+    colors?: {
+        primary: string;
+        secondary: string;
+        text: string;
+        accent: string;
+    };
+}
+
+export interface PowerProfile {
+    name: string;                // 'power-saver', 'balanced', 'performance'
+    active: boolean;
+    icon?: string;               // nazwa ikony (np. 'Battery', 'Wind', 'Zap')
+    description: string;
 }
 
 export interface AppProps {
