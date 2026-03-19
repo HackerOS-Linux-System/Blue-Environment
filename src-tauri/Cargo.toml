@@ -1,15 +1,15 @@
 [package]
 name = "blue-environment"
-version = "0.2.0"
+version = "0.3.0"
 description = "Blue Environment"
-authors = ["User"]
+authors = ["HackerOS Team <hackeros068@gmail.com>"]
 edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "1", features = [] }
 
 [dependencies]
-tauri = { version = "1", features = ["shell-all", "fs-all", "path-all", "process-command-api"] }
+tauri = { version = "1", features = [ "clipboard-all", "shell-all", "fs-all", "path-all", "process-command-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
@@ -18,6 +18,8 @@ sysinfo = "0.30"
 chrono = "0.4"
 glob = "0.3"
 dirs = "5.0"
+base64 = "0.21"
+tokio = { version = "1", features = ["full"] }  # Dodano
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
