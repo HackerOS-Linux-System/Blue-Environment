@@ -1,0 +1,40 @@
+[package]
+name = "blue-compositor"
+version = "0.3.0"
+edition = "2021"
+description = "Blue Environment Wayland Compositor"
+
+[[bin]]
+name = "blue-compositor"
+path = "src/main.rs"
+
+[dependencies]
+smithay = { git = "https://github.com/Smithay/smithay.git", default-features = false, features = [
+    "backend_winit",
+    "backend_udev",
+    "backend_drm",
+    "backend_gbm",
+    "backend_libinput",
+    "backend_session_libseat",
+    "renderer_gl",
+    "renderer_multi",
+    "xwayland",
+    "desktop",
+    "wayland_frontend",
+] }
+
+# Use smithay's re-exported calloop to avoid version conflicts
+calloop = { version = "0.14", features = ["executor"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wayland-server = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+nix = { version = "0.27", features = ["fs", "process", "signal"] }
+rustix = { version = "0.38", features = ["fs"] }
+tempfile = "3"
+
+[patch.crates-io]
+# Force a single calloop version matching what smithay uses
+calloop = { git = "https://github.com/Smithay/calloop.git", tag = "v0.14.0" }
