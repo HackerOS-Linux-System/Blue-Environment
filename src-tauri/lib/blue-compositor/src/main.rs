@@ -43,7 +43,7 @@ fn run_udev() {
 
     info!("Seat: {}", session.seat());
 
-    let mut event_loop: calloop::EventLoop<'static, state::BlueState> =
+    let event_loop: calloop::EventLoop<'static, state::BlueState> =
     calloop::EventLoop::try_new().expect("Failed to create event loop");
     let display: wayland_server::Display<state::BlueState> =
     wayland_server::Display::new().expect("Failed to create Wayland display");
@@ -64,7 +64,7 @@ fn run_udev() {
 fn run_winit() {
     use smithay::backend::winit;
 
-    let mut event_loop: calloop::EventLoop<'static, state::BlueState> =
+    let event_loop: calloop::EventLoop<'static, state::BlueState> =
     calloop::EventLoop::try_new().expect("Failed to create event loop");
     let display: wayland_server::Display<state::BlueState> =
     wayland_server::Display::new().expect("Failed to create Wayland display");
