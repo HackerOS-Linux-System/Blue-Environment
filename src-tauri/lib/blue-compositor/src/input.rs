@@ -15,7 +15,7 @@ use smithay::{
         },
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Point, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
     wayland::seat::WaylandFocus,
 };
 
@@ -76,14 +76,13 @@ fn handle_pointer_motion<B: InputBackend, E: PointerMotionEvent<B>>(
     let serial = SERIAL_COUNTER.next_serial();
     let delta = event.delta();
 
-    // Get output bounds without keeping a borrow on state.space
     let (min_x, min_y, max_x, max_y) = {
         let bounds = state
         .space
         .outputs()
         .next()
         .and_then(|o| state.space.output_geometry(o))
-        .unwrap_or(smithay::utils::Rectangle::from_loc_and_size((0, 0), (1920, 1080)));
+        .unwrap_or(Rectangle::new(Point::from((0, 0)), Size::from((1920, 1080))));
         (
             bounds.loc.x as f64,
          bounds.loc.y as f64,
@@ -110,7 +109,7 @@ fn handle_pointer_motion_abs<B: InputBackend, E: PointerMotionAbsoluteEvent<B>>(
         .next()
         .and_then(|o| state.space.output_geometry(o))
         .map(|g| g.size)
-        .unwrap_or((1920, 1080).into())
+        .unwrap_or(Size::from((1920, 1080)))
     };
     state.pointer_location = event.position_transformed(size);
     update_pointer_focus(state, serial, event.time_msec());
@@ -120,7 +119,6 @@ fn update_pointer_focus(state: &mut BlueState, serial: smithay::utils::Serial, t
     let pointer = state.seat.get_pointer().unwrap();
     let pos = state.pointer_location;
 
-    // Collect surface + location without holding space borrow
     let focus: Option<(WlSurface, Point<f64, Logical>)> = state
     .space
     .element_under(pos)
@@ -142,7 +140,6 @@ fn handle_pointer_button<B: InputBackend, E: PointerButtonEvent<B>>(
     let pos = state.pointer_location;
 
     if event.state() == ButtonState::Pressed {
-        // Clone to avoid borrow conflict
         let maybe_window = state
         .space
         .element_under(pos)
@@ -232,7 +229,6 @@ impl PointerGrab<BlueState> for MoveGrab {
         event: &ButtonEvent,
     ) {
         handle.button(data, event);
-        // Release on any button up
         if event.state == ButtonState::Released {
             handle.unset_grab(self, data, event.serial, event.time, true);
         }
