@@ -1,36 +1,34 @@
-import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, Smartphone } from 'lucide-react';
+// src/constants.tsx
+import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, FileText } from 'lucide-react';
 import { AppDefinition, AppId } from './types';
 
-import GeminiAssistantApp from './components/apps/GeminiAssistantApp';
+import TerminalApp from './components/apps/TerminalApp';   // nowy import
+import BlueAI from './components/apps/BlueAI';
 import ExplorerApp from './components/apps/ExplorerApp';
 import SettingsApp from './components/apps/SettingsApp';
 import AboutApp from './components/apps/AboutApp';
 import BlueWebApp from './components/apps/BlueWebApp';
 import CalculatorApp from './components/apps/CalculatorApp';
 import SystemMonitorApp from './components/apps/SystemMonitorApp';
-import BlueConnectApp from './components/apps/BlueConnectApp';
+import NotepadApp from './components/apps/NotepadApp';
 
-export const WALLPAPER_URL = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
+export const WALLPAPER_URL = "file:///usr/share/wallpapers/default.png";
 
 export const THEMES = {
     'blue-default': { name: 'Blue Glass',  bg: 'bg-slate-900',    accent: 'blue'   },
     'cyberpunk':    { name: 'Cyberpunk',   bg: 'bg-zinc-950',     accent: 'yellow' },
     'dracula':      { name: 'Dracula',     bg: 'bg-[#282a36]',    accent: 'purple' },
-    'light-glass':  { name: 'Light Glass', bg: 'bg-slate-200',    accent: 'blue'   },
+    'light-glass':  { name: 'Light Glass', bg: 'bg-slate-200',    accent: 'blue' },
 };
-
-// ── Blue Edit, Blue Screen, Blue Media are now EXTERNAL apps ──────────────
-// Their binaries live in ~/.hackeros/Blue-Environment/apps/<name>/<name>
-// They are launched via launch_process like any system app
-// ─────────────────────────────────────────────────────────────────────────
 
 export const APPS: Record<AppId, AppDefinition> = {
     [AppId.TERMINAL]: {
         id: AppId.TERMINAL,
         title: 'Terminal',
         icon: Terminal,
-        isExternal: true,
-        component: undefined,
+        component: TerminalApp,          // teraz wewnętrzny komponent
+        defaultWidth: 680,
+            defaultHeight: 480,
     },
     [AppId.BLUE_WEB]: {
         id: AppId.BLUE_WEB,
@@ -38,7 +36,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Globe,
         component: BlueWebApp,
         defaultWidth: 1000,
-        defaultHeight: 700,
+            defaultHeight: 700,
     },
     [AppId.EXPLORER]: {
         id: AppId.EXPLORER,
@@ -46,7 +44,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: FolderOpen,
         component: ExplorerApp,
         defaultWidth: 820,
-        defaultHeight: 560,
+            defaultHeight: 560,
     },
     [AppId.CALCULATOR]: {
         id: AppId.CALCULATOR,
@@ -54,7 +52,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Calculator,
         component: CalculatorApp,
         defaultWidth: 320,
-        defaultHeight: 460,
+            defaultHeight: 460,
     },
     [AppId.SYSTEM_MONITOR]: {
         id: AppId.SYSTEM_MONITOR,
@@ -62,23 +60,15 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Activity,
         component: SystemMonitorApp,
         defaultWidth: 820,
-        defaultHeight: 600,
-    },
-    [AppId.BLUE_CONNECT]: {
-        id: AppId.BLUE_CONNECT,
-        title: 'Blue Connect',
-        icon: Smartphone,
-        component: BlueConnectApp,
-        defaultWidth: 760,
-        defaultHeight: 560,
+            defaultHeight: 600,
     },
     [AppId.AI_ASSISTANT]: {
         id: AppId.AI_ASSISTANT,
         title: 'Blue AI',
         icon: Bot,
-        component: GeminiAssistantApp,
+        component: BlueAI,
         defaultWidth: 460,
-        defaultHeight: 660,
+            defaultHeight: 660,
     },
     [AppId.SETTINGS]: {
         id: AppId.SETTINGS,
@@ -86,7 +76,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Settings,
         component: SettingsApp,
         defaultWidth: 860,
-        defaultHeight: 620,
+            defaultHeight: 620,
     },
     [AppId.ABOUT]: {
         id: AppId.ABOUT,
@@ -94,7 +84,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Info,
         component: AboutApp,
         defaultWidth: 420,
-        defaultHeight: 360,
+            defaultHeight: 360,
     },
     [AppId.EXTERNAL]: {
         id: AppId.EXTERNAL,
@@ -102,8 +92,6 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Box,
         isExternal: true,
     },
-    // Blue Edit, Blue Screen, Blue Images, Blue Videos, Blue Music
-    // are intentionally REMOVED from here — they launch as external processes
     [AppId.BLUE_EDIT]: {
         id: AppId.BLUE_EDIT,
         title: 'Blue Edit',
@@ -138,5 +126,13 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Monitor,
         isExternal: true,
         externalPath: 'blue-screen',
+    },
+    [AppId.NOTEPAD]: {
+        id: AppId.NOTEPAD,
+        title: 'Notatnik',
+        icon: FileText,
+        component: NotepadApp,
+        defaultWidth: 600,
+            defaultHeight: 400,
     },
 };
