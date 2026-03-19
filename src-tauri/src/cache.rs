@@ -1,6 +1,3 @@
-// src-tauri/src/cache.rs
-// Manages all Blue Environment cache files
-
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -174,39 +171,92 @@ pub fn list_external_apps() -> Vec<CachedApp> {
 
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let binary = entry.path().join(&name);
-                let icon = entry.path().join("icon.png");
+            let app_dir = entry.path();
+            if !app_dir.is_dir() { continue; }
 
-                if binary.exists() {
-                    apps.push(CachedApp {
-                        id: format!("external.{}", name),
-                              name: name.replace('-', " ")
-                              .split_whitespace()
-                              .map(|w| {
-                                  let mut c = w.chars();
-                                  match c.next() {
-                                      None => String::new(),
-                                   Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                                  }
-                              })
-                              .collect::<Vec<_>>()
-                              .join(" "),
-                              comment: String::new(),
-                              icon: if icon.exists() {
-                                  format!("file://{}", icon.to_string_lossy())
-                              } else {
-                                  String::new()
-                              },
-                              exec: binary.to_string_lossy().to_string(),
-                              categories: vec!["External".to_string()],
-                              desktop_file: String::new(),
-                              is_external: true,
-                    });
+            let app_name = entry.file_name().to_string_lossy().to_string();
+
+            // Find binary — first try same name as dir, then any executable file
+            let binary = find_binary_in_dir(&app_dir, &app_name);
+            let binary = match binary {
+                Some(b) => b,
+                None => continue, // No executable found — skip
+            };
+
+            // Icon is optional — try icon.png, icon.svg, icon.jpg
+            let icon = ["icon.png", "icon.svg", "icon.jpg", "icon.xpm"]
+            .iter()
+            .map(|name| app_dir.join(name))
+            .find(|p| p.exists())
+            .map(|p| format!("file://{}", p.to_string_lossy()))
+            .unwrap_or_default(); // Empty string if no icon — frontend shows letter avatar
+
+            // Human-readable name from dir name
+            let display_name = app_name
+            .replace('-', " ")
+            .replace('_', " ")
+            .split_whitespace()
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    None => String::new(),
+                 Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
                 }
-            }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+            apps.push(CachedApp {
+                id: format!("hackeros.{}", app_name),
+                      name: display_name,
+                      comment: String::new(),
+                      icon,
+                      exec: binary.to_string_lossy().to_string(),
+                      categories: vec!["HackerOS".to_string()],
+                      desktop_file: String::new(),
+                      is_external: true,
+            });
         }
     }
     apps
+}
+
+/// Find executable binary in app directory.
+/// Priority: binary with same name as dir > any single executable > first executable found
+fn find_binary_in_dir(dir: &std::path::Path, preferred_name: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // 1. Exact name match (most common case)
+    let exact = dir.join(preferred_name);
+    if exact.exists() && is_executable(&exact) {
+        return Some(exact);
+    }
+
+    // 2. Scan for any executable file (not a directory, not an icon)
+    let skip_extensions = ["png", "svg", "jpg", "xpm", "desktop", "json", "toml", "txt", "md"];
+    let mut executables = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() { continue; }
+            let ext = path.extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+            if skip_extensions.contains(&ext.as_str()) { continue; }
+            if is_executable(&path) {
+                executables.push(path);
+            }
+        }
+    }
+
+    // Return first found executable
+    executables.into_iter().next()
+}
+
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path)
+    .map(|m| m.permissions().mode() & 0o111 != 0)
+    .unwrap_or(false)
 }
