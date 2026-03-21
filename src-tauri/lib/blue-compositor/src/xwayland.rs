@@ -5,7 +5,7 @@ use smithay::{
     wayland::selection::SelectionTarget,
     xwayland::{
         xwm::{Reorder, ResizeEdge as X11ResizeEdge, XwmId},
-        X11Surface, X11Wm, XWayland, XWaylandEvent,
+        X11Surface, X11Wm,
     },
 };
 use std::os::unix::io::OwnedFd;
@@ -13,6 +13,7 @@ use tracing::{info, warn};
 
 use crate::state::BlueState;
 
+// Tymczasowo wyłączone – API XWayland w tej wersji Smithay jest niekompatybilne
 pub fn init_xwayland(_state: &mut BlueState, _loop_handle: &LoopHandle<'static, BlueState>) {
     warn!("XWayland support is disabled due to API issues.");
 }
