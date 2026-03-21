@@ -42,9 +42,10 @@ use smithay::{
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
     },
-    input::dnd::DndGrabHandler, // ← poprawny import
+    input::dnd::DndGrabHandler,
 };
 use std::os::unix::io::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
@@ -118,6 +119,7 @@ pub struct BlueState {
 
     pub backend_data: BackendData,
     pub ipc_windows: Arc<Mutex<Vec<WindowInfo>>>,
+    pub clients: Arc<Mutex<Vec<UnixStream>>>,   // <-- NOWE POLE
     pub should_exit: bool,
 }
 
@@ -190,6 +192,7 @@ impl BlueState {
             x11_display: None,
             backend_data: BackendData::None,
             ipc_windows: Arc::new(Mutex::new(Vec::new())),
+            clients: Arc::new(Mutex::new(Vec::new())), // <-- inicjalizacja
             should_exit: false,
         }
     }
@@ -401,7 +404,6 @@ impl WlrLayerShellHandler for BlueState {
     fn layer_destroyed(&mut self, _surface: WlrLayerSurface) {}
 }
 
-// Implementacje wymaganych traitów selekcji
 impl SelectionHandler for BlueState {
     type SelectionUserData = ();
 
@@ -442,7 +444,6 @@ impl FractionalScaleHandler for BlueState {
     fn new_fractional_scale(&mut self, _surface: WlSurface) {}
 }
 
-// XWayland DnD handler – poprawny import
 impl DndGrabHandler for BlueState {}
 
 delegate_compositor!(BlueState);
