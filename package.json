@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config ./src/vite.config.ts",
-    "build": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor && echo 'Build OK'",
+    "build": "tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor && echo 'Build OK'",
     "build:compositor": "cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor",
     "build:shell": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment",
     "preview": "vite preview --config ./src/vite.config.ts",
