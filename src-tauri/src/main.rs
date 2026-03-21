@@ -8,13 +8,21 @@ mod window_tracker;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::collections::HashMap;
+use std::sync::Arc;
 use glob::glob;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cache::CachedApp;
+use tokio::process::Command as TokioCommand;
+use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
+use tokio::sync::Mutex;
+use tauri::Window;
+use lazy_static::lazy_static;
+use serde::{Serialize, Deserialize};
 
 // ── Structs ────────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FileEntry {
     name: String,
     path: String,
@@ -23,7 +31,7 @@ pub struct FileEntry {
     mime_type: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SystemStats {
     cpu: f32,
     ram: f32,
@@ -36,7 +44,7 @@ pub struct SystemStats {
     session_type: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ProcessEntry {
     pid: String,
     name: String,
@@ -44,7 +52,7 @@ pub struct ProcessEntry {
     memory: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct WifiNetwork {
     ssid: String,
     signal: u8,
@@ -54,7 +62,7 @@ pub struct WifiNetwork {
     frequency: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BluetoothDevice {
     name: String,
     mac: String,
@@ -65,7 +73,7 @@ pub struct BluetoothDevice {
     battery: Option<u8>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AudioSink {
     id: u32,
     name: String,
@@ -75,7 +83,7 @@ pub struct AudioSink {
     is_default: bool,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PowerProfile {
     name: String,
     active: bool,
@@ -83,10 +91,53 @@ pub struct PowerProfile {
     description: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CommandOutput {
     stdout: String,
     stderr: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ClipboardItem {
+    id: String,
+    content: String,
+    timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Notification {
+    id: String,
+    title: String,
+    message: String,
+    app_id: Option<String>,
+    timestamp: u64,
+    read: bool,
+    icon: Option<String>,
+    actions: Option<Vec<Action>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Action {
+    label: String,
+    action: String,
+}
+
+struct TerminalProcess {
+    stdin: tokio::process::ChildStdin,
+}
+
+lazy_static! {
+    static ref TERMINALS: Arc<Mutex<HashMap<String, TerminalProcess>>> = Arc::new(Mutex::new(HashMap::new()));
+}
+
+fn clipboard_history_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap();
+    home.join(".local/share/blue-env/clipboard_history.json")
+}
+
+fn notifications_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap();
+    home.join(".local/share/blue-env/notifications.json")
 }
 
 // ── Session ────────────────────────────────────────────────────────────────
@@ -212,7 +263,8 @@ fn read_text_file(path: String) -> String {
 
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
-    fs::write(path, content).map_err(|e| e.to_string())
+    fs::write(path, content).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ── System stats ───────────────────────────────────────────────────────────
@@ -793,7 +845,8 @@ fn system_power(action: String) {
 
 #[tauri::command]
 fn save_config(config: String) {
-    cache::save_user_config(&config);
+    let parsed: cache::UserConfig = serde_json::from_str(&config).unwrap_or_default();
+    cache::save_user_config(&parsed);
 }
 
 #[tauri::command]
@@ -886,12 +939,10 @@ fn move_file(src: String, dest: String) -> Result<(), String> {
     Ok(())
 }
 
-// ── Terminal execution ─────────────────────────────────────────────────────
+// ── Terminal execution (simple command) ─────────────────────────────────────
 
 #[tauri::command]
 async fn execute_command(command: String) -> Result<CommandOutput, String> {
-    use tokio::process::Command as TokioCommand;
-
     let output = TokioCommand::new("sh")
     .arg("-c")
     .arg(&command)
@@ -905,10 +956,252 @@ async fn execute_command(command: String) -> Result<CommandOutput, String> {
     })
 }
 
+// ── Live terminal (bash process) ───────────────────────────────────────────
+
+#[tauri::command]
+async fn spawn_terminal(window: Window, window_id: String) -> Result<bool, String> {
+    let mut child = TokioCommand::new("bash")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .map_err(|e| e.to_string())?;
+
+    let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
+    let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to open stderr")?;
+
+    let window_clone = window.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = window_clone.emit("terminal-output", serde_json::json!({
+                "type": "stdout",
+                "data": line
+            }));
+        }
+    });
+
+    let window_clone = window.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = window_clone.emit("terminal-output", serde_json::json!({
+                "type": "stderr",
+                "data": line
+            }));
+        }
+    });
+
+    TERMINALS.lock().await.insert(window_id, TerminalProcess { stdin });
+    Ok(true)
+}
+
+#[tauri::command]
+async fn write_to_terminal(window_id: String, command: String) -> Result<(), String> {
+    let mut terminals = TERMINALS.lock().await;
+    if let Some(term) = terminals.get_mut(&window_id) {
+        let cmd = command + "\n";
+        term.stdin.write_all(cmd.as_bytes()).await.map_err(|e| e.to_string())?;
+        term.stdin.flush().await.map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Terminal not found".to_string())
+    }
+}
+
+// ── Desktop path detection ─────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_default_desktop_path() -> String {
+    if let Ok(output) = Command::new("xdg-user-dir").arg("DESKTOP").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let desktop = home.join("Desktop");
+    if desktop.exists() {
+        return desktop.to_string_lossy().to_string();
+    }
+    let pulpit = home.join("Pulpit");
+    if pulpit.exists() {
+        return pulpit.to_string_lossy().to_string();
+    }
+    "HOME/Desktop".to_string()
+}
+
+#[tauri::command]
+fn create_text_file(path: String, name: String, content: String) -> Result<(), String> {
+    let full_path = PathBuf::from(path).join(name);
+    fs::write(full_path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Clipboard history ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_clipboard_history() -> Vec<ClipboardItem> {
+    let path = clipboard_history_path();
+    fs::read_to_string(&path)
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+fn add_to_clipboard_history(content: String) {
+    let path = clipboard_history_path();
+    let mut history: Vec<ClipboardItem> = get_clipboard_history();
+    let new_item = ClipboardItem {
+        id: chrono::Utc::now().timestamp_millis().to_string(),
+        content,
+        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+    };
+    history.insert(0, new_item);
+    history.truncate(50);
+    let _ = fs::write(path, serde_json::to_string(&history).unwrap());
+}
+
+#[tauri::command]
+fn clear_clipboard_history() {
+    let path = clipboard_history_path();
+    let _ = fs::write(path, "[]");
+}
+
+// ── Night Light ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn set_night_light_enabled(enabled: bool) -> Result<(), String> {
+    let session = session::detect_session();
+    match session {
+        session::SessionType::WaylandClient => {
+            if enabled {
+                Command::new("wlr-randr")
+                .arg("--output")
+                .arg("eDP-1")
+                .arg("--gamma")
+                .arg("1.0:0.8:0.6")
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            } else {
+                Command::new("wlr-randr")
+                .arg("--output")
+                .arg("eDP-1")
+                .arg("--gamma")
+                .arg("1.0:1.0:1.0")
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        session::SessionType::X11Client => {
+            let temp = if enabled { 4000 } else { 6500 };
+            let factor = temp as f32 / 6500.0;
+            let r = 1.0;
+            let g = factor * 0.8;
+            let b = factor * 0.6;
+            Command::new("xrandr")
+            .args(["--output", "eDP-1", "--gamma", &format!("{:.2}:{:.2}:{:.2}", r, g, b)])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        }
+        _ => return Err("No display server".to_string()),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_night_light_temperature(temperature: u32) -> Result<(), String> {
+    let session = session::detect_session();
+    let factor = temperature as f32 / 6500.0;
+    let r = 1.0;
+    let g = factor * 0.8;
+    let b = factor * 0.6;
+    match session {
+        session::SessionType::WaylandClient => {
+            Command::new("wlr-randr")
+            .arg("--output")
+            .arg("eDP-1")
+            .arg("--gamma")
+            .arg(format!("{:.2}:{:.2}:{:.2}", r, g, b))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        }
+        session::SessionType::X11Client => {
+            Command::new("xrandr")
+            .args(["--output", "eDP-1", "--gamma", &format!("{:.2}:{:.2}:{:.2}", r, g, b)])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        }
+        _ => return Err("No display server".to_string()),
+    }
+    Ok(())
+}
+
+// ── Notifications ────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_notification_history() -> Vec<Notification> {
+    let path = notifications_path();
+    fs::read_to_string(&path)
+    .ok()
+    .and_then(|s| serde_json::from_str(&s).ok())
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_notification_history(notifications: Vec<Notification>) {
+    let path = notifications_path();
+    let _ = fs::write(path, serde_json::to_string(&notifications).unwrap());
+}
+
+// ── Custom themes ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_custom_themes() -> Vec<cache::ThemeDefinition> {
+    // Mock implementation – można rozwinąć
+    vec![]
+}
+
+#[tauri::command]
+fn save_custom_theme(theme: cache::ThemeDefinition) {
+    // Save custom theme
+    println!("Saving theme: {:?}", theme);
+    // Tutaj rzeczywista implementacja zapisu do pliku
+}
+
+#[tauri::command]
+fn delete_custom_theme(_theme_id: String) {
+    // Delete custom theme
+    println!("Deleting theme: {}", _theme_id);
+    // Tutaj rzeczywista implementacja usuwania
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn set_panel_enabled(enabled: bool) -> Result<(), String> {
+    println!("Panel enabled: {}", enabled);
+    // W przyszłości można uruchamiać/zatrzymywać proces panelu
+    Ok(())
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 fn main() {
     cache::ensure_dirs();
+
+    // Wczytaj konfigurację i uruchom panel jeśli włączony
+    let config = cache::load_user_config();
+    let config_parsed: cache::UserConfig = serde_json::from_str(&config).unwrap_or_default();
+    if config_parsed.panel_enabled {
+        start_panel();
+    }
 
     tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
@@ -971,7 +1264,43 @@ fn main() {
         move_file,
         // Terminal execution
         execute_command,
+        spawn_terminal,
+        write_to_terminal,
+        // Desktop path
+        get_default_desktop_path,
+        create_text_file,
+        // Clipboard history
+        get_clipboard_history,
+        add_to_clipboard_history,
+        clear_clipboard_history,
+        // Night Light
+        set_night_light_enabled,
+        set_night_light_temperature,
+        // Notifications
+        get_notification_history,
+        save_notification_history,
+        // Custom themes
+        get_custom_themes,
+        save_custom_theme,
+        delete_custom_theme,
+        // Panel
+        set_panel_enabled,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Blue Environment");
+}
+
+fn start_panel() {
+    // Spawn the blue-panel binary
+    let panel_path = std::env::current_exe()
+    .unwrap()
+    .parent()
+    .unwrap()
+    .join("blue-panel");
+    if panel_path.exists() {
+        let _ = Command::new(panel_path).spawn();
+        println!("Panel started");
+    } else {
+        eprintln!("Panel binary not found at {:?}", panel_path);
+    }
 }
