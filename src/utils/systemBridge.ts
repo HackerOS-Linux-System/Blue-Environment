@@ -1,4 +1,4 @@
-import { DesktopEntry, UserConfig, PowerProfile, ThemeDefinition } from '../types';
+import { DesktopEntry, UserConfig, PowerProfile, ThemeDefinition, Notification } from '../types';
 
 // @ts-ignore
 const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
@@ -260,14 +260,20 @@ export const SystemBridge = {
     // ── Wallpapers & config ───────────────────────────────────────────────
 
     getWallpapers: async (): Promise<string[]> => {
-        if (isTauri) return await invoke('get_wallpapers') ?? [];
+        if (isTauri) {
+            const wps = await invoke('get_wallpapers') ?? [];
+            return wps.map((wp: string) => wp.startsWith('file://') ? wp : `file://${wp}`);
+        }
         return ['file:///usr/share/wallpapers/default.png'];
     },
 
     getWallpaperPreview: async (path: string): Promise<string | null> => {
+        const cleanPath = path.replace(/^file:\/\//, '');
         if (isTauri) {
             try {
-                return await invoke('get_wallpaper_preview', { path });
+                const data = await invoke('get_wallpaper_preview', { path: cleanPath });
+                if (data && typeof data === 'string') return data;
+                return null;
             } catch (e) {
                 console.error('Błąd pobierania podglądu tapety:', e);
                 return null;
@@ -308,6 +314,24 @@ export const SystemBridge = {
             themeName: 'blue-default',
             accentColor: 'blue',
             displayScale: 1,
+            desktopPath: 'HOME/Desktop',
+            panelEnabled: true,
+            panelPosition: 'bottom',
+            panelSize: 40,
+            panelOpacity: 0.9,
+            language: 'en',
+            nightLightEnabled: false,
+            nightLightTemperature: 4000,
+            nightLightSchedule: 'manual',
+            nightLightStartHour: 20,
+            nightLightEndHour: 6,
+            appsEnabled: {
+                blueAI: true,
+                blueCode: true,
+                blueSoftware: true,
+                mail: true,
+            },
+            accounts: {},
         };
     },
 
@@ -361,37 +385,104 @@ export const SystemBridge = {
         await this.copyText('');
     },
 
-    // ── Nowe metody dla motywów, profili zasilania itp. ───────────────────
-
-    getCustomThemes: async (): Promise<ThemeDefinition[]> => {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                resolve([
-                    {
-                        id: 'my-dark-theme',
-                        name: 'Mój Ciemny Motyw',
-                        type: 'custom',
-                        css: ':root { --bg-primary: #1a1a1a; --bg-secondary: #2a2a2a; --text-primary: #ffffff; --accent: #ff6600; }',
-                        colors: { primary: '#1a1a1a', secondary: '#2a2a2a', text: '#ffffff', accent: '#ff6600' }
-                    }
-                ]);
-            }, 500);
-        });
-    },
-
-    saveCustomTheme: async (theme: ThemeDefinition): Promise<void> => {
-        console.log('Zapisywanie motywu:', theme);
-    },
-
-    deleteCustomTheme: async (themeId: string): Promise<void> => {
-        console.log('Usuwanie motywu:', themeId);
-    },
-
-    getPowerProfiles: async (): Promise<PowerProfile[]> => {
+    // ── Clipboard history ───────────────────────────────────────────────────
+    async getClipboardHistory(): Promise<{ id: string; content: string; timestamp: number }[]> {
         if (isTauri) {
-            try {
-                return await invoke('get_power_profiles');
-            } catch { return []; }
+            return await invoke('get_clipboard_history') ?? [];
+        }
+        const hist = localStorage.getItem('clipboard_history');
+        return hist ? JSON.parse(hist) : [];
+    },
+
+    async addToClipboardHistory(content: string): Promise<void> {
+        if (isTauri) {
+            await invoke('add_to_clipboard_history', { content });
+        } else {
+            const hist = await this.getClipboardHistory();
+            const newItem = { id: Date.now().toString(), content, timestamp: Date.now() };
+            const updated = [newItem, ...hist].slice(0, 50);
+            localStorage.setItem('clipboard_history', JSON.stringify(updated));
+        }
+    },
+
+    async clearClipboardHistory(): Promise<void> {
+        if (isTauri) {
+            await invoke('clear_clipboard_history');
+        } else {
+            localStorage.removeItem('clipboard_history');
+        }
+    },
+
+    // ── Night Light ────────────────────────────────────────────────────────
+    async setNightLightEnabled(enabled: boolean): Promise<void> {
+        if (isTauri) {
+            await invoke('set_night_light_enabled', { enabled });
+        } else {
+            console.log(`[Mock] setNightLightEnabled: ${enabled}`);
+        }
+    },
+
+    async setNightLightTemperature(temperature: number): Promise<void> {
+        if (isTauri) {
+            await invoke('set_night_light_temperature', { temperature });
+        } else {
+            console.log(`[Mock] setNightLightTemperature: ${temperature}`);
+        }
+    },
+
+    // ── Notifications ──────────────────────────────────────────────────────
+    async getNotificationHistory(): Promise<Notification[]> {
+        if (isTauri) {
+            return await invoke('get_notification_history') ?? [];
+        }
+        const hist = localStorage.getItem('notification_history');
+        return hist ? JSON.parse(hist) : [];
+    },
+
+    async saveNotificationHistory(notifications: Notification[]): Promise<void> {
+        if (isTauri) {
+            await invoke('save_notification_history', { notifications });
+        } else {
+            localStorage.setItem('notification_history', JSON.stringify(notifications));
+        }
+    },
+
+    // ── Custom themes ─────────────────────────────────────────────────────
+    async getCustomThemes(): Promise<ThemeDefinition[]> {
+        if (isTauri) {
+            return await invoke('get_custom_themes') ?? [];
+        }
+        return [
+            {
+                id: 'my-dark-theme',
+                name: 'Mój Ciemny Motyw',
+                type: 'custom',
+                css: ':root { --bg-primary: #1a1a1a; --bg-secondary: #2a2a2a; --text-primary: #ffffff; --accent: #ff6600; }',
+                colors: { primary: '#1a1a1a', secondary: '#2a2a2a', text: '#ffffff', accent: '#ff6600' }
+            }
+        ];
+    },
+
+    async saveCustomTheme(theme: ThemeDefinition): Promise<void> {
+        if (isTauri) {
+            await invoke('save_custom_theme', { theme });
+        } else {
+            console.log('[Mock] Zapisywanie motywu:', theme);
+        }
+    },
+
+    async deleteCustomTheme(themeId: string): Promise<void> {
+        if (isTauri) {
+            await invoke('delete_custom_theme', { themeId });
+        } else {
+            console.log('[Mock] Usuwanie motywu:', themeId);
+        }
+    },
+
+    // ── Power profiles ────────────────────────────────────────────────────
+    async getPowerProfiles(): Promise<PowerProfile[]> {
+        if (isTauri) {
+            return await invoke('get_power_profiles') ?? [];
         }
         return [
             { name: 'power-saver', active: false, icon: 'Battery', description: 'Oszczędzanie energii' },
@@ -400,7 +491,7 @@ export const SystemBridge = {
         ];
     },
 
-    setPowerProfile: async (profile: string): Promise<void> => {
+    async setPowerProfile(profile: string): Promise<void> {
         if (isTauri) {
             await invoke('set_power_profile', { profile });
         } else {
@@ -408,8 +499,7 @@ export const SystemBridge = {
         }
     },
 
-    // ── File operations for Explorer ─────────────────────────────────────
-
+    // ── File operations for Explorer & Blue Code ───────────────────────────
     readFileAsDataURL: async (path: string): Promise<string> => {
         if (isTauri) {
             try {
@@ -454,8 +544,7 @@ export const SystemBridge = {
         }
     },
 
-    // ── Terminal execution ───────────────────────────────────────────────
-
+    // ── Terminal execution (simple command) ───────────────────────────────
     async executeCommand(command: string): Promise<{ stdout: string; stderr: string }> {
         if (isTauri) {
             try {
@@ -470,8 +559,75 @@ export const SystemBridge = {
         }
     },
 
-    // ── Integracja z Google ─────────────────────────────────────────────
+    // ── Terminal (live process) ───────────────────────────────────────────
+    async spawnTerminal(windowId: string): Promise<{ success: boolean; error?: string }> {
+        if (isTauri) {
+            try {
+                return await invoke('spawn_terminal', { windowId });
+            } catch (e) {
+                return { success: false, error: String(e) };
+            }
+        }
+        return { success: false, error: 'Tylko w środowisku Tauri' };
+    },
 
+    async writeToTerminal(command: string): Promise<{ error?: string }> {
+        if (isTauri) {
+            try {
+                return await invoke('write_to_terminal', { command });
+            } catch (e) {
+                return { error: String(e) };
+            }
+        }
+        return { error: 'Tylko w środowisku Tauri' };
+    },
+
+    // ── Desktop path detection ────────────────────────────────────────────
+    async getDefaultDesktopPath(): Promise<string> {
+        if (isTauri) {
+            try {
+                return await invoke('get_default_desktop_path');
+            } catch (e) {
+                console.error('Błąd pobierania ścieżki pulpitu:', e);
+            }
+        }
+        return 'HOME/Desktop';
+    },
+
+    async createTextFile(path: string, name: string, content: string = ''): Promise<void> {
+        if (isTauri) {
+            await invoke('create_text_file', { path, name, content });
+        } else {
+            console.log('[Mock] Tworzenie pliku:', path, name);
+        }
+    },
+
+    // ── Git integration ───────────────────────────────────────────────────
+    async gitStatus(path: string): Promise<string[]> {
+        if (isTauri) {
+            try {
+                return await invoke('git_status', { path }) ?? [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    },
+
+    // ── Language Server Protocol (LSP) ─────────────────────────────────────
+    // Uruchom serwer języka dla danego języka (np. typescript-language-server)
+    async startLanguageServer(language: string, rootPath: string): Promise<{ success: boolean; error?: string }> {
+        if (isTauri) {
+            try {
+                return await invoke('start_language_server', { language, rootPath });
+            } catch (e) {
+                return { success: false, error: String(e) };
+            }
+        }
+        return { success: false, error: 'Tylko w środowisku Tauri' };
+    },
+
+    // ── Integracja z Google ─────────────────────────────────────────────
     googleSignIn: async (): Promise<{ accessToken: string; user: any } | null> => {
         return new Promise(resolve => {
             setTimeout(() => {
@@ -485,5 +641,44 @@ export const SystemBridge = {
 
     googleSignOut: async (): Promise<void> => {
         console.log('Wylogowano z Google');
+    },
+
+    // ── AI configuration (encrypted storage) ────────────────────────────────
+    async getAIConfig(): Promise<{ service: string; user: any; token?: string } | null> {
+        if (isTauri) {
+            try {
+                return await invoke('get_ai_config');
+            } catch {
+                return null;
+            }
+        }
+        const stored = localStorage.getItem('ai_config');
+        return stored ? JSON.parse(stored) : null;
+    },
+
+    async saveAIConfig(config: any): Promise<void> {
+        if (isTauri) {
+            await invoke('save_ai_config', { config });
+        } else {
+            localStorage.setItem('ai_config', JSON.stringify(config));
+        }
+    },
+
+    async aiLogin(service: string): Promise<{ user: any; token?: string } | null> {
+        // W produkcyjnej wersji otwórz okno przeglądarki i wykonaj OAuth
+        // Dla mocka zwracamy przykładowe dane
+        return {
+            user: { name: `Test ${service} User`, email: `test@${service}.com` },
+            token: `mock-token-${service}`
+        };
+    },
+
+    // ── Panel ─────────────────────────────────────────────────────────────
+    async setPanelEnabled(enabled: boolean): Promise<void> {
+        if (isTauri) {
+            await invoke('set_panel_enabled', { enabled });
+        } else {
+            console.log(`[Mock] setPanelEnabled: ${enabled}`);
+        }
     },
 };
