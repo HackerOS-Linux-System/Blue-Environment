@@ -1,19 +1,17 @@
-// src-tauri/src/apps.rs
-// Scans .desktop files, filters GUI-only apps, caches results
-
 use crate::cache::{self, CachedApp};
 use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-/// Categories that indicate a GUI application
+/// Categories that indicate a GUI application – rozszerzona lista
 const GUI_CATEGORIES: &[&str] = &[
     "AudioVideo", "Audio", "Video", "Development", "Education",
 "Game", "Graphics", "Network", "Office", "Science",
 "Settings", "System", "Utility", "WebBrowser", "FileManager",
 "TextEditor", "IDE", "Calendar", "ContactsManager",
-"InstantMessaging", "VideoConference",
+"InstantMessaging", "VideoConference", "Calculator", "TerminalEmulator",
+"Shell", "ConsoleOnly", // dopuszczamy też terminale
 ];
 
 /// Exec flags to strip from exec strings
@@ -24,23 +22,22 @@ fn is_gui_app(content: &str) -> bool {
     if content.lines().any(|l| l.trim() == "NoDisplay=true") {
         return false;
     }
-    // Skip terminal apps (CLI only)
-    if content.lines().any(|l| l.trim() == "Terminal=true") {
-        return false;
-    }
     // Skip entries without a proper name section
     if !content.contains("[Desktop Entry]") {
         return false;
     }
-    // Must have at least one GUI category OR an Icon (heuristic)
+    // Must have at least one GUI category OR an Icon (heuristic) OR be a terminal emulator
     let has_gui_category = GUI_CATEGORIES.iter().any(|cat| {
         content.lines().any(|l| {
             l.starts_with("Categories=") && l.contains(cat)
         })
     });
     let has_icon = content.lines().any(|l| l.starts_with("Icon="));
+    let is_terminal = content.lines().any(|l| l.contains("Terminal=true") && l.contains("Categories=System;TerminalEmulator;"));
+    // Dodatkowo: jeśli Exec wskazuje na znaną aplikację terminalową
+    let is_known_terminal = content.lines().any(|l| l.starts_with("Exec=") && (l.contains("gnome-terminal") || l.contains("konsole") || l.contains("xterm") || l.contains("alacritty") || l.contains("kitty")));
 
-    has_gui_category || has_icon
+    has_gui_category || has_icon || is_terminal || is_known_terminal
 }
 
 fn find_icon_path(icon_name: &str) -> String {
@@ -76,7 +73,6 @@ pub fn scan_desktop_apps(force_refresh: bool) -> Vec<CachedApp> {
     // Return cached version if available and not forcing refresh
     if !force_refresh {
         if let Some(cached) = cache::load_app_cache() {
-            // Also include external apps from ~/.hackeros
             let mut all = cached;
             all.extend(cache::list_external_apps());
             return all;
