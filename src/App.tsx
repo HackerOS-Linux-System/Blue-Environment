@@ -5,25 +5,27 @@ import { configStore } from './utils/configStore';
 import { useWindowManager } from './hooks/useWindowManager';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { SystemBridge } from './utils/systemBridge';
+import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import Window from './components/Window';
 import TopBar from './components/TopBar';
 import StartMenu from './components/StartMenu';
 import ControlCenter from './components/ControlCenter';
-import NotificationPanel from './components/NotificationPanel';
+import NotificationCenter from './components/NotificationCenter';
 import WindowSwitcher from './components/WindowSwitcher';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import ClipboardPanel from './components/ClipboardPanel';
-import { FileText, Folder, Trash2, Monitor, Smartphone, Globe } from 'lucide-react';
+import ToastContainer from './components/ToastContainer';
+import { FileText, Folder, Trash2, Globe, Image, File, Music, Video, Archive } from 'lucide-react';
 
 interface DesktopItem {
     id: string;
     name: string;
     type: 'file' | 'folder' | 'app';
+    path: string;
     x: number;
     y: number;
     icon?: React.ComponentType<any>;
     appId?: string;
-    path?: string;
 }
 
 interface ContextMenuState {
@@ -40,10 +42,26 @@ function getExternalAppExec(appId: string): string {
     return `${home}/.hackeros/Blue-Environment/apps/${app.externalPath}/${app.externalPath}`;
 }
 
-export default function App() {
+function getIconForFile(name: string, isDir: boolean, mimeType?: string): React.ComponentType<any> {
+    if (isDir) return Folder;
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (mimeType?.startsWith('image/') || ['png','jpg','jpeg','gif','svg'].includes(ext || '')) return Image;
+    if (mimeType?.startsWith('audio/') || ['mp3','wav','ogg','flac'].includes(ext || '')) return Music;
+    if (mimeType?.startsWith('video/') || ['mp4','mkv','avi','mov'].includes(ext || '')) return Video;
+    if (['zip','tar','gz','7z','rar'].includes(ext || '')) return Archive;
+    return FileText;
+}
+
+const AppContent: React.FC = () => {
+    const { t } = useLanguage();
     const [userConfig, setUserConfig] = useState<UserConfig | null>(null);
     const [sessionType, setSessionType] = useState<string>('unknown');
     const [wallpaperData, setWallpaperData] = useState<string>('');
+    const [desktopItems, setDesktopItems] = useState<DesktopItem[]>([]);
+    const [selectedItems, setSelectedItems] = useState<string[]>([]);
+    const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
+    const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 });
+    const desktopRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         configStore.init().then(setUserConfig);
@@ -53,26 +71,31 @@ export default function App() {
 
     useEffect(() => {
         if (userConfig?.wallpaper) {
-            if (userConfig.wallpaper.startsWith('file://')) {
-                SystemBridge.getWallpaperPreview(userConfig.wallpaper).then(data => {
-                    if (data) setWallpaperData(data);
-                });
-            } else {
-                setWallpaperData(userConfig.wallpaper);
-            }
+            const loadWallpaper = async () => {
+                try {
+                    if (userConfig.wallpaper.startsWith('file://')) {
+                        const data = await SystemBridge.getWallpaperPreview(userConfig.wallpaper);
+                        if (data) setWallpaperData(data);
+                    } else {
+                        setWallpaperData(userConfig.wallpaper);
+                    }
+                } catch (error) {
+                    console.error('Failed to load wallpaper:', error);
+                }
+            };
+            loadWallpaper();
         }
     }, [userConfig?.wallpaper]);
 
     const wm = useWindowManager();
 
-    // --- Panels state ---
+    // ── Panels state ─────────────────────────────────────────────────────
     const [isStartMenuOpen, setIsStartMenuOpen] = useState(false);
     const [isFullScreenStartOpen, setIsFullScreenStartOpen] = useState(false);
     const [isControlCenterOpen, setIsControlCenterOpen] = useState(false);
     const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
     const [isClipboardOpen, setIsClipboardOpen] = useState(false);
 
-    // closeAllPanels musi być zadeklarowana przed useEffect, który jej używa
     const closeAllPanels = useCallback(() => {
         setIsStartMenuOpen(false);
         setIsFullScreenStartOpen(false);
@@ -81,6 +104,28 @@ export default function App() {
         setIsClipboardOpen(false);
     }, []);
 
+    // ── Load desktop items ───────────────────────────────────────────────
+    useEffect(() => {
+        if (userConfig?.desktopPath) {
+            loadDesktopItems(userConfig.desktopPath);
+        }
+    }, [userConfig?.desktopPath]);
+
+    const loadDesktopItems = async (path: string) => {
+        const files = await SystemBridge.getFiles(path);
+        const items: DesktopItem[] = files.map((file, index) => ({
+            id: file.path,
+            name: file.name,
+            type: file.is_dir ? 'folder' : 'file',
+            path: file.path,
+            x: 20 + (index % 5) * 100,
+                                                                 y: 60 + Math.floor(index / 5) * 100,
+                                                                 icon: getIconForFile(file.name, file.is_dir, file.mime_type),
+        }));
+        setDesktopItems(items);
+    };
+
+    // ── Keyboard shortcuts ───────────────────────────────────────────────
     useEffect(() => {
         const handlePrintScreen = (e: KeyboardEvent) => {
             if (e.key === 'PrintScreen') {
@@ -104,9 +149,9 @@ export default function App() {
             window.removeEventListener('blue:close-panels', closePanels);
             window.removeEventListener('blue:toggle-clipboard', toggleClipboard);
         };
-    }, [wm.openApp, closeAllPanels]); // closeAllPanels jest już zdefiniowane
+    }, [wm.openApp, closeAllPanels]);
 
-    // --- Alt+Tab switcher ---
+    // ── Alt+Tab switcher ─────────────────────────────────────────────────
     const [isSwitcherVisible, setIsSwitcherVisible] = useState(false);
     const [switcherSelectedIndex, setSwitcherSelectedIndex] = useState(0);
 
@@ -129,7 +174,7 @@ export default function App() {
                              setSwitcherIndex: setSwitcherSelectedIndex,
     });
 
-    // --- Open app ---
+    // ── Open app ─────────────────────────────────────────────────────────
     const handleOpenApp = useCallback((appId: string, isExternal = false, exec?: string) => {
         closeAllPanels();
 
@@ -154,17 +199,7 @@ export default function App() {
         }
     }, [wm.openApp, closeAllPanels]);
 
-    // --- Desktop items ---
-    const [desktopItems, setDesktopItems] = useState<DesktopItem[]>([
-        { id: 'trash', name: 'Trash', type: 'folder', x: 20, y: 60, icon: Trash2 },
-        { id: 'home', name: 'Home', type: 'folder', x: 20, y: 140, icon: Folder },
-        { id: 'app-web', name: 'Blue Web', type: 'app', x: 20, y: 220, appId: AppId.BLUE_WEB, icon: Globe },
-    ]);
-    const [selectedItems, setSelectedItems] = useState<string[]>([]);
-    const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
-    const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 });
-    const desktopRef = useRef<HTMLDivElement>(null);
-
+    // ── Desktop interactions ─────────────────────────────────────────────
     const handleDesktopMouseDown = useCallback((e: React.MouseEvent) => {
         if (e.target === desktopRef.current) {
             setSelectionBox({ start: { x: e.clientX, y: e.clientY }, end: { x: e.clientX, y: e.clientY } });
@@ -175,7 +210,9 @@ export default function App() {
     }, [closeAllPanels]);
 
     const handleDesktopMouseMove = useCallback((e: React.MouseEvent) => {
-        if (selectionBox) setSelectionBox(prev => prev ? { ...prev, end: { x: e.clientX, y: e.clientY } } : null);
+        if (selectionBox) {
+            setSelectionBox(prev => prev ? { ...prev, end: { x: e.clientX, y: e.clientY } } : null);
+        }
     }, [selectionBox]);
 
     const handleDesktopMouseUp = useCallback(() => {
@@ -192,6 +229,30 @@ export default function App() {
         }
         setSelectionBox(null);
     }, [selectionBox, desktopItems]);
+
+    const handleDesktopItemDoubleClick = (item: DesktopItem) => {
+        if (item.type === 'folder') {
+            wm.openApp(AppId.EXPLORER, false, item.path);
+        } else {
+            SystemBridge.launchApp(`xdg-open "${item.path}"`);
+        }
+    };
+
+    const createNewFolder = async () => {
+        const name = prompt(t('startmenu.new_folder') || 'Nazwa nowego folderu:');
+        if (!name || !userConfig?.desktopPath) return;
+        await SystemBridge.createFolder(userConfig.desktopPath, name);
+        loadDesktopItems(userConfig.desktopPath);
+        setContextMenu(c => ({ ...c, visible: false }));
+    };
+
+    const createNewTextFile = async () => {
+        const name = prompt(t('startmenu.new_text_file') || 'Nazwa nowego pliku (np. notatka.txt):');
+        if (!name || !userConfig?.desktopPath) return;
+        await SystemBridge.createTextFile(userConfig.desktopPath, name, '');
+        loadDesktopItems(userConfig.desktopPath);
+        setContextMenu(c => ({ ...c, visible: false }));
+    };
 
     const workspaceWindowCounts = Array.from({ length: wm.workspaceCount }, (_, i) =>
     wm.windows.filter(w => w.workspace === i && !w.isMinimized).length
@@ -219,14 +280,31 @@ export default function App() {
         <WindowSwitcher windows={wm.windows} selectedIndex={switcherSelectedIndex} isVisible={isSwitcherVisible} />
         <WorkspaceSwitcher currentWorkspace={wm.currentWorkspace} workspaceCount={wm.workspaceCount} windowCounts={workspaceWindowCounts} />
 
+        {/* Desktop icons */}
         {desktopItems.map(item => (
             <div
             key={item.id}
-            className={`absolute flex flex-col items-center gap-1 p-2 w-24 rounded-lg border border-transparent transition-all hover:bg-white/10 ${selectedItems.includes(item.id) ? 'bg-blue-600/30 border-blue-500/50' : ''}`}
+            className={`absolute flex flex-col items-center gap-1 p-2 w-24 rounded-lg border border-transparent transition-all hover:bg-white/10 ${
+                selectedItems.includes(item.id) ? 'bg-blue-600/30 border-blue-500/50' : ''
+            }`}
             style={{ left: item.x, top: item.y }}
-            onMouseDown={e => { e.stopPropagation(); if (e.ctrlKey) setSelectedItems(prev => prev.includes(item.id) ? prev.filter(i => i !== item.id) : [...prev, item.id]); else setSelectedItems([item.id]); }}
-            onDoubleClick={() => { if (item.type === 'app' && item.appId) handleOpenApp(item.appId); else if (item.type === 'folder') handleOpenApp(AppId.EXPLORER); }}
-            onContextMenu={e => { e.stopPropagation(); setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetId: item.id }); }}
+            onMouseDown={e => {
+                e.stopPropagation();
+                if (e.ctrlKey) {
+                    setSelectedItems(prev =>
+                    prev.includes(item.id)
+                    ? prev.filter(i => i !== item.id)
+                    : [...prev, item.id]
+                    );
+                } else {
+                    setSelectedItems([item.id]);
+                }
+            }}
+            onDoubleClick={() => handleDesktopItemDoubleClick(item)}
+            onContextMenu={e => {
+                e.stopPropagation();
+                setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetId: item.id });
+            }}
             >
             <div className="w-12 h-12 flex items-center justify-center text-white drop-shadow-md">
             {item.icon ? <item.icon size={40} /> : <FileText size={40} />}
@@ -237,6 +315,7 @@ export default function App() {
             </div>
         ))}
 
+        {/* Selection box */}
         {selectionBox && (
             <div className="absolute bg-blue-500/20 border border-blue-400/60 z-10 pointer-events-none"
             style={{
@@ -248,24 +327,44 @@ export default function App() {
             />
         )}
 
+        {/* Context menu */}
         {contextMenu.visible && (
             <div
             className="absolute w-48 theme-bg-secondary/95 backdrop-blur-xl theme-border border rounded-xl shadow-2xl z-50 flex flex-col py-1"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onMouseDown={e => e.stopPropagation()}
             >
-            <button onClick={() => { handleOpenSettings('personalization'); setContextMenu(c => ({ ...c, visible: false })); }}
-            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left">Personalizacja</button>
-            <button onClick={() => { handleOpenApp(AppId.TERMINAL); setContextMenu(c => ({ ...c, visible: false })); }}
-            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left">Otwórz terminal</button>
+            <button
+            onClick={() => { handleOpenSettings('personalization'); setContextMenu(c => ({ ...c, visible: false })); }}
+            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left"
+            >
+            {t('settings.personalization')}
+            </button>
+            <button
+            onClick={() => { handleOpenApp(AppId.TERMINAL); setContextMenu(c => ({ ...c, visible: false })); }}
+            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left"
+            >
+            {t('terminal.title')}
+            </button>
             <div className="h-px bg-white/10 my-1" />
-            <button onClick={() => { setDesktopItems(prev => [...prev, { id: Date.now().toString(), name: 'Nowy folder', type: 'folder', x: contextMenu.x - 20, y: contextMenu.y - 20, icon: Folder }]); setContextMenu(c => ({ ...c, visible: false })); }}
-            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left">Nowy folder</button>
+            <button
+            onClick={createNewFolder}
+            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left"
+            >
+            {t('startmenu.new_folder')}
+            </button>
+            <button
+            onClick={createNewTextFile}
+            className="px-3 py-2 hover:theme-accent hover:text-white text-sm text-left"
+            >
+            {t('startmenu.new_text_file')}
+            </button>
             <div className="h-px bg-white/10 my-1" />
-            <div className="px-3 py-1 text-[10px] text-slate-500">Sesja: {sessionType}</div>
+            <div className="px-3 py-1 text-[10px] text-slate-500">{t('startmenu.session')}: {sessionType}</div>
             </div>
         )}
 
+        {/* Windows */}
         {wm.visibleWindows.map(win => {
             const AppComp = APPS[win.appId as AppId]?.component;
             if (!AppComp) return null;
@@ -286,6 +385,7 @@ export default function App() {
             );
         })}
 
+        {/* Overlays */}
         <div onClick={e => e.stopPropagation()}>
         <StartMenu
         isOpen={isStartMenuOpen || isFullScreenStartOpen}
@@ -298,10 +398,11 @@ export default function App() {
         isOpen={isControlCenterOpen}
         onOpenSettings={handleOpenSettings}
         />
-        <NotificationPanel isOpen={isNotificationCenterOpen} onClose={() => setIsNotificationCenterOpen(false)} />
+        <NotificationCenter isOpen={isNotificationCenterOpen} onClose={() => setIsNotificationCenterOpen(false)} />
         {isClipboardOpen && <ClipboardPanel onClose={() => setIsClipboardOpen(false)} />}
         </div>
 
+        {/* TopBar */}
         <div onClick={e => e.stopPropagation()}>
         <TopBar
         openWindows={wm.windows.map(w => ({ id: w.id, appId: w.appId as AppId, isMinimized: w.isMinimized, isActive: w.id === wm.activeWindowId, workspace: w.workspace ?? 0 }))}
@@ -319,6 +420,17 @@ export default function App() {
         onToggleClipboard={() => setIsClipboardOpen(prev => !prev)}
         />
         </div>
+
+        {/* Toasts */}
+        <ToastContainer />
         </div>
+    );
+};
+
+export default function App() {
+    return (
+        <LanguageProvider>
+        <AppContent />
+        </LanguageProvider>
     );
 }
