@@ -1,8 +1,7 @@
-// src/constants.tsx
-import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, FileText } from 'lucide-react';
+import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, FileText, FileCode, Package, Mail } from 'lucide-react';
 import { AppDefinition, AppId } from './types';
 
-import TerminalApp from './components/apps/TerminalApp';   // nowy import
+import TerminalApp from './components/apps/TerminalApp';
 import BlueAI from './components/apps/BlueAI';
 import ExplorerApp from './components/apps/ExplorerApp';
 import SettingsApp from './components/apps/SettingsApp';
@@ -11,6 +10,9 @@ import BlueWebApp from './components/apps/BlueWebApp';
 import CalculatorApp from './components/apps/CalculatorApp';
 import SystemMonitorApp from './components/apps/SystemMonitorApp';
 import NotepadApp from './components/apps/NotepadApp';
+import BlueCodeApp from './components/apps/BlueCodeApp';
+import BlueSoftwareApp from './components/apps/BlueSoftwareApp';
+import MailApp from './components/apps/MailApp';
 
 export const WALLPAPER_URL = "file:///usr/share/wallpapers/default.png";
 
@@ -26,7 +28,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         id: AppId.TERMINAL,
         title: 'Terminal',
         icon: Terminal,
-        component: TerminalApp,          // teraz wewnętrzny komponent
+        component: TerminalApp,
         defaultWidth: 680,
             defaultHeight: 480,
     },
@@ -67,8 +69,8 @@ export const APPS: Record<AppId, AppDefinition> = {
         title: 'Blue AI',
         icon: Bot,
         component: BlueAI,
-        defaultWidth: 460,
-            defaultHeight: 660,
+        defaultWidth: 500,
+            defaultHeight: 700,
     },
     [AppId.SETTINGS]: {
         id: AppId.SETTINGS,
@@ -85,6 +87,38 @@ export const APPS: Record<AppId, AppDefinition> = {
         component: AboutApp,
         defaultWidth: 420,
             defaultHeight: 360,
+    },
+    [AppId.NOTEPAD]: {
+        id: AppId.NOTEPAD,
+        title: 'Notepad',
+        icon: FileText,
+        component: NotepadApp,
+        defaultWidth: 600,
+            defaultHeight: 400,
+    },
+    [AppId.BLUE_CODE]: {
+        id: AppId.BLUE_CODE,
+        title: 'Blue Code',
+        icon: FileCode,
+        component: BlueCodeApp,
+        defaultWidth: 900,
+            defaultHeight: 700,
+    },
+    [AppId.BLUE_SOFTWARE]: {
+        id: AppId.BLUE_SOFTWARE,
+        title: 'Blue Software',
+        icon: Package,
+        component: BlueSoftwareApp,
+        defaultWidth: 800,
+            defaultHeight: 600,
+    },
+    [AppId.MAIL]: {
+        id: AppId.MAIL,
+        title: 'Mail',
+        icon: Mail,
+        component: MailApp,
+        defaultWidth: 1000,
+            defaultHeight: 700,
     },
     [AppId.EXTERNAL]: {
         id: AppId.EXTERNAL,
@@ -126,13 +160,5 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Monitor,
         isExternal: true,
         externalPath: 'blue-screen',
-    },
-    [AppId.NOTEPAD]: {
-        id: AppId.NOTEPAD,
-        title: 'Notatnik',
-        icon: FileText,
-        component: NotepadApp,
-        defaultWidth: 600,
-            defaultHeight: 400,
     },
 };
