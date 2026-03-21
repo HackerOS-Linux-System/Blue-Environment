@@ -27,6 +27,40 @@ pub fn ensure_dirs() {
     let _ = fs::create_dir_all(apps_dir());
 }
 
+// ── User configuration ─────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct UserConfig {
+    pub wallpaper: String,
+    pub theme: String,
+    pub theme_name: String,
+    pub accent_color: String,
+    pub display_scale: f32,
+    pub desktop_path: String,
+    pub panel_enabled: bool,
+    pub panel_position: String,
+    pub panel_size: u32,
+    pub panel_opacity: f32,
+    pub language: String,
+    pub night_light_enabled: bool,
+    pub night_light_temperature: u32,
+    pub night_light_schedule: String,
+    pub night_light_start_hour: u32,
+    pub night_light_end_hour: u32,
+}
+
+pub fn save_user_config(config: &UserConfig) {
+    let _ = fs::write(
+        config_dir().join("settings.json"),
+                      serde_json::to_string_pretty(config).unwrap(),
+    );
+}
+
+pub fn load_user_config() -> String {
+    fs::read_to_string(config_dir().join("settings.json"))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
 // ── App cache ──────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -52,8 +86,6 @@ pub fn load_app_cache() -> Option<Vec<CachedApp>> {
     let path = cache_dir().join("apps.json");
     let content = fs::read_to_string(&path).ok()?;
     let cache: AppCache = serde_json::from_str(&content).ok()?;
-
-    // Invalidate cache older than 1 hour
     let now = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default()
@@ -82,7 +114,7 @@ pub fn invalidate_app_cache() {
     let _ = fs::remove_file(cache_dir().join("apps.json"));
 }
 
-// ── Window state cache (restore last session) ─────────────────────────────
+// ── Window state cache ────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WindowCache {
@@ -113,7 +145,7 @@ pub fn load_window_state() -> Vec<WindowCache> {
 
 #[derive(Serialize, Deserialize)]
 struct RecentApps {
-    apps: Vec<String>, // app IDs, newest first
+    apps: Vec<String>,
 }
 
 pub fn record_app_launch(app_id: &str) {
@@ -143,55 +175,40 @@ pub fn get_recent_apps() -> Vec<String> {
     .unwrap_or_default()
 }
 
-// ── User config (settings.json) ───────────────────────────────────────────
-
-pub fn save_user_config(config: &str) {
-    let _ = fs::write(config_dir().join("settings.json"), config);
-}
-
-pub fn load_user_config() -> String {
-    fs::read_to_string(config_dir().join("settings.json"))
-    .unwrap_or("{}".to_string())
-}
-
-// ── External app info ─────────────────────────────────────────────────────
-
-pub fn get_app_binary_path(app_name: &str) -> PathBuf {
-    apps_dir().join(app_name).join(app_name)
-}
-
-pub fn get_app_icon_path(app_name: &str) -> PathBuf {
-    apps_dir().join(app_name).join("icon.png")
-}
+// ── External apps ─────────────────────────────────────────────────────────
 
 pub fn list_external_apps() -> Vec<CachedApp> {
     let mut apps = Vec::new();
     let dir = apps_dir();
-    if !dir.exists() { return apps; }
+    if !dir.exists() {
+        return apps;
+    }
 
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let app_dir = entry.path();
-            if !app_dir.is_dir() { continue; }
+            if !app_dir.is_dir() {
+                continue;
+            }
 
             let app_name = entry.file_name().to_string_lossy().to_string();
 
-            // Find binary — first try same name as dir, then any executable file
+            // Find binary
             let binary = find_binary_in_dir(&app_dir, &app_name);
             let binary = match binary {
                 Some(b) => b,
-                None => continue, // No executable found — skip
+                None => continue,
             };
 
-            // Icon is optional — try icon.png, icon.svg, icon.jpg
+            // Icon
             let icon = ["icon.png", "icon.svg", "icon.jpg", "icon.xpm"]
             .iter()
             .map(|name| app_dir.join(name))
             .find(|p| p.exists())
             .map(|p| format!("file://{}", p.to_string_lossy()))
-            .unwrap_or_default(); // Empty string if no icon — frontend shows letter avatar
+            .unwrap_or_default();
 
-            // Human-readable name from dir name
+            // Display name
             let display_name = app_name
             .replace('-', " ")
             .replace('_', " ")
@@ -221,36 +238,34 @@ pub fn list_external_apps() -> Vec<CachedApp> {
     apps
 }
 
-/// Find executable binary in app directory.
-/// Priority: binary with same name as dir > any single executable > first executable found
 fn find_binary_in_dir(dir: &std::path::Path, preferred_name: &str) -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-
-    // 1. Exact name match (most common case)
     let exact = dir.join(preferred_name);
     if exact.exists() && is_executable(&exact) {
         return Some(exact);
     }
 
-    // 2. Scan for any executable file (not a directory, not an icon)
     let skip_extensions = ["png", "svg", "jpg", "xpm", "desktop", "json", "toml", "txt", "md"];
     let mut executables = Vec::new();
 
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() { continue; }
-            let ext = path.extension()
+            if path.is_dir() {
+                continue;
+            }
+            let ext = path
+            .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-            if skip_extensions.contains(&ext.as_str()) { continue; }
+            if skip_extensions.contains(&ext.as_str()) {
+                continue;
+            }
             if is_executable(&path) {
                 executables.push(path);
             }
         }
     }
 
-    // Return first found executable
     executables.into_iter().next()
 }
 
@@ -259,4 +274,23 @@ fn is_executable(path: &std::path::Path) -> bool {
     fs::metadata(path)
     .map(|m| m.permissions().mode() & 0o111 != 0)
     .unwrap_or(false)
+}
+
+// ── Theme definition for custom themes ────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ThemeDefinition {
+    pub id: String,
+    pub name: String,
+    pub r#type: String, // "builtin" or "custom"
+    pub css: Option<String>,
+    pub colors: Option<ThemeColors>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ThemeColors {
+    pub primary: String,
+    pub secondary: String,
+    pub text: String,
+    pub accent: String,
 }
