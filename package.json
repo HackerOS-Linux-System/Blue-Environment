@@ -1,13 +1,13 @@
 {
   "name": "blue-environment",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite --config ./src/vite.config.ts",
-    "build": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp src-tauri/target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor && echo 'Build OK'",
+    "build": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor && echo 'Build OK'",
     "build:compositor": "cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/blue-compositor",
-    "build:shell": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp src-tauri/target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment",
+    "build:shell": "node ./src/generate_icon.js && tsc -p ./src/tsconfig.json && vite build --config ./src/vite.config.ts && tauri build && mkdir -p ~/.hackeros/Blue-Enviroment/ && cp target/release/blue-environment ~/.hackeros/Blue-Enviroment/blue-environment",
     "preview": "vite preview --config ./src/vite.config.ts",
     "tauri": "tauri",
     "lint": "tsc -p ./src/tsconfig.json --noEmit",
@@ -15,10 +15,16 @@
   },
   "dependencies": {
     "@google/genai": "^1.17.0",
+    "@monaco-editor/react": "^4.6.0",
     "@tauri-apps/api": "^1.5.0",
     "lucide-react": "^0.563.0",
+    "monaco-editor": "^0.45.0",
+    "monaco-editor-webpack-plugin": "^7.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-web-links": "^0.9.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.0",
