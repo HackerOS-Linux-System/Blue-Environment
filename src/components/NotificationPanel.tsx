@@ -1,69 +1,64 @@
-import React, { useState, useEffect } from 'react';
-import { X, Bell, Trash2, Check } from 'lucide-react';
-import { notificationManager, Notification } from '../utils/notificationManager';
+import React, { useEffect, useState } from 'react';
+import { X, Cpu, Battery, Wifi } from 'lucide-react';
+import { SystemBridge } from '../utils/systemBridge';
 
-const NotificationCenter: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
+interface NotificationPanelProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+const NotificationPanel: React.FC<NotificationPanelProps> = ({ isOpen, onClose }) => {
+    const [stats, setStats] = useState<any>(null);
 
     useEffect(() => {
-        if (!isOpen) return;
-        return notificationManager.subscribe(setNotifications);
+        if(isOpen) {
+            SystemBridge.getSystemStats().then(setStats);
+        }
     }, [isOpen]);
-
-    const formatTime = (timestamp: number) => {
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString();
-    };
 
     if (!isOpen) return null;
 
     return (
-        <div className="absolute top-14 right-4 bottom-4 w-96 bg-slate-900 border border-white/10 rounded-3xl shadow-2xl z-40 animate-in slide-in-from-right-10 duration-300 flex flex-col overflow-hidden">
+        <div className="absolute top-16 right-4 bottom-4 w-96 bg-slate-900 border border-white/10 rounded-3xl shadow-2xl z-40 animate-in slide-in-from-right-10 duration-300 flex flex-col overflow-hidden">
         <div className="p-5 border-b border-white/5 flex items-center justify-between">
-        <h2 className="font-semibold text-lg text-white flex items-center gap-2">
-        <Bell size={18} /> Powiadomienia
-        </h2>
-        <div className="flex gap-2">
-        <button
-        onClick={() => notificationManager.clearAll()}
-        className="text-slate-400 hover:text-white bg-white/5 p-1 rounded-full"
-        >
-        <Trash2 size={16} />
-        </button>
-        <button onClick={onClose} className="text-slate-400 hover:text-white bg-white/5 p-1 rounded-full">
-        <X size={16} />
-        </button>
+        <h2 className="font-semibold text-lg text-white">System Status</h2>
+        <button onClick={onClose} className="text-slate-400 hover:text-white bg-white/5 p-1 rounded-full"><X size={16} /></button>
         </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {notifications.length === 0 && (
-            <div className="text-center text-slate-500 py-12">Brak powiadomień</div>
-        )}
-        {notifications.map(notif => (
-            <div
-            key={notif.id}
-            className={`bg-slate-800 border-l-4 ${notif.read ? 'border-slate-600' : 'border-blue-500'} rounded-xl p-3`}
-            >
-            <div className="flex items-start justify-between">
-            <div>
-            <div className="font-semibold text-white">{notif.title}</div>
-            <div className="text-sm text-slate-300 mt-1">{notif.message}</div>
-            <div className="text-xs text-slate-500 mt-2">{formatTime(notif.timestamp)}</div>
-            </div>
-            {!notif.read && (
-                <button
-                onClick={() => notificationManager.markAsRead(notif.id)}
-                className="p-1 hover:bg-white/10 rounded"
-                >
-                <Check size={14} />
-                </button>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {stats && (
+            <>
+            {stats.cpu > 80 && (
+                <div className="bg-slate-800 border border-red-500/20 rounded-2xl p-3 flex gap-3">
+                <div className="p-2 rounded-xl bg-red-500/20 text-red-400"><Cpu size={18} /></div>
+                <div>
+                <div className="text-sm font-bold text-white">High CPU Usage</div>
+                <div className="text-xs text-slate-400">Processor load is at {stats.cpu.toFixed(1)}%</div>
+                </div>
+                </div>
             )}
+
+            <div className="bg-slate-800 border border-white/5 rounded-2xl p-3 flex gap-3">
+            <div className="p-2 rounded-xl bg-blue-500/20 text-blue-400"><Wifi size={18} /></div>
+            <div>
+            <div className="text-sm font-bold text-white">Network</div>
+            <div className="text-xs text-slate-400">Connected to {stats.wifi_ssid}</div>
             </div>
             </div>
-        ))}
+
+            <div className="bg-slate-800 border border-white/5 rounded-2xl p-3 flex gap-3">
+            <div className="p-2 rounded-xl bg-green-500/20 text-green-400"><Battery size={18} /></div>
+            <div>
+            <div className="text-sm font-bold text-white">Battery</div>
+            <div className="text-xs text-slate-400">{stats.battery}% remaining</div>
+            </div>
+            </div>
+            </>
+        )}
+        {!stats && <div className="text-center text-slate-500">Loading system stats...</div>}
         </div>
         </div>
     );
 };
 
-export default NotificationCenter;
+export default NotificationPanel;
