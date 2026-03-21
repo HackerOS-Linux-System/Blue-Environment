@@ -12,11 +12,12 @@ use smithay::{
         udev::{primary_gpu, UdevBackend, UdevEvent},
         winit::{self, WinitGraphicsBackend},
     },
+    input::keyboard::XkbConfig,
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
         calloop::timer::{TimeoutAction, Timer},
         drm::control::{connector, Device as DrmControlDevice, ModeTypeFlags},
-        input::Libinput,  // ← używamy reeksportu
+        input::Libinput,
     },
     utils::{DeviceFd, Point, Size, Transform},
 };
@@ -106,7 +107,7 @@ pub fn init_udev(
     })
     .expect("Failed to insert udev source");
 
-    // libinput
+    // libinput – źródło zdarzeń wejścia
     let mut libinput_ctx = Libinput::new_with_udev(LibinputSessionInterface::from(session));
     libinput_ctx.udev_assign_seat(&seat_name).unwrap();
     loop_handle
@@ -114,6 +115,14 @@ pub fn init_udev(
         crate::input::handle_input(state, event);
     })
     .expect("Failed to insert libinput source");
+
+    // Dodanie urządzeń wejścia do Seatu
+    state
+    .seat
+    .add_keyboard(XkbConfig::default(), 600, 25)
+    .expect("Failed to add keyboard");
+    // add_pointer() zwraca PointerHandle, a nie Result – usuwamy .expect()
+    let _ = state.seat.add_pointer();
 
     loop_handle
     .insert_source(Timer::from_duration(Duration::from_millis(16)), |_, _, state| {
@@ -290,6 +299,14 @@ pub fn init_winit(
                                                                    damage_tracker,
     }));
     state.outputs.push(output);
+
+    // Dodanie urządzeń wejścia do Seatu
+    state
+    .seat
+    .add_keyboard(XkbConfig::default(), 600, 25)
+    .expect("Failed to add keyboard");
+    // add_pointer() zwraca PointerHandle, a nie Result – usuwamy .expect()
+    let _ = state.seat.add_pointer();
 
     loop_handle
     .insert_source(events, |event, _, state| {
