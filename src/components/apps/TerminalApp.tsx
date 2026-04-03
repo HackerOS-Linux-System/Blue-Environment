@@ -1,4 +1,3 @@
-// src/components/apps/TerminalApp.tsx
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { AppProps } from '../../types';
 import { SystemBridge } from '../../utils/systemBridge';
