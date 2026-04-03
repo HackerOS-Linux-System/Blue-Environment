@@ -1,4 +1,4 @@
-import { DesktopEntry, UserConfig, PowerProfile, ThemeDefinition, Notification } from '../types';
+import { DesktopEntry, UserConfig, PowerProfile, ThemeDefinition, Notification, PackageInfo, AICallRequest, AIConfig } from '../types';
 
 // @ts-ignore
 const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
@@ -615,7 +615,6 @@ export const SystemBridge = {
     },
 
     // ── Language Server Protocol (LSP) ─────────────────────────────────────
-    // Uruchom serwer języka dla danego języka (np. typescript-language-server)
     async startLanguageServer(language: string, rootPath: string): Promise<{ success: boolean; error?: string }> {
         if (isTauri) {
             try {
@@ -644,7 +643,7 @@ export const SystemBridge = {
     },
 
     // ── AI configuration (encrypted storage) ────────────────────────────────
-    async getAIConfig(): Promise<{ service: string; user: any; token?: string } | null> {
+    async getAIConfig(): Promise<AIConfig | null> {
         if (isTauri) {
             try {
                 return await invoke('get_ai_config');
@@ -656,7 +655,7 @@ export const SystemBridge = {
         return stored ? JSON.parse(stored) : null;
     },
 
-    async saveAIConfig(config: any): Promise<void> {
+    async saveAIConfig(config: AIConfig): Promise<void> {
         if (isTauri) {
             await invoke('save_ai_config', { config });
         } else {
@@ -664,13 +663,159 @@ export const SystemBridge = {
         }
     },
 
-    async aiLogin(service: string): Promise<{ user: any; token?: string } | null> {
-        // W produkcyjnej wersji otwórz okno przeglądarki i wykonaj OAuth
-        // Dla mocka zwracamy przykładowe dane
-        return {
-            user: { name: `Test ${service} User`, email: `test@${service}.com` },
-            token: `mock-token-${service}`
-        };
+    async aiCall(request: AICallRequest): Promise<string> {
+        if (isTauri) {
+            try {
+                return await invoke('ai_call', { request });
+            } catch (e) {
+                console.error('AI call failed', e);
+                throw new Error(`AI call failed: ${e}`);
+            }
+        } else {
+            // Mock – symulacja odpowiedzi
+            console.log(`[Mock] AI call to ${request.service} with model ${request.model}`);
+            const lastMsg = request.messages[request.messages.length - 1]?.content || 'empty';
+            return `[Mock] ${request.service} response: ${lastMsg}`;
+        }
+    },
+
+    // ── Package managers ───────────────────────────────────────────────────
+    async getAptPackages(): Promise<PackageInfo[]> {
+        if (isTauri) {
+            return await invoke('get_apt_packages') ?? [];
+        }
+        // Mock – w trybie deweloperskim zwracamy przykładowe pakiety
+        return [
+            { id: 'firefox', name: 'Firefox', description: 'Web browser', version: '120.0', source: 'apt', installed: false },
+            { id: 'vlc', name: 'VLC', description: 'Media player', version: '3.0.20', source: 'apt', installed: true, updateAvailable: true },
+            { id: 'gimp', name: 'GIMP', description: 'Image editor', version: '2.10.34', source: 'apt', installed: false },
+            { id: 'libreoffice', name: 'LibreOffice', description: 'Office suite', version: '7.5.8', source: 'apt', installed: true },
+        ];
+    },
+
+    async getFlatpakPackages(): Promise<PackageInfo[]> {
+        if (isTauri) {
+            return await invoke('get_flatpak_packages') ?? [];
+        }
+        return [
+            { id: 'org.flatpak.Firefox', name: 'Firefox (Flatpak)', description: 'Web browser (Flatpak)', version: '120.0', source: 'flatpak', installed: false },
+            { id: 'org.gnome.Calculator', name: 'Calculator', description: 'GNOME Calculator', version: '46.0', source: 'flatpak', installed: true },
+        ];
+    },
+
+    async getSnapPackages(): Promise<PackageInfo[]> {
+        if (isTauri) {
+            return await invoke('get_snap_packages') ?? [];
+        }
+        return [
+            { id: 'firefox', name: 'Firefox (Snap)', description: 'Web browser (Snap)', version: '120.0', source: 'snap', installed: true },
+            { id: 'core20', name: 'Core20', description: 'Snap runtime', version: '20240101', source: 'snap', installed: true },
+        ];
+    },
+
+    async getAppImagePackages(): Promise<PackageInfo[]> {
+        if (isTauri) {
+            return await invoke('get_appimage_packages') ?? [];
+        }
+        return [
+            { id: 'obsidian', name: 'Obsidian', description: 'Knowledge base', version: '1.4.16', source: 'appimage', installed: false, icon: '' },
+        ];
+    },
+
+    async installAptPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('install_apt_package', { pkgId });
+        }
+        console.log(`[Mock] Install APT: ${pkgId}`);
+        return true;
+    },
+
+    async removeAptPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('remove_apt_package', { pkgId });
+        }
+        console.log(`[Mock] Remove APT: ${pkgId}`);
+        return true;
+    },
+
+    async updateAptPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('update_apt_package', { pkgId });
+        }
+        console.log(`[Mock] Update APT: ${pkgId}`);
+        return true;
+    },
+
+    async installFlatpakPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('install_flatpak_package', { pkgId });
+        }
+        console.log(`[Mock] Install Flatpak: ${pkgId}`);
+        return true;
+    },
+
+    async removeFlatpakPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('remove_flatpak_package', { pkgId });
+        }
+        console.log(`[Mock] Remove Flatpak: ${pkgId}`);
+        return true;
+    },
+
+    async updateFlatpakPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('update_flatpak_package', { pkgId });
+        }
+        console.log(`[Mock] Update Flatpak: ${pkgId}`);
+        return true;
+    },
+
+    async installSnapPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('install_snap_package', { pkgId });
+        }
+        console.log(`[Mock] Install Snap: ${pkgId}`);
+        return true;
+    },
+
+    async removeSnapPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('remove_snap_package', { pkgId });
+        }
+        console.log(`[Mock] Remove Snap: ${pkgId}`);
+        return true;
+    },
+
+    async updateSnapPackage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('update_snap_package', { pkgId });
+        }
+        console.log(`[Mock] Update Snap: ${pkgId}`);
+        return true;
+    },
+
+    async installAppImage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('install_appimage', { pkgId });
+        }
+        console.log(`[Mock] Install AppImage: ${pkgId}`);
+        return true;
+    },
+
+    async removeAppImage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('remove_appimage', { pkgId });
+        }
+        console.log(`[Mock] Remove AppImage: ${pkgId}`);
+        return true;
+    },
+
+    async updateAppImage(pkgId: string): Promise<boolean> {
+        if (isTauri) {
+            return await invoke('update_appimage', { pkgId });
+        }
+        console.log(`[Mock] Update AppImage: ${pkgId}`);
+        return true;
     },
 
     // ── Panel ─────────────────────────────────────────────────────────────
