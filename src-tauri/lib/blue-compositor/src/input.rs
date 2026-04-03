@@ -22,6 +22,9 @@ use smithay::{
 use crate::state::BlueState;
 
 pub fn handle_input<B: InputBackend>(state: &mut BlueState, event: InputEvent<B>) {
+    // Update idle timer
+    state.record_input();
+
     match event {
         InputEvent::Keyboard { event } => handle_keyboard(state, &event),
         InputEvent::PointerMotion { event } => handle_pointer_motion(state, &event),
@@ -35,6 +38,7 @@ pub fn handle_input<B: InputBackend>(state: &mut BlueState, event: InputEvent<B>
 fn handle_keyboard<B: InputBackend, E: KeyboardKeyEvent<B>>(state: &mut BlueState, event: &E) {
     let serial = SERIAL_COUNTER.next_serial();
     let keyboard = state.seat.get_keyboard().unwrap();
+
     keyboard.input(
         state,
         event.key_code(),
@@ -43,6 +47,73 @@ fn handle_keyboard<B: InputBackend, E: KeyboardKeyEvent<B>>(state: &mut BlueStat
                    event.time_msec(),
                    |state, mods, handle| {
                        let sym = handle.modified_sym();
+
+                       // Alt+Tab
+                       if mods.alt && sym == Keysym::Tab {
+                           if event.state() == KeyState::Pressed {
+                               if !state.show_switcher {
+                                   state.show_switcher = true;
+                                   state.switcher_index = 0; // or current active window index
+                               } else {
+                                   state.cycle_switcher(true);
+                               }
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Alt+Shift+Tab (backwards)
+                       if mods.alt && mods.shift && sym == Keysym::Tab {
+                           if event.state() == KeyState::Pressed && state.show_switcher {
+                               state.cycle_switcher(false);
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Alt release – commit switcher
+                       if sym == Keysym::Alt_L || sym == Keysym::Alt_R {
+                           if event.state() == KeyState::Released && state.show_switcher {
+                               state.apply_switcher_selection();
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Win (Super) key
+                       if sym == Keysym::Super_L || sym == Keysym::Super_R {
+                           if event.state() == KeyState::Pressed {
+                               state.super_pressed = true;
+                               state.super_used = false;
+                           } else {
+                               if state.super_pressed && !state.super_used {
+                                   state.toggle_start_menu();
+                               }
+                               state.super_pressed = false;
+                               state.super_used = false;
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Win+Tab (full‑screen menu)
+                       if mods.logo && sym == Keysym::Tab {
+                           if event.state() == KeyState::Pressed {
+                               state.toggle_fullscreen_menu();
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Win+Win (double press) – handled in frontend, we just emit an event.
+                       // For now, we treat as toggle full‑screen menu.
+                       if state.super_pressed && sym == Keysym::Super_L {
+                           // This is a second press while Super is still held.
+                           // We'll set a flag that will be used on release.
+                           state.super_used = true;
+                           if event.state() == KeyState::Pressed {
+                               state.toggle_fullscreen_menu();
+                           }
+                           return FilterResult::Intercept(());
+                       }
+
+                       // Rest of the keyboard handling (workspace switching, close, etc.)
+                       // Keep original logic unchanged.
                        if mods.logo && event.state() == KeyState::Pressed {
                            let ws = match sym {
                                Keysym::_1 => Some(0usize),
@@ -190,7 +261,7 @@ fn handle_pointer_axis<B: InputBackend, E: PointerAxisEvent<B>>(
     pointer.frame(state);
 }
 
-// ── Move grab ─────────────────────────────────────────────────────────────
+// ── Move grab (unchanged) ─────────────────────────────────────────────────
 
 pub struct MoveGrab {
     pub start_data: PointerGrabStartData<BlueState>,
