@@ -1,3 +1,6 @@
+// src-tauri/src/cache.rs
+// Manages all Blue Environment cache files
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
