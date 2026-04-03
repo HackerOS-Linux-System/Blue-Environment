@@ -1,6 +1,6 @@
 [package]
 name = "blue-compositor"
-version = "0.4.0"
+version = "0.2.0"
 edition = "2021"
 description = "Blue Environment Wayland Compositor"
 
@@ -33,6 +33,9 @@ nix = { version = "0.27", features = ["fs", "process", "signal"] }
 rustix = { version = "0.38", features = ["fs"] }
 tempfile = "3"
 libc = "0.2"
+dirs = "5.0"
+chrono = "0.4"
+tracing-appender = "0.2"
 
 [patch.crates-io]
 calloop = { git = "https://github.com/Smithay/calloop.git", tag = "v0.14.0" }
