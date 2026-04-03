@@ -4,6 +4,7 @@ mod session;
 mod cache;
 mod apps;
 mod window_tracker;
+mod ai;
 
 use std::fs;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use glob::glob;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cache::CachedApp;
-use tokio::process::Command as TokioCommand;
+use tokio::process::{Command as TokioCommand};
 use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tauri::Window;
@@ -1182,6 +1183,117 @@ fn delete_custom_theme(_theme_id: String) {
     // Tutaj rzeczywista implementacja usuwania
 }
 
+// ── AI calls ───────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn ai_call(request: ai::AICallRequest) -> Result<String, String> {
+    ai::ai_call(request).await
+}
+
+#[tauri::command]
+async fn get_ai_config() -> Result<Option<ai::AIConfig>, String> {
+    // Load AI config from cache
+    let config_str = cache::load_user_config();
+    if let Ok(config) = serde_json::from_str::<ai::AIConfig>(&config_str) {
+        Ok(Some(config))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn save_ai_config(config: ai::AIConfig) -> Result<(), String> {
+    // Save AI config to cache
+    let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
+    cache::save_user_config(&serde_json::from_str(&config_json).unwrap_or_default());
+    Ok(())
+}
+
+// ── Package managers ───────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn get_apt_packages() -> Vec<ai::PackageInfo> {
+    // Implementation for APT packages
+    // For now return empty
+    vec![]
+}
+
+#[tauri::command]
+async fn get_flatpak_packages() -> Vec<ai::PackageInfo> {
+    vec![]
+}
+
+#[tauri::command]
+async fn get_snap_packages() -> Vec<ai::PackageInfo> {
+    vec![]
+}
+
+#[tauri::command]
+async fn get_appimage_packages() -> Vec<ai::PackageInfo> {
+    vec![]
+}
+
+#[tauri::command]
+async fn install_apt_package(_pkg_id: String) -> Result<bool, String> {
+    // Mock implementation – w rzeczywistości wywołaj apt install
+    Ok(false)
+}
+
+#[tauri::command]
+async fn remove_apt_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn update_apt_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn install_flatpak_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn remove_flatpak_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn update_flatpak_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn install_snap_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn remove_snap_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn update_snap_package(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn install_appimage(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn remove_appimage(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[tauri::command]
+async fn update_appimage(_pkg_id: String) -> Result<bool, String> {
+    Ok(false)
+}
+
 // ── Panel ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1283,6 +1395,27 @@ fn main() {
         get_custom_themes,
         save_custom_theme,
         delete_custom_theme,
+        // AI
+        ai_call,
+        get_ai_config,
+        save_ai_config,
+        // Package managers
+        get_apt_packages,
+        get_flatpak_packages,
+        get_snap_packages,
+        get_appimage_packages,
+        install_apt_package,
+        remove_apt_package,
+        update_apt_package,
+        install_flatpak_package,
+        remove_flatpak_package,
+        update_flatpak_package,
+        install_snap_package,
+        remove_snap_package,
+        update_snap_package,
+        install_appimage,
+        remove_appimage,
+        update_appimage,
         // Panel
         set_panel_enabled,
     ])
