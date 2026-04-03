@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { LucideIcon } from 'lucide-react'; // jeśli używamy
+import { LucideIcon } from 'lucide-react';
 
 export enum AppId {
     TERMINAL       = 'terminal',
@@ -8,17 +8,19 @@ export enum AppId {
     SETTINGS       = 'settings',
     ABOUT          = 'about',
     BLUE_WEB       = 'blue_web',
-    // Internal apps
     CALCULATOR     = 'calculator',
     SYSTEM_MONITOR = 'system_monitor',
-    // External standalone apps (in ~/.hackeros/Blue-Environment/apps/)
+    NOTEPAD        = 'notepad',
+    BLUE_CODE      = 'blue_code',
+    BLUE_SOFTWARE  = 'blue_software',
+    MAIL           = 'mail',
+    // External apps
     BLUE_EDIT      = 'blue_edit',
     BLUE_IMAGES    = 'blue_images',
     BLUE_VIDEOS    = 'blue_videos',
     BLUE_MUSIC     = 'blue_music',
     BLUE_SCREEN    = 'blue_screen',
     EXTERNAL       = 'external',
-    NOTEPAD        = 'notepad',
 }
 
 export interface DesktopEntry {
@@ -63,6 +65,33 @@ export interface UserConfig {
     accentColor: string;
     displayScale: number;
     customThemes?: ThemeDefinition[];
+    desktopPath: string;
+    panelEnabled: boolean;
+    panelPosition: 'top' | 'bottom' | 'left' | 'right';
+    panelSize: number;
+    panelOpacity: number;
+    language: string;
+    nightLightEnabled: boolean;
+    nightLightTemperature: number;
+    nightLightSchedule: 'manual' | 'sunset';
+    nightLightStartHour: number;
+    nightLightEndHour: number;
+    appsEnabled: {
+        blueAI: boolean;
+        blueCode: boolean;
+        blueSoftware: boolean;
+        mail: boolean;
+    };
+    accounts?: {
+        google?: { email: string; name: string; picture: string };
+        apple?: { email: string; name: string };
+        // dodatkowe konta dla AI
+        chatgpt?: { email: string; accessToken?: string };
+        grok?: { email: string; accessToken?: string };
+        claude?: { email: string; accessToken?: string };
+        gemini?: { email: string; accessToken?: string };
+        deepseek?: { email: string; accessToken?: string };
+    };
 }
 
 export interface ThemeDefinition {
@@ -79,12 +108,35 @@ export interface ThemeDefinition {
 }
 
 export interface PowerProfile {
-    name: string;                // 'power-saver', 'balanced', 'performance'
+    name: string;
     active: boolean;
-    icon?: string;               // nazwa ikony (np. 'Battery', 'Wind', 'Zap')
+    icon?: string;
     description: string;
 }
 
 export interface AppProps {
     windowId: string;
+}
+
+export interface Notification {
+    id: string;
+    title: string;
+    message: string;
+    appId?: string;
+    timestamp: number;
+    read: boolean;
+    icon?: string;
+    actions?: { label: string; action: string }[];
+}
+
+export interface PackageInfo {
+    id: string;
+    name: string;
+    description: string;
+    version: string;
+    source: 'apt' | 'flatpak' | 'snap' | 'appimage';
+    installed: boolean;
+    updateAvailable?: boolean;
+    icon?: string;
+    size?: string;
 }
