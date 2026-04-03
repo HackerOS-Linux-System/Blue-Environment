@@ -26,6 +26,7 @@ pub fn detect_session() -> SessionType {
     SessionType::Tty
 }
 
+#[allow(dead_code)]
 pub fn is_tty() -> bool {
     detect_session() == SessionType::Tty
 }
