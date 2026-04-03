@@ -1,3 +1,6 @@
+// src-tauri/src/apps.rs
+// Scans .desktop files, filters GUI-only apps, caches results
+
 use crate::cache::{self, CachedApp};
 use regex::Regex;
 use std::fs;
