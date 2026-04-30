@@ -2,17 +2,17 @@
  Blue Environment - addons apps
 
  blue-music:
- = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-music
+ = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-music.tar.gz
 
  blue-video:
- = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-video
+ = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-video.tar.gz
 
  blue-gallery:
- = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-gallery
+ = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-gallery.tar.gz
 
  blue-virt:
- = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-virt
+ = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-virt.tar.gz
  
  blue-archive:
- = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-archive
+ = https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-archive.tar.gz
 ]
