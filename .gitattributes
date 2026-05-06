@@ -1,0 +1,15 @@
+*.json linguist-detectable=true
+*.json linguist-documentation=false
+*.json linguist-language=JSON
+
+*.toml linguist-detectable=true
+*.toml linguist-documentation=false
+*.toml linguist-language=TOML
+
+*.desktop linguist-detectable=true
+*.desktop linguist-documentation=false
+*.desktop linguist-language=INI
+
+*.hk linguist-detectable=true
+*.hk linguist-documentation=false
+*.hk linguist-language=HK
