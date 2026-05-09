@@ -1,30 +1,23 @@
 use smithay::{
     backend::input::{
-        Axis, AxisSource, ButtonState, InputBackend, InputEvent,
-        KeyState, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
-        PointerMotionAbsoluteEvent,
+        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event,
+        InputBackend, InputEvent, KeyboardKeyEvent, PointerAxisEvent,
+        PointerButtonEvent, PointerMotionEvent, PointerMotionAbsoluteEvent,
     },
-    desktop::WindowSurfaceType,
+    desktop::WindowSurface,
     input::{
-        keyboard::{FilterResult, Keysym},
-        pointer::{
-            AxisFrame, ButtonEvent,
-            GrabStartData as PointerGrabStartData,
-            MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
-        },
+        keyboard::{xkb, FilterResult, KeyboardHandle, Keysym, ModifiersState},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent},
     },
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    reexports::wayland_server::protocol::wl_pointer,
+    utils::{Logical, Point, SERIAL_COUNTER},
     wayland::seat::WaylandFocus,
 };
+use tracing::debug;
 
 use crate::state::BlueState;
 
-pub fn handle_input<B: InputBackend>(state: &mut BlueState, event: InputEvent<B>) {
-    // Update idle timer
-    state.record_input();
-
+pub fn handle_input<I: InputBackend>(state: &mut BlueState, event: InputEvent<I>) {
     match event {
         InputEvent::Keyboard { event } => handle_keyboard(state, &event),
         InputEvent::PointerMotion { event } => handle_pointer_motion(state, &event),
@@ -35,309 +28,133 @@ pub fn handle_input<B: InputBackend>(state: &mut BlueState, event: InputEvent<B>
     }
 }
 
-fn handle_keyboard<B: InputBackend, E: KeyboardKeyEvent<B>>(state: &mut BlueState, event: &E) {
+fn handle_keyboard<I: InputBackend>(state: &mut BlueState, event: &I::KeyboardKeyEvent) {
     let serial = SERIAL_COUNTER.next_serial();
-    let keyboard = state.seat.get_keyboard().unwrap();
+    let time = event.time_msec();
+    let press_state = event.state();
+    let Some(kb) = state.seat.get_keyboard() else { return };
 
-    keyboard.input(
+    let action = kb.input::<KeyAction, _>(
         state,
         event.key_code(),
-                   event.state(),
-                   serial,
-                   event.time_msec(),
-                   |state, mods, handle| {
-                       let sym = handle.modified_sym();
-
-                       // Alt+Tab
-                       if mods.alt && sym == Keysym::Tab {
-                           if event.state() == KeyState::Pressed {
-                               if !state.show_switcher {
-                                   state.show_switcher = true;
-                                   state.switcher_index = 0; // or current active window index
-                               } else {
-                                   state.cycle_switcher(true);
-                               }
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Alt+Shift+Tab (backwards)
-                       if mods.alt && mods.shift && sym == Keysym::Tab {
-                           if event.state() == KeyState::Pressed && state.show_switcher {
-                               state.cycle_switcher(false);
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Alt release – commit switcher
-                       if sym == Keysym::Alt_L || sym == Keysym::Alt_R {
-                           if event.state() == KeyState::Released && state.show_switcher {
-                               state.apply_switcher_selection();
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Win (Super) key
-                       if sym == Keysym::Super_L || sym == Keysym::Super_R {
-                           if event.state() == KeyState::Pressed {
-                               state.super_pressed = true;
-                               state.super_used = false;
-                           } else {
-                               if state.super_pressed && !state.super_used {
-                                   state.toggle_start_menu();
-                               }
-                               state.super_pressed = false;
-                               state.super_used = false;
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Win+Tab (full‑screen menu)
-                       if mods.logo && sym == Keysym::Tab {
-                           if event.state() == KeyState::Pressed {
-                               state.toggle_fullscreen_menu();
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Win+Win (double press) – handled in frontend, we just emit an event.
-                       // For now, we treat as toggle full‑screen menu.
-                       if state.super_pressed && sym == Keysym::Super_L {
-                           // This is a second press while Super is still held.
-                           // We'll set a flag that will be used on release.
-                           state.super_used = true;
-                           if event.state() == KeyState::Pressed {
-                               state.toggle_fullscreen_menu();
-                           }
-                           return FilterResult::Intercept(());
-                       }
-
-                       // Rest of the keyboard handling (workspace switching, close, etc.)
-                       // Keep original logic unchanged.
-                       if mods.logo && event.state() == KeyState::Pressed {
-                           let ws = match sym {
-                               Keysym::_1 => Some(0usize),
-                   Keysym::_2 => Some(1),
-                   Keysym::_3 => Some(2),
-                   Keysym::_4 => Some(3),
-                   _ => None,
-                           };
-                           if let Some(idx) = ws {
-                               state.current_workspace = idx;
-                               return FilterResult::Intercept(());
-                           }
-                       }
-                       if mods.alt && sym == Keysym::F4 && event.state() == KeyState::Pressed {
-                           if let Some(surface) = state.seat.get_keyboard().unwrap().current_focus() {
-                               if let Some(w) = state.window_by_surface(&surface) {
-                                   if let Some(t) = w.toplevel() { t.send_close(); }
-                               }
-                           }
-                           return FilterResult::Intercept(());
-                       }
-                       FilterResult::Forward
-                   },
-    );
-}
-
-fn handle_pointer_motion<B: InputBackend, E: PointerMotionEvent<B>>(
-    state: &mut BlueState,
-    event: &E,
-) {
-    let serial = SERIAL_COUNTER.next_serial();
-    let delta = event.delta();
-
-    let (min_x, min_y, max_x, max_y) = {
-        let bounds = state
-        .space
-        .outputs()
-        .next()
-        .and_then(|o| state.space.output_geometry(o))
-        .unwrap_or(Rectangle::new(Point::from((0, 0)), Size::from((1920, 1080))));
-        (
-            bounds.loc.x as f64,
-         bounds.loc.y as f64,
-         (bounds.loc.x + bounds.size.w) as f64,
-         (bounds.loc.y + bounds.size.h) as f64,
-        )
-    };
-
-    state.pointer_location.x = (state.pointer_location.x + delta.x).clamp(min_x, max_x);
-    state.pointer_location.y = (state.pointer_location.y + delta.y).clamp(min_y, max_y);
-
-    update_pointer_focus(state, serial, event.time_msec());
-}
-
-fn handle_pointer_motion_abs<B: InputBackend, E: PointerMotionAbsoluteEvent<B>>(
-    state: &mut BlueState,
-    event: &E,
-) {
-    let serial = SERIAL_COUNTER.next_serial();
-    let size = {
-        state
-        .space
-        .outputs()
-        .next()
-        .and_then(|o| state.space.output_geometry(o))
-        .map(|g| g.size)
-        .unwrap_or(Size::from((1920, 1080)))
-    };
-    state.pointer_location = event.position_transformed(size);
-    update_pointer_focus(state, serial, event.time_msec());
-}
-
-fn update_pointer_focus(state: &mut BlueState, serial: smithay::utils::Serial, time: u32) {
-    let pointer = state.seat.get_pointer().unwrap();
-    let pos = state.pointer_location;
-
-    let focus: Option<(WlSurface, Point<f64, Logical>)> = state
-    .space
-    .element_under(pos)
-    .and_then(|(win, win_loc)| {
-        let rel = pos - win_loc.to_f64();
-        win.surface_under(rel, WindowSurfaceType::ALL)
-        .map(|(s, sp)| (s, (win_loc + sp).to_f64()))
-    });
-
-    pointer.motion(state, focus, &MotionEvent { location: pos, serial, time });
-    pointer.frame(state);
-}
-
-fn handle_pointer_button<B: InputBackend, E: PointerButtonEvent<B>>(
-    state: &mut BlueState,
-    event: &E,
-) {
-    let serial = SERIAL_COUNTER.next_serial();
-    let pos = state.pointer_location;
-
-    if event.state() == ButtonState::Pressed {
-        let maybe_window = state
-        .space
-        .element_under(pos)
-        .map(|(w, _)| w.clone());
-
-        if let Some(window) = maybe_window {
-            state.space.raise_element(&window, true);
-            let keyboard = state.seat.get_keyboard().unwrap();
-            if let Some(surface) = window.wl_surface() {
-                keyboard.set_focus(state, Some(surface.into_owned()), serial);
+        press_state,
+        serial,
+        time,
+        |state, mods, handle| {
+            let keysym = handle.modified_sym();
+            if press_state == smithay::backend::input::KeyState::Pressed {
+                compositor_keybind(state, mods, keysym)
+            } else {
+                FilterResult::Forward
             }
-        } else {
-            let keyboard = state.seat.get_keyboard().unwrap();
-            keyboard.set_focus(state, Option::<WlSurface>::None, serial);
-        }
-    }
-
-    let pointer = state.seat.get_pointer().unwrap();
-    pointer.button(
-        state,
-        &ButtonEvent {
-            button: event.button_code(),
-                   state: event.state(),
-                   serial,
-                   time: event.time_msec(),
         },
     );
-    pointer.frame(state);
+
+    if let Some(KeyAction::Exit) = action {
+        state.should_exit = true;
+    }
 }
 
-fn handle_pointer_axis<B: InputBackend, E: PointerAxisEvent<B>>(
+#[derive(Debug)]
+enum KeyAction { Exit, SwitchWorkspace(usize) }
+
+fn compositor_keybind(
     state: &mut BlueState,
-    event: &E,
-) {
-    let pointer = state.seat.get_pointer().unwrap();
-    let mut frame = AxisFrame::new(event.time_msec()).source(AxisSource::Wheel);
-    for axis in [Axis::Horizontal, Axis::Vertical] {
-        if let Some(v) = event.amount(axis) {
-            frame = frame
-            .relative_direction(axis, event.relative_direction(axis))
-            .value(axis, v);
-            if let Some(d) = event.amount_v120(axis) {
-                frame = frame.v120(axis, d as i32);
+    mods: &ModifiersState,
+    keysym: Keysym,
+) -> FilterResult<KeyAction> {
+    // Super + 1-4: switch workspace
+    if mods.logo {
+        match keysym {
+            Keysym::_1 => return FilterResult::Intercept(KeyAction::SwitchWorkspace(0)),
+            Keysym::_2 => return FilterResult::Intercept(KeyAction::SwitchWorkspace(1)),
+            Keysym::_3 => return FilterResult::Intercept(KeyAction::SwitchWorkspace(2)),
+            Keysym::_4 => return FilterResult::Intercept(KeyAction::SwitchWorkspace(3)),
+            _ => {}
+        }
+    }
+    // Ctrl+Alt+Backspace: exit
+    if mods.ctrl && mods.alt && keysym == Keysym::BackSpace {
+        return FilterResult::Intercept(KeyAction::Exit);
+    }
+    FilterResult::Forward
+}
+
+fn handle_pointer_motion<I: InputBackend>(state: &mut BlueState, event: &I::PointerMotionEvent) {
+    let delta = event.delta();
+    state.pointer_location += Point::from((delta.x, delta.y));
+    clamp_pointer(state);
+    update_pointer_focus(state, event.time_msec());
+}
+
+fn handle_pointer_motion_abs<I: InputBackend>(state: &mut BlueState, event: &I::PointerMotionAbsoluteEvent) {
+    if let Some(output) = state.outputs.first() {
+        let geo = state.space.output_geometry(output).unwrap_or_default();
+        state.pointer_location = event.position_transformed(geo.size);
+    }
+    update_pointer_focus(state, event.time_msec());
+}
+
+fn clamp_pointer(state: &mut BlueState) {
+    if let Some(output) = state.outputs.first() {
+        let geo = state.space.output_geometry(output).unwrap_or_default();
+        state.pointer_location.x = state.pointer_location.x.clamp(0.0, geo.size.w as f64);
+        state.pointer_location.y = state.pointer_location.y.clamp(0.0, geo.size.h as f64);
+    }
+}
+
+fn update_pointer_focus(state: &mut BlueState, time: u32) {
+    let serial = SERIAL_COUNTER.next_serial();
+    let loc = state.pointer_location;
+
+    let under = state.space.element_under(loc).map(|(w, p)| {
+        let wl = w.wl_surface().map(|s| (s.into_owned(), p));
+        wl
+    }).flatten();
+
+    if let Some(ptr) = state.seat.get_pointer() {
+        ptr.motion(state, under.clone(), &MotionEvent { location: loc, serial, time });
+        ptr.frame(state);
+    }
+}
+
+fn handle_pointer_button<I: InputBackend>(state: &mut BlueState, event: &I::PointerButtonEvent) {
+    let serial = SERIAL_COUNTER.next_serial();
+    let button = event.button_code();
+    let button_state = event.state();
+
+    // Focus window on click
+    if button_state == ButtonState::Pressed {
+        let loc = state.pointer_location;
+        let under = state.space.element_under(loc).map(|(w, _)| w.clone());
+        if let Some(win) = under {
+            state.space.raise_element(&win, true);
+            if let Some(surface) = win.wl_surface() {
+                if let Some(kb) = state.seat.get_keyboard() {
+                    kb.set_focus(state, Some(surface.into_owned()), serial);
+                }
+            }
+        } else {
+            if let Some(kb) = state.seat.get_keyboard() {
+                kb.set_focus(state, Option::<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>::None, serial);
             }
         }
     }
-    pointer.axis(state, frame);
-    pointer.frame(state);
+
+    if let Some(ptr) = state.seat.get_pointer() {
+        ptr.button(state, &ButtonEvent { button, state: button_state, serial, time: event.time_msec() });
+        ptr.frame(state);
+    }
 }
 
-// ── Move grab (unchanged) ─────────────────────────────────────────────────
-
-pub struct MoveGrab {
-    pub start_data: PointerGrabStartData<BlueState>,
-    pub window: smithay::desktop::Window,
-    pub initial_window_location: Point<i32, Logical>,
-}
-
-impl PointerGrab<BlueState> for MoveGrab {
-    fn motion(
-        &mut self,
-        data: &mut BlueState,
-        handle: &mut PointerInnerHandle<'_, BlueState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
-              event: &MotionEvent,
-    ) {
-        handle.motion(data, None, event);
-        let delta = event.location - self.start_data.location;
-        let new_loc = self.initial_window_location + delta.to_i32_round();
-        data.space.map_element(self.window.clone(), new_loc, true);
+fn handle_pointer_axis<I: InputBackend>(state: &mut BlueState, event: &I::PointerAxisEvent) {
+    if let Some(ptr) = state.seat.get_pointer() {
+        let mut frame = AxisFrame::new(event.time_msec()).source(AxisSource::Wheel);
+        let h = event.amount(Axis::Horizontal).unwrap_or(0.0);
+        let v = event.amount(Axis::Vertical).unwrap_or(0.0);
+        if h != 0.0 { frame = frame.value(Axis::Horizontal, h); }
+        if v != 0.0 { frame = frame.value(Axis::Vertical, v); }
+        ptr.axis(state, frame);
+        ptr.frame(state);
     }
-
-    fn relative_motion(
-        &mut self,
-        data: &mut BlueState,
-        handle: &mut PointerInnerHandle<'_, BlueState>,
-        focus: Option<(WlSurface, Point<f64, Logical>)>,
-                       event: &RelativeMotionEvent,
-    ) {
-        handle.relative_motion(data, focus, event);
-    }
-
-    fn button(
-        &mut self,
-        data: &mut BlueState,
-        handle: &mut PointerInnerHandle<'_, BlueState>,
-        event: &ButtonEvent,
-    ) {
-        handle.button(data, event);
-        if event.state == ButtonState::Released {
-            handle.unset_grab(self, data, event.serial, event.time, true);
-        }
-    }
-
-    fn axis(&mut self, data: &mut BlueState, handle: &mut PointerInnerHandle<'_, BlueState>, details: AxisFrame) {
-        handle.axis(data, details);
-    }
-
-    fn frame(&mut self, data: &mut BlueState, handle: &mut PointerInnerHandle<'_, BlueState>) {
-        handle.frame(data);
-    }
-
-    fn gesture_swipe_begin(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GestureSwipeBeginEvent) {}
-    fn gesture_swipe_update(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GestureSwipeUpdateEvent) {}
-    fn gesture_swipe_end(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GestureSwipeEndEvent) {}
-    fn gesture_pinch_begin(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GesturePinchBeginEvent) {}
-    fn gesture_pinch_update(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GesturePinchUpdateEvent) {}
-    fn gesture_pinch_end(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GesturePinchEndEvent) {}
-    fn gesture_hold_begin(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GestureHoldBeginEvent) {}
-    fn gesture_hold_end(&mut self, _: &mut BlueState, _: &mut PointerInnerHandle<'_, BlueState>, _: &smithay::input::pointer::GestureHoldEndEvent) {}
-
-    fn start_data(&self) -> &PointerGrabStartData<BlueState> { &self.start_data }
-    fn unset(&mut self, _: &mut BlueState) {}
-}
-
-pub fn start_move_grab(
-    state: &mut BlueState,
-    window: smithay::desktop::Window,
-    start_data: PointerGrabStartData<BlueState>,
-    _serial: smithay::utils::Serial,
-) {
-    let initial = state.space.element_location(&window).unwrap_or_default();
-    let grab = MoveGrab { start_data, window, initial_window_location: initial };
-    state.seat.get_pointer().unwrap().set_grab(
-        state,
-        grab,
-        SERIAL_COUNTER.next_serial(),
-                                               smithay::input::pointer::Focus::Clear,
-    );
 }
