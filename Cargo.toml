@@ -5,15 +5,11 @@ members = [
     "src-tauri/lib/blue-compositor",
 ]
 
-exclude = [
-    "apps/blue-software",
-    "apps/blue-edit",
-]
-
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto       = "thin"
 codegen-units = 1
+strip     = true
 
 [profile.dev]
 opt-level = 1
