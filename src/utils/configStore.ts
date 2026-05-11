@@ -35,29 +35,22 @@ class ConfigStore extends EventTarget {
         if (this.initialized) return this.config;
         const loaded = await SystemBridge.loadConfig();
 
-        // Uzupełnij brakujące pola
-        if (loaded.desktopPath === undefined) {
-            loaded.desktopPath = await SystemBridge.getDefaultDesktopPath();
-        }
-        if (loaded.panelEnabled === undefined) loaded.panelEnabled = DEFAULT_CONFIG.panelEnabled;
-        if (loaded.panelPosition === undefined) loaded.panelPosition = DEFAULT_CONFIG.panelPosition;
-        if (loaded.panelSize === undefined) loaded.panelSize = DEFAULT_CONFIG.panelSize;
-        if (loaded.panelOpacity === undefined) loaded.panelOpacity = DEFAULT_CONFIG.panelOpacity;
-        if (loaded.language === undefined) loaded.language = DEFAULT_CONFIG.language;
-        if (loaded.nightLightEnabled === undefined) loaded.nightLightEnabled = DEFAULT_CONFIG.nightLightEnabled;
-        if (loaded.nightLightTemperature === undefined) loaded.nightLightTemperature = DEFAULT_CONFIG.nightLightTemperature;
-        if (loaded.nightLightSchedule === undefined) loaded.nightLightSchedule = DEFAULT_CONFIG.nightLightSchedule;
-        if (loaded.nightLightStartHour === undefined) loaded.nightLightStartHour = DEFAULT_CONFIG.nightLightStartHour;
-        if (loaded.nightLightEndHour === undefined) loaded.nightLightEndHour = DEFAULT_CONFIG.nightLightEndHour;
-        if (loaded.appsEnabled === undefined) loaded.appsEnabled = DEFAULT_CONFIG.appsEnabled;
-        if (loaded.accounts === undefined) loaded.accounts = {};
+        // Fill in any missing fields from defaults
+        const merged: UserConfig = { ...DEFAULT_CONFIG, ...loaded };
 
-        // Napraw ścieżkę tapety – jeśli nie ma prefiksu file://, dodaj go
-        if (loaded.wallpaper && !loaded.wallpaper.startsWith('file://') && !loaded.wallpaper.startsWith('data:')) {
-            loaded.wallpaper = `file://${loaded.wallpaper}`;
+        if (!merged.desktopPath) {
+            merged.desktopPath = await SystemBridge.getDefaultDesktopPath();
+        }
+        // Normalize wallpaper path
+        if (
+            merged.wallpaper &&
+            !merged.wallpaper.startsWith('file://') &&
+            !merged.wallpaper.startsWith('data:')
+        ) {
+            merged.wallpaper = `file://${merged.wallpaper}`;
         }
 
-        this.config = loaded;
+        this.config = merged;
         this.initialized = true;
         this.applyTheme(this.config.themeName);
         return this.config;
@@ -84,10 +77,13 @@ class ConfigStore extends EventTarget {
         document.documentElement.setAttribute('data-theme', themeName);
         const customTheme = this.config.customThemes?.find(t => t.id === themeName);
         if (customTheme?.css) {
-            const style = document.getElementById('custom-theme-style') || document.createElement('style');
-            style.id = 'custom-theme-style';
+            let style = document.getElementById('custom-theme-style');
+            if (!style) {
+                style = document.createElement('style');
+                style.id = 'custom-theme-style';
+                document.head.appendChild(style);
+            }
             style.innerHTML = customTheme.css;
-            document.head.appendChild(style);
         } else {
             const style = document.getElementById('custom-theme-style');
             if (style) style.remove();
