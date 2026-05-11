@@ -1,4 +1,7 @@
-import { DesktopEntry, UserConfig, PowerProfile, ThemeDefinition, Notification, PackageInfo, AICallRequest, AIConfig } from '../types';
+import {
+    DesktopEntry, UserConfig, PowerProfile, ThemeDefinition,
+    Notification, PackageInfo, AICallRequest, AIConfig, ExternalWindow, AIMessage
+} from '../types';
 
 // @ts-ignore
 const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
@@ -15,15 +18,15 @@ let mockWifi = {
     networks: [
         { ssid: 'BlueNet 5G', signal: 92, secure: true, in_use: true, bssid: 'AA:BB:CC:DD:EE:FF', frequency: '5 GHz' },
         { ssid: 'BlueNet 2.4', signal: 75, secure: true, in_use: false, bssid: 'AA:BB:CC:DD:EE:FE', frequency: '2.4 GHz' },
-        { ssid: 'Free WiFi',   signal: 40, secure: false, in_use: false, bssid: '11:22:33:44:55:66', frequency: '2.4 GHz' },
-        { ssid: 'Neighbor',    signal: 25, secure: true, in_use: false, bssid: '66:55:44:33:22:11', frequency: '2.4 GHz' },
+        { ssid: 'Free WiFi', signal: 40, secure: false, in_use: false, bssid: '11:22:33:44:55:66', frequency: '2.4 GHz' },
+        { ssid: 'Neighbor', signal: 25, secure: true, in_use: false, bssid: '66:55:44:33:22:11', frequency: '2.4 GHz' },
     ],
 };
 
 let mockBt = [
     { name: 'Sony WH-1000XM4', mac: '00:11:22:33:44', device_type: 'audio-headphones', connected: true, paired: true, trusted: true, battery: 72 },
-{ name: 'Logitech MX Master 3', mac: 'AA:BB:CC:DD:EE', device_type: 'input-mouse', connected: true, paired: true, trusted: true, battery: null },
-{ name: 'iPhone 15 Pro', mac: '11:22:33:44:55', device_type: 'phone', connected: false, paired: true, trusted: false, battery: null },
+    { name: 'Logitech MX Master 3', mac: 'AA:BB:CC:DD:EE', device_type: 'input-mouse', connected: true, paired: true, trusted: true, battery: null },
+    { name: 'iPhone 15 Pro', mac: '11:22:33:44:55', device_type: 'phone', connected: false, paired: true, trusted: false, battery: null },
 ];
 
 let mockVolume = 65;
@@ -31,17 +34,16 @@ let mockBrightness = 80;
 
 let mockSinks = [
     { id: 0, name: 'alsa_output.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Speakers', volume: 65, muted: false, is_default: true },
-{ id: 1, name: 'alsa_output.usb-Sony_WH1000XM4.analog-stereo', description: 'Sony WH-1000XM4', volume: 80, muted: false, is_default: false },
+    { id: 1, name: 'alsa_output.usb-Sony_WH1000XM4.analog-stereo', description: 'Sony WH-1000XM4', volume: 80, muted: false, is_default: false },
 ];
 
 // ── SystemBridge ───────────────────────────────────────────────────────────
 
 export const SystemBridge = {
 
-    // ── Helpers ────────────────────────────────────────────────────────
     isTauri: (): boolean => isTauri,
 
-    // ── Session ──────────────────────────────────────────────────────────
+    // ── Session ──────────────────────────────────────────────────────────────
 
     getSessionType: async (): Promise<string> => {
         if (isTauri) return await invoke('get_session_type');
@@ -56,7 +58,7 @@ export const SystemBridge = {
         }
     },
 
-    // ── Apps ─────────────────────────────────────────────────────────────
+    // ── Apps ─────────────────────────────────────────────────────────────────
 
     getSystemApps: async (forceRefresh: boolean = false): Promise<any[]> => {
         if (isTauri) return await invoke('get_system_apps', { forceRefresh }) ?? [];
@@ -99,7 +101,44 @@ export const SystemBridge = {
         return [];
     },
 
-    // ── Files ─────────────────────────────────────────────────────────────
+    // ── External window management ────────────────────────────────────────────
+
+    getExternalWindows: async (): Promise<ExternalWindow[]> => {
+        if (isTauri) {
+            const windows = await invoke('get_external_windows') ?? [];
+            // Normalize snake_case to camelCase
+            return windows.map((w: any) => ({
+                id: w.id,
+                pid: w.pid,
+                title: w.title,
+                class: w.class,
+                iconPath: w.icon_path || '',
+                isMinimized: w.is_minimized || false,
+                desktop: w.desktop || 0,
+            }));
+        }
+        return [];
+    },
+
+    focusExternalWindow: async (winId: string): Promise<void> => {
+        if (isTauri) await invoke('focus_external_window', { winId });
+        else console.log(`[Mock] Focus external: ${winId}`);
+    },
+
+    minimizeExternalWindow: async (winId: string): Promise<void> => {
+        if (isTauri) await invoke('minimize_external_window', { winId });
+    },
+
+    closeExternalWindow: async (winId: string): Promise<void> => {
+        if (isTauri) await invoke('close_external_window', { winId });
+    },
+
+    embedExternalWindow: async (winId: string, parentId: string): Promise<boolean> => {
+        if (isTauri) return await invoke('embed_external_window', { winId, parentId }) ?? false;
+        return false;
+    },
+
+    // ── Files ─────────────────────────────────────────────────────────────────
 
     getFiles: async (path: string): Promise<any[]> => {
         if (isTauri) return await invoke('list_files', { path }) ?? [];
@@ -115,7 +154,17 @@ export const SystemBridge = {
         if (isTauri) await invoke('write_text_file', { path, content });
     },
 
-    // ── System stats ──────────────────────────────────────────────────────
+    // ── Git ────────────────────────────────────────────────────────────────────
+
+    gitStatus: async (path: string): Promise<string[]> => {
+        if (isTauri) {
+            try { return await invoke('git_status', { path }) ?? []; }
+            catch { return []; }
+        }
+        return [];
+    },
+
+    // ── System stats ──────────────────────────────────────────────────────────
 
     getSystemStats: async () => {
         if (isTauri) {
@@ -149,7 +198,7 @@ export const SystemBridge = {
         ];
     },
 
-    // ── Audio (PipeWire/PulseAudio) ───────────────────────────────────────
+    // ── Audio (PipeWire/PulseAudio) ───────────────────────────────────────────
 
     getAudioSinks: async () => {
         if (isTauri) return await invoke('get_audio_sinks') ?? [];
@@ -174,7 +223,7 @@ export const SystemBridge = {
         if (isTauri) await invoke('toggle_sink_mute', { sinkName });
     },
 
-    // ── Wi-Fi ─────────────────────────────────────────────────────────────
+    // ── Wi-Fi ─────────────────────────────────────────────────────────────────
 
     getWifiNetworks: async () => {
         if (isTauri) {
@@ -211,7 +260,7 @@ export const SystemBridge = {
         else if (!enabled) { mockWifi.connectedSSID = ''; }
     },
 
-    // ── Bluetooth ─────────────────────────────────────────────────────────
+    // ── Bluetooth ─────────────────────────────────────────────────────────────
 
     getBluetoothDevices: async () => {
         if (isTauri) {
@@ -243,21 +292,21 @@ export const SystemBridge = {
         else await SystemBridge.bluetoothConnect(mac);
     },
 
-    // ── Brightness ────────────────────────────────────────────────────────
+    // ── Brightness ────────────────────────────────────────────────────────────
 
     setBrightness: async (level: number): Promise<void> => {
         mockBrightness = level;
         if (isTauri) await invoke('set_brightness', { level });
     },
 
-    // ── Screenshots ───────────────────────────────────────────────────────
+    // ── Screenshots ───────────────────────────────────────────────────────────
 
     takeScreenshot: async (): Promise<void> => {
         if (isTauri) await invoke('take_screenshot');
         else alert('[Mock] Screenshot taken');
     },
 
-    // ── Wallpapers & config ───────────────────────────────────────────────
+    // ── Wallpapers & config ───────────────────────────────────────────────────
 
     getWallpapers: async (): Promise<string[]> => {
         if (isTauri) {
@@ -275,7 +324,7 @@ export const SystemBridge = {
                 if (data && typeof data === 'string') return data;
                 return null;
             } catch (e) {
-                console.error('Błąd pobierania podglądu tapety:', e);
+                console.error('Wallpaper preview error:', e);
                 return null;
             }
         }
@@ -335,7 +384,7 @@ export const SystemBridge = {
         };
     },
 
-    // ── Window state ──────────────────────────────────────────────────────
+    // ── Window state ──────────────────────────────────────────────────────────
 
     saveWindowState: async (windows: any[]): Promise<void> => {
         if (isTauri) await invoke('save_window_state', { windows });
@@ -349,7 +398,7 @@ export const SystemBridge = {
         } catch { return []; }
     },
 
-    // ── Clipboard ─────────────────────────────────────────────────────────
+    // ── Clipboard ─────────────────────────────────────────────────────────────
 
     async copyText(text: string): Promise<void> {
         if (isTauri) {
@@ -358,7 +407,7 @@ export const SystemBridge = {
                 await window.__TAURI__.clipboard.writeText(text);
                 return;
             } catch (e) {
-                console.warn('Tauri clipboard write failed, fallback to invoke', e);
+                console.warn('Tauri clipboard write failed', e);
             }
         }
         await invoke('clipboard_copy', { text });
@@ -377,15 +426,16 @@ export const SystemBridge = {
     },
 
     async hasText(): Promise<boolean> {
-        const text = await this.readText();
+        const text = await SystemBridge.readText();
         return text.trim().length > 0;
     },
 
     async clear(): Promise<void> {
-        await this.copyText('');
+        await SystemBridge.copyText('');
     },
 
-    // ── Clipboard history ───────────────────────────────────────────────────
+    // ── Clipboard history ───────────────────────────────────────────────────────
+
     async getClipboardHistory(): Promise<{ id: string; content: string; timestamp: number }[]> {
         if (isTauri) {
             return await invoke('get_clipboard_history') ?? [];
@@ -398,7 +448,7 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('add_to_clipboard_history', { content });
         } else {
-            const hist = await this.getClipboardHistory();
+            const hist = await SystemBridge.getClipboardHistory();
             const newItem = { id: Date.now().toString(), content, timestamp: Date.now() };
             const updated = [newItem, ...hist].slice(0, 50);
             localStorage.setItem('clipboard_history', JSON.stringify(updated));
@@ -413,7 +463,8 @@ export const SystemBridge = {
         }
     },
 
-    // ── Night Light ────────────────────────────────────────────────────────
+    // ── Night Light ────────────────────────────────────────────────────────────
+
     async setNightLightEnabled(enabled: boolean): Promise<void> {
         if (isTauri) {
             await invoke('set_night_light_enabled', { enabled });
@@ -430,7 +481,8 @@ export const SystemBridge = {
         }
     },
 
-    // ── Notifications ──────────────────────────────────────────────────────
+    // ── Notifications ──────────────────────────────────────────────────────────
+
     async getNotificationHistory(): Promise<Notification[]> {
         if (isTauri) {
             return await invoke('get_notification_history') ?? [];
@@ -447,27 +499,20 @@ export const SystemBridge = {
         }
     },
 
-    // ── Custom themes ─────────────────────────────────────────────────────
+    // ── Custom themes ─────────────────────────────────────────────────────────
+
     async getCustomThemes(): Promise<ThemeDefinition[]> {
         if (isTauri) {
             return await invoke('get_custom_themes') ?? [];
         }
-        return [
-            {
-                id: 'my-dark-theme',
-                name: 'Mój Ciemny Motyw',
-                type: 'custom',
-                css: ':root { --bg-primary: #1a1a1a; --bg-secondary: #2a2a2a; --text-primary: #ffffff; --accent: #ff6600; }',
-                colors: { primary: '#1a1a1a', secondary: '#2a2a2a', text: '#ffffff', accent: '#ff6600' }
-            }
-        ];
+        return [];
     },
 
     async saveCustomTheme(theme: ThemeDefinition): Promise<void> {
         if (isTauri) {
             await invoke('save_custom_theme', { theme });
         } else {
-            console.log('[Mock] Zapisywanie motywu:', theme);
+            console.log('[Mock] Saving theme:', theme);
         }
     },
 
@@ -475,11 +520,12 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('delete_custom_theme', { themeId });
         } else {
-            console.log('[Mock] Usuwanie motywu:', themeId);
+            console.log('[Mock] Deleting theme:', themeId);
         }
     },
 
-    // ── Power profiles ────────────────────────────────────────────────────
+    // ── Power profiles ────────────────────────────────────────────────────────
+
     async getPowerProfiles(): Promise<PowerProfile[]> {
         if (isTauri) {
             return await invoke('get_power_profiles') ?? [];
@@ -495,17 +541,18 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('set_power_profile', { profile });
         } else {
-            console.log('[Mock] Ustawiono profil zasilania:', profile);
+            console.log('[Mock] Power profile:', profile);
         }
     },
 
-    // ── File operations for Explorer & Blue Code ───────────────────────────
+    // ── File operations ────────────────────────────────────────────────────────
+
     readFileAsDataURL: async (path: string): Promise<string> => {
         if (isTauri) {
             try {
                 return await invoke('read_file_as_data_url', { path });
             } catch (e) {
-                console.error('Błąd odczytu pliku jako data URL:', e);
+                console.error('Error reading file as data URL:', e);
                 return '';
             }
         }
@@ -516,7 +563,7 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('create_folder', { path, name });
         } else {
-            console.log('[Mock] Tworzenie folderu:', path, name);
+            console.log('[Mock] Create folder:', path, name);
         }
     },
 
@@ -524,7 +571,7 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('delete_file', { path });
         } else {
-            console.log('[Mock] Usuwanie pliku:', path);
+            console.log('[Mock] Delete file:', path);
         }
     },
 
@@ -532,7 +579,7 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('copy_file', { src, dest });
         } else {
-            console.log('[Mock] Kopiowanie pliku:', src, '->', dest);
+            console.log('[Mock] Copy file:', src, '->', dest);
         }
     },
 
@@ -540,17 +587,18 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('move_file', { src, dest });
         } else {
-            console.log('[Mock] Przenoszenie pliku:', src, '->', dest);
+            console.log('[Mock] Move file:', src, '->', dest);
         }
     },
 
-    // ── Terminal execution (simple command) ───────────────────────────────
+    // ── Terminal execution ─────────────────────────────────────────────────────
+
     async executeCommand(command: string): Promise<{ stdout: string; stderr: string }> {
         if (isTauri) {
             try {
                 return await invoke('execute_command', { command });
             } catch (e) {
-                console.error('Błąd wykonywania komendy:', e);
+                console.error('Command error:', e);
                 return { stdout: '', stderr: String(e) };
             }
         } else {
@@ -559,7 +607,6 @@ export const SystemBridge = {
         }
     },
 
-    // ── Terminal (live process) ───────────────────────────────────────────
     async spawnTerminal(windowId: string): Promise<{ success: boolean; error?: string }> {
         if (isTauri) {
             try {
@@ -568,7 +615,7 @@ export const SystemBridge = {
                 return { success: false, error: String(e) };
             }
         }
-        return { success: false, error: 'Tylko w środowisku Tauri' };
+        return { success: false, error: 'Only in Tauri environment' };
     },
 
     async writeToTerminal(command: string): Promise<{ error?: string }> {
@@ -579,16 +626,17 @@ export const SystemBridge = {
                 return { error: String(e) };
             }
         }
-        return { error: 'Tylko w środowisku Tauri' };
+        return { error: 'Only in Tauri environment' };
     },
 
-    // ── Desktop path detection ────────────────────────────────────────────
+    // ── Desktop path ──────────────────────────────────────────────────────────
+
     async getDefaultDesktopPath(): Promise<string> {
         if (isTauri) {
             try {
                 return await invoke('get_default_desktop_path');
             } catch (e) {
-                console.error('Błąd pobierania ścieżki pulpitu:', e);
+                console.error('Error getting desktop path:', e);
             }
         }
         return 'HOME/Desktop';
@@ -598,23 +646,12 @@ export const SystemBridge = {
         if (isTauri) {
             await invoke('create_text_file', { path, name, content });
         } else {
-            console.log('[Mock] Tworzenie pliku:', path, name);
+            console.log('[Mock] Create text file:', path, name);
         }
     },
 
-    // ── Git integration ───────────────────────────────────────────────────
-    async gitStatus(path: string): Promise<string[]> {
-        if (isTauri) {
-            try {
-                return await invoke('git_status', { path }) ?? [];
-            } catch {
-                return [];
-            }
-        }
-        return [];
-    },
+    // ── LSP ───────────────────────────────────────────────────────────────────
 
-    // ── Language Server Protocol (LSP) ─────────────────────────────────────
     async startLanguageServer(language: string, rootPath: string): Promise<{ success: boolean; error?: string }> {
         if (isTauri) {
             try {
@@ -623,10 +660,11 @@ export const SystemBridge = {
                 return { success: false, error: String(e) };
             }
         }
-        return { success: false, error: 'Tylko w środowisku Tauri' };
+        return { success: false, error: 'Only in Tauri environment' };
     },
 
-    // ── Integracja z Google ─────────────────────────────────────────────
+    // ── Google ────────────────────────────────────────────────────────────────
+
     googleSignIn: async (): Promise<{ accessToken: string; user: any } | null> => {
         return new Promise(resolve => {
             setTimeout(() => {
@@ -639,10 +677,11 @@ export const SystemBridge = {
     },
 
     googleSignOut: async (): Promise<void> => {
-        console.log('Wylogowano z Google');
+        console.log('Signed out from Google');
     },
 
-    // ── AI configuration (encrypted storage) ────────────────────────────────
+    // ── AI configuration ───────────────────────────────────────────────────────
+
     async getAIConfig(): Promise<AIConfig | null> {
         if (isTauri) {
             try {
@@ -672,19 +711,18 @@ export const SystemBridge = {
                 throw new Error(`AI call failed: ${e}`);
             }
         } else {
-            // Mock – symulacja odpowiedzi
             console.log(`[Mock] AI call to ${request.service} with model ${request.model}`);
             const lastMsg = request.messages[request.messages.length - 1]?.content || 'empty';
-            return `[Mock] ${request.service} response: ${lastMsg}`;
+            return `[Mock] ${request.service} response to: ${lastMsg}`;
         }
     },
 
-    // ── Package managers ───────────────────────────────────────────────────
+    // ── Package managers ───────────────────────────────────────────────────────
+
     async getAptPackages(): Promise<PackageInfo[]> {
         if (isTauri) {
             return await invoke('get_apt_packages') ?? [];
         }
-        // Mock – w trybie deweloperskim zwracamy przykładowe pakiety
         return [
             { id: 'firefox', name: 'Firefox', description: 'Web browser', version: '120.0', source: 'apt', installed: false },
             { id: 'vlc', name: 'VLC', description: 'Media player', version: '3.0.20', source: 'apt', installed: true, updateAvailable: true },
@@ -709,7 +747,6 @@ export const SystemBridge = {
         }
         return [
             { id: 'firefox', name: 'Firefox (Snap)', description: 'Web browser (Snap)', version: '120.0', source: 'snap', installed: true },
-            { id: 'core20', name: 'Core20', description: 'Snap runtime', version: '20240101', source: 'snap', installed: true },
         ];
     },
 
@@ -718,107 +755,73 @@ export const SystemBridge = {
             return await invoke('get_appimage_packages') ?? [];
         }
         return [
-            { id: 'obsidian', name: 'Obsidian', description: 'Knowledge base', version: '1.4.16', source: 'appimage', installed: false, icon: '' },
+            { id: 'obsidian', name: 'Obsidian', description: 'Knowledge base', version: '1.4.16', source: 'appimage', installed: false },
         ];
     },
 
     async installAptPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('install_apt_package', { pkgId });
-        }
+        if (isTauri) return await invoke('install_apt_package', { pkgId });
         console.log(`[Mock] Install APT: ${pkgId}`);
         return true;
     },
 
     async removeAptPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('remove_apt_package', { pkgId });
-        }
-        console.log(`[Mock] Remove APT: ${pkgId}`);
+        if (isTauri) return await invoke('remove_apt_package', { pkgId });
         return true;
     },
 
     async updateAptPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('update_apt_package', { pkgId });
-        }
-        console.log(`[Mock] Update APT: ${pkgId}`);
+        if (isTauri) return await invoke('update_apt_package', { pkgId });
         return true;
     },
 
     async installFlatpakPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('install_flatpak_package', { pkgId });
-        }
-        console.log(`[Mock] Install Flatpak: ${pkgId}`);
+        if (isTauri) return await invoke('install_flatpak_package', { pkgId });
         return true;
     },
 
     async removeFlatpakPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('remove_flatpak_package', { pkgId });
-        }
-        console.log(`[Mock] Remove Flatpak: ${pkgId}`);
+        if (isTauri) return await invoke('remove_flatpak_package', { pkgId });
         return true;
     },
 
     async updateFlatpakPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('update_flatpak_package', { pkgId });
-        }
-        console.log(`[Mock] Update Flatpak: ${pkgId}`);
+        if (isTauri) return await invoke('update_flatpak_package', { pkgId });
         return true;
     },
 
     async installSnapPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('install_snap_package', { pkgId });
-        }
-        console.log(`[Mock] Install Snap: ${pkgId}`);
+        if (isTauri) return await invoke('install_snap_package', { pkgId });
         return true;
     },
 
     async removeSnapPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('remove_snap_package', { pkgId });
-        }
-        console.log(`[Mock] Remove Snap: ${pkgId}`);
+        if (isTauri) return await invoke('remove_snap_package', { pkgId });
         return true;
     },
 
     async updateSnapPackage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('update_snap_package', { pkgId });
-        }
-        console.log(`[Mock] Update Snap: ${pkgId}`);
+        if (isTauri) return await invoke('update_snap_package', { pkgId });
         return true;
     },
 
     async installAppImage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('install_appimage', { pkgId });
-        }
-        console.log(`[Mock] Install AppImage: ${pkgId}`);
+        if (isTauri) return await invoke('install_appimage', { pkgId });
         return true;
     },
 
     async removeAppImage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('remove_appimage', { pkgId });
-        }
-        console.log(`[Mock] Remove AppImage: ${pkgId}`);
+        if (isTauri) return await invoke('remove_appimage', { pkgId });
         return true;
     },
 
     async updateAppImage(pkgId: string): Promise<boolean> {
-        if (isTauri) {
-            return await invoke('update_appimage', { pkgId });
-        }
-        console.log(`[Mock] Update AppImage: ${pkgId}`);
+        if (isTauri) return await invoke('update_appimage', { pkgId });
         return true;
     },
 
-    // ── Panel ─────────────────────────────────────────────────────────────
+    // ── Panel ─────────────────────────────────────────────────────────────────
+
     async setPanelEnabled(enabled: boolean): Promise<void> {
         if (isTauri) {
             await invoke('set_panel_enabled', { enabled });
