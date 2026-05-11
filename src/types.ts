@@ -1,5 +1,4 @@
 import { ReactNode } from 'react';
-import { LucideIcon } from 'lucide-react';
 
 export enum AppId {
     TERMINAL       = 'terminal',
@@ -14,7 +13,6 @@ export enum AppId {
     BLUE_CODE      = 'blue_code',
     BLUE_SOFTWARE  = 'blue_software',
     MAIL           = 'mail',
-    // External apps
     BLUE_EDIT      = 'blue_edit',
     BLUE_IMAGES    = 'blue_images',
     BLUE_VIDEOS    = 'blue_videos',
@@ -30,6 +28,8 @@ export interface DesktopEntry {
     icon: string;
     exec: string;
     categories: string[];
+    desktop_file?: string;
+    is_external?: boolean;
 }
 
 export interface AppDefinition {
@@ -56,6 +56,28 @@ export interface WindowState {
     zIndex: number;
     isExternal: boolean;
     workspace: number;
+    externalWindowId?: string;
+    pid?: number;
+}
+
+export interface AppsEnabled {
+    blueAI: boolean;
+    blueCode: boolean;
+    blueSoftware: boolean;
+    mail: boolean;
+    calculator: boolean;
+    notepad: boolean;
+    systemMonitor: boolean;
+    explorer: boolean;
+    terminal: boolean;
+    blueWeb: boolean;
+    about: boolean;
+}
+
+export interface AIConfig {
+    service: string;
+    model: string;
+    apiKey: string;
 }
 
 export interface UserConfig {
@@ -76,16 +98,11 @@ export interface UserConfig {
     nightLightSchedule: 'manual' | 'sunset';
     nightLightStartHour: number;
     nightLightEndHour: number;
-    appsEnabled: {
-        blueAI: boolean;
-        blueCode: boolean;
-        blueSoftware: boolean;
-        mail: boolean;
-    };
+    appsEnabled?: Partial<AppsEnabled>;
+    aiConfig?: AIConfig;
     accounts?: {
         google?: { email: string; name: string; picture: string };
         apple?: { email: string; name: string };
-        // dodatkowe konta dla AI
         chatgpt?: { email: string; accessToken?: string };
         grok?: { email: string; accessToken?: string };
         claude?: { email: string; accessToken?: string };
@@ -99,12 +116,7 @@ export interface ThemeDefinition {
     name: string;
     type: 'builtin' | 'custom';
     css?: string;
-    colors?: {
-        primary: string;
-        secondary: string;
-        text: string;
-        accent: string;
-    };
+    colors?: { primary: string; secondary: string; text: string; accent: string };
 }
 
 export interface PowerProfile {
@@ -139,4 +151,44 @@ export interface PackageInfo {
     updateAvailable?: boolean;
     icon?: string;
     size?: string;
+}
+
+export interface SystemStats {
+    cpu: number;
+    ram: number;
+    battery: number;
+    isCharging: boolean;
+    volume: number;
+    brightness: number;
+    wifiSSID: string;
+    kernel: string;
+    sessionType: string;
+    uptime?: number;
+    totalRam?: number;
+    cpuModel?: string;
+    diskUsage?: string;
+    gpuModel?: string;
+    hostname?: string;
+}
+
+export interface AIMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+export interface ExternalWindow {
+    id: string;
+    pid: number;
+    title: string;
+    class: string;
+    iconPath: string;
+    isMinimized: boolean;
+    desktop: number;
+}
+
+export interface AICallRequest {
+    service: string;
+    apiKey: string;
+    model: string;
+    messages: AIMessage[];
 }
