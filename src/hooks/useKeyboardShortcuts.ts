@@ -45,9 +45,7 @@ export function useKeyboardShortcuts({
     setSwitcherIndex,
 }: KeyboardShortcutsConfig) {
 
-    // Track held keys to handle combos properly
     const heldKeys = useRef<Set<string>>(new Set());
-    // Store latest windows in ref to avoid stale closures in event listeners
     const windowsRef = useRef(windows);
     windowsRef.current = windows;
     const activeRef = useRef(activeWindowId);
@@ -63,12 +61,10 @@ export function useKeyboardShortcuts({
         const wins = windowsRef.current;
         const idx = switcherIndexRef.current;
         if (wins.length === 0) return;
-        const selected = wins[idx % wins.length];
+        const safeIdx = idx % wins.length;
+        const selected = wins[safeIdx];
         if (selected) {
             focusWindow(selected.id);
-            if (selected.isMinimized) {
-                // un-minimize via focusWindow side-effect handled in WM
-            }
         }
         setSwitcherVisible(false);
     }, [focusWindow, setSwitcherVisible]);
@@ -78,114 +74,142 @@ export function useKeyboardShortcuts({
         heldKeys.current.add(key);
 
         const alt = e.altKey;
-        const meta = e.metaKey || e.key === 'Meta';
+        const meta = e.metaKey || key === 'Meta';
         const ctrl = e.ctrlKey;
         const shift = e.shiftKey;
         const wins = windowsRef.current;
-        const activeId = activeRef.current;
         const svRef = switcherVisibleRef.current;
-        const siRef = switcherIndexRef.current;
-        const wsCount = workspaceCount;
-        const cws = currentWorkspaceRef.current;
 
-        // ── Alt+Tab ─────────────────────────────────────────
+        // ── Alt+Tab ─────────────────────────────────────────────────────────
         if (alt && key === 'Tab') {
             e.preventDefault();
+            e.stopPropagation();
             if (wins.length === 0) return;
 
             if (!svRef) {
+                const activeId = activeRef.current;
                 const currentIdx = wins.findIndex(w => w.id === activeId);
-                const nextIdx = (currentIdx + 1) % wins.length;
+                const startIdx = currentIdx !== -1 ? (currentIdx + 1) % wins.length : 0;
                 setSwitcherVisible(true);
-                setSwitcherIndex(nextIdx);
+                setSwitcherIndex(startIdx);
             } else {
                 setSwitcherIndex(prev => (prev + 1) % wins.length);
             }
             return;
         }
 
-        // ── Alt+Shift+Tab (backwards) ────────────────────────
+        // ── Alt+Shift+Tab ────────────────────────────────────────────────────
         if (alt && shift && key === 'Tab') {
             e.preventDefault();
+            e.stopPropagation();
             if (wins.length === 0) return;
-            setSwitcherIndex(prev => (prev - 1 + wins.length) % wins.length);
+            if (svRef) {
+                setSwitcherIndex(prev => (prev - 1 + wins.length) % wins.length);
+            }
             return;
         }
 
-        // ── Super/Meta key (Win key) ─────────────────────────
-        if (key === 'Meta') {
-            // Handled on keyup to distinguish press vs combo
-            return;
-        }
+        // ── Meta key alone — handled on keyup ────────────────────────────────
+        if (key === 'Meta') return;
 
-        // ── Super + number → switch workspace ───────────────
-        if (alt && e.metaKey && /^[1-4]$/.test(key)) {
+        // ── Win+Tab → full-screen menu ────────────────────────────────────────
+        if (meta && key === 'Tab') {
             e.preventDefault();
-            switchWorkspace(parseInt(key) - 1);
-            return;
-        }
-
-        // ── Super + Tab → full-screen app switcher ──────────
-        if (e.metaKey && key === 'Tab') {
-            e.preventDefault();
+            e.stopPropagation();
             onOpenFullScreenMenu();
             return;
         }
 
-        // ── Super + Left/Right → switch workspace ───────────
-        if (e.metaKey && key === 'ArrowRight') {
+        // ── Win + number → switch workspace ──────────────────────────────────
+        if (meta && /^[1-9]$/.test(key)) {
             e.preventDefault();
-            switchWorkspace(cws + 1);
-            return;
-        }
-        if (e.metaKey && key === 'ArrowLeft') {
-            e.preventDefault();
-            switchWorkspace(cws - 1);
+            const num = parseInt(key, 10);
+            if (num <= workspaceCount) switchWorkspace(num - 1);
             return;
         }
 
-        // ── Super + Up → maximize active window ─────────────
-        if (e.metaKey && key === 'ArrowUp' && activeId) {
+        // ── Win + Arrow ───────────────────────────────────────────────────────
+        if (meta && key === 'ArrowRight') {
             e.preventDefault();
-            maximizeWindow(activeId);
+            switchWorkspace(currentWorkspaceRef.current + 1);
+            return;
+        }
+        if (meta && key === 'ArrowLeft') {
+            e.preventDefault();
+            switchWorkspace(currentWorkspaceRef.current - 1);
+            return;
+        }
+        if (meta && key === 'ArrowUp' && activeRef.current) {
+            e.preventDefault();
+            maximizeWindow(activeRef.current);
+            return;
+        }
+        if (meta && key === 'ArrowDown' && activeRef.current) {
+            e.preventDefault();
+            minimizeWindow(activeRef.current);
             return;
         }
 
-        // ── Super + Down → minimize active window ────────────
-        if (e.metaKey && key === 'ArrowDown' && activeId) {
+        // ── Alt+F4 → close ────────────────────────────────────────────────────
+        if (alt && key === 'F4' && activeRef.current) {
             e.preventDefault();
-            minimizeWindow(activeId);
+            closeWindow(activeRef.current);
             return;
         }
 
-        // ── Alt+F4 → close active window ─────────────────────
-        if (alt && key === 'F4' && activeId) {
-            e.preventDefault();
-            closeWindow(activeId);
-            return;
-        }
-
-        // ── Ctrl+Alt+T → open terminal ──────────────────────
-        // (handled in App.tsx via openApp but we can emit event)
+        // ── Ctrl+Alt+T → terminal ─────────────────────────────────────────────
         if (ctrl && alt && key === 't') {
             e.preventDefault();
             window.dispatchEvent(new CustomEvent('blue:open-terminal'));
             return;
         }
 
-        // ── Escape → close switcher / close menus ───────────
+        // ── Ctrl+Shift+V → clipboard ──────────────────────────────────────────
+        if (ctrl && shift && key === 'V') {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('blue:toggle-clipboard'));
+            return;
+        }
+
+        // ── Ctrl+Alt+C → control center ───────────────────────────────────────
+        if (ctrl && alt && key === 'c') {
+            e.preventDefault();
+            onToggleControlCenter();
+            return;
+        }
+
+        // ── PrintScreen ───────────────────────────────────────────────────────
+        if (key === 'PrintScreen') {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('blue:screenshot'));
+            return;
+        }
+
+        // ── Escape ────────────────────────────────────────────────────────────
         if (key === 'Escape') {
-            if (svRef) {
-                setSwitcherVisible(false);
-            }
+            if (svRef) setSwitcherVisible(false);
             window.dispatchEvent(new CustomEvent('blue:close-panels'));
             return;
         }
 
-        // ── Alt+F1 → toggle start menu ──────────────────────
+        // ── Alt+F1 → start menu ───────────────────────────────────────────────
         if (alt && key === 'F1') {
             e.preventDefault();
             onToggleStartMenu();
+            return;
+        }
+
+        // ── Win+L → lock screen (placeholder) ────────────────────────────────
+        if (meta && key === 'l') {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('blue:lock-screen'));
+            return;
+        }
+
+        // ── Win+D → show desktop ──────────────────────────────────────────────
+        if (meta && key === 'd') {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('blue:show-desktop'));
             return;
         }
 
@@ -199,24 +223,25 @@ export function useKeyboardShortcuts({
         closeWindow,
         onToggleStartMenu,
         onOpenFullScreenMenu,
+        onToggleControlCenter,
     ]);
 
     const handleKeyUp = useCallback((e: KeyboardEvent) => {
         const key = e.key;
-        const wasHeld = heldKeys.current.has('Meta') || key === 'Meta';
         heldKeys.current.delete(key);
 
-        // ── Alt release → commit Alt+Tab selection ───────────
+        // Alt release → commit switcher
         if (key === 'Alt' && switcherVisibleRef.current) {
             commitSwitcher();
             return;
         }
 
-        // ── Meta release alone (no combo) → start menu ───────
-        if (key === 'Meta' && wasHeld) {
-            // Only toggle if no other key was pressed with Meta
-            const hadCombo = [...heldKeys.current].some(k => k !== 'Meta');
-            if (!hadCombo) {
+        // Meta release alone → toggle start menu
+        if (key === 'Meta') {
+            const nonModifiers = [...heldKeys.current].filter(
+                k => !['Shift', 'Control', 'Alt', 'Meta'].includes(k)
+            );
+            if (nonModifiers.length === 0) {
                 onToggleStartMenu();
             }
         }
