@@ -20,7 +20,7 @@ export const THEMES = {
     'blue-default': { name: 'Blue Glass',  bg: 'bg-slate-900',    accent: 'blue'   },
     'cyberpunk':    { name: 'Cyberpunk',   bg: 'bg-zinc-950',     accent: 'yellow' },
     'dracula':      { name: 'Dracula',     bg: 'bg-[#282a36]',    accent: 'purple' },
-    'light-glass':  { name: 'Light Glass', bg: 'bg-slate-200',    accent: 'blue' },
+    'light-glass':  { name: 'Light Glass', bg: 'bg-slate-200',    accent: 'blue'   },
 };
 
 export const APPS: Record<AppId, AppDefinition> = {
@@ -30,7 +30,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Terminal,
         component: TerminalApp,
         defaultWidth: 680,
-            defaultHeight: 480,
+        defaultHeight: 480,
     },
     [AppId.BLUE_WEB]: {
         id: AppId.BLUE_WEB,
@@ -38,7 +38,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Globe,
         component: BlueWebApp,
         defaultWidth: 1000,
-            defaultHeight: 700,
+        defaultHeight: 700,
     },
     [AppId.EXPLORER]: {
         id: AppId.EXPLORER,
@@ -46,7 +46,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: FolderOpen,
         component: ExplorerApp,
         defaultWidth: 820,
-            defaultHeight: 560,
+        defaultHeight: 560,
     },
     [AppId.CALCULATOR]: {
         id: AppId.CALCULATOR,
@@ -54,7 +54,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Calculator,
         component: CalculatorApp,
         defaultWidth: 320,
-            defaultHeight: 460,
+        defaultHeight: 460,
     },
     [AppId.SYSTEM_MONITOR]: {
         id: AppId.SYSTEM_MONITOR,
@@ -62,7 +62,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Activity,
         component: SystemMonitorApp,
         defaultWidth: 820,
-            defaultHeight: 600,
+        defaultHeight: 600,
     },
     [AppId.AI_ASSISTANT]: {
         id: AppId.AI_ASSISTANT,
@@ -70,7 +70,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Bot,
         component: BlueAI,
         defaultWidth: 500,
-            defaultHeight: 700,
+        defaultHeight: 700,
     },
     [AppId.SETTINGS]: {
         id: AppId.SETTINGS,
@@ -78,7 +78,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Settings,
         component: SettingsApp,
         defaultWidth: 860,
-            defaultHeight: 620,
+        defaultHeight: 620,
     },
     [AppId.ABOUT]: {
         id: AppId.ABOUT,
@@ -86,7 +86,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Info,
         component: AboutApp,
         defaultWidth: 420,
-            defaultHeight: 360,
+        defaultHeight: 360,
     },
     [AppId.NOTEPAD]: {
         id: AppId.NOTEPAD,
@@ -94,7 +94,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: FileText,
         component: NotepadApp,
         defaultWidth: 600,
-            defaultHeight: 400,
+        defaultHeight: 400,
     },
     [AppId.BLUE_CODE]: {
         id: AppId.BLUE_CODE,
@@ -102,7 +102,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: FileCode,
         component: BlueCodeApp,
         defaultWidth: 900,
-            defaultHeight: 700,
+        defaultHeight: 700,
     },
     [AppId.BLUE_SOFTWARE]: {
         id: AppId.BLUE_SOFTWARE,
@@ -110,7 +110,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Package,
         component: BlueSoftwareApp,
         defaultWidth: 800,
-            defaultHeight: 600,
+        defaultHeight: 600,
     },
     [AppId.MAIL]: {
         id: AppId.MAIL,
@@ -118,7 +118,7 @@ export const APPS: Record<AppId, AppDefinition> = {
         icon: Mail,
         component: MailApp,
         defaultWidth: 1000,
-            defaultHeight: 700,
+        defaultHeight: 700,
     },
     [AppId.EXTERNAL]: {
         id: AppId.EXTERNAL,
