@@ -28,7 +28,6 @@ interface SearchResult {
     content: string;
 }
 
-// Komponent terminala (wydzielony dla lepszego zarządzania)
 const TerminalComponent: React.FC<{ windowId: string }> = ({ windowId }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstance = useRef<Terminal | null>(null);
@@ -44,7 +43,7 @@ const TerminalComponent: React.FC<{ windowId: string }> = ({ windowId }) => {
             theme: {
                 background: '#0f172a',
                 foreground: '#e2e8f0',
-                    cursor: '#60a5fa',
+                cursor: '#60a5fa',
             },
         });
         const fit = new FitAddon();
@@ -55,11 +54,9 @@ const TerminalComponent: React.FC<{ windowId: string }> = ({ windowId }) => {
         terminalInstance.current = term;
         fitAddon.current = fit;
 
-        // Obsługa resize
         const resizeObserver = new ResizeObserver(() => fit.fit());
         resizeObserver.observe(terminalRef.current);
 
-        // Uruchom terminal przez backend
         SystemBridge.spawnTerminal(windowId).then((res) => {
             if (!res.success) {
                 term.writeln(`\x1b[31m[Error] ${res.error || 'Cannot start terminal'}\x1b[0m`);
@@ -69,14 +66,12 @@ const TerminalComponent: React.FC<{ windowId: string }> = ({ windowId }) => {
             }
         });
 
-        // Nasłuchuj danych z backendu
         const handleOutput = (e: Event) => {
             const customEvent = e as CustomEvent<{ data: string; type?: string }>;
             term.write(customEvent.detail.data);
         };
         window.addEventListener('terminal-output', handleOutput);
 
-        // Przekaż dane do backendu
         term.onData(data => {
             SystemBridge.writeToTerminal(data);
         });
@@ -94,7 +89,6 @@ const TerminalComponent: React.FC<{ windowId: string }> = ({ windowId }) => {
 
 const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
     const { t } = useLanguage();
-    // Ścieżka główna – domyślnie katalog domowy
     const [rootPath, setRootPath] = useState<string>('');
     const [fileTree, setFileTree] = useState<FileNode[]>([]);
     const [openFiles, setOpenFiles] = useState<{ path: string; content: string; modified: boolean }[]>([]);
@@ -112,7 +106,6 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<Monaco | null>(null);
 
-    // Wczytaj katalog domowy
     useEffect(() => {
         const init = async () => {
             const desktop = await SystemBridge.getDefaultDesktopPath();
@@ -123,7 +116,6 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
         init();
     }, []);
 
-    // Ładowanie drzewa plików
     const loadFileTree = async (path: string) => {
         setIsLoading(true);
         try {
@@ -146,7 +138,6 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
         }
     };
 
-    // Lazy load katalogu
     const loadDirectoryChildren = async (node: FileNode) => {
         if (node.type !== 'directory') return;
         if (node.children && node.children.length > 0) return;
@@ -207,143 +198,133 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
         else if (activeFileIndex === index) setActiveFileIndex(0);
     };
 
-        const newFile = async () => {
-            const name = prompt('Enter file name (with extension):');
-            if (!name) return;
-            const path = `${rootPath}/${name}`;
-            await SystemBridge.writeFile(path, '');
-            await loadFileTree(rootPath);
-            await openFile(path);
-        };
+    const newFile = async () => {
+        const name = prompt('Enter file name (with extension):');
+        if (!name) return;
+        const path = `${rootPath}/${name}`;
+        await SystemBridge.writeFile(path, '');
+        await loadFileTree(rootPath);
+        await openFile(path);
+    };
 
-        const deleteItem = async (node: FileNode) => {
-            if (!confirm(`Delete ${node.name}?`)) return;
-            await SystemBridge.deleteFile(node.path);
-            await loadFileTree(rootPath);
-            const idx = openFiles.findIndex(f => f.path === node.path);
-            if (idx !== -1) closeFile(idx);
-        };
+    const deleteItem = async (node: FileNode) => {
+        if (!confirm(`Delete ${node.name}?`)) return;
+        await SystemBridge.deleteFile(node.path);
+        await loadFileTree(rootPath);
+        const idx = openFiles.findIndex(f => f.path === node.path);
+        if (idx !== -1) closeFile(idx);
+    };
 
-            const renameItem = async (node: FileNode) => {
-                const newName = prompt('New name:', node.name);
-                if (!newName || newName === node.name) return;
-                const newPath = node.path.replace(node.name, newName);
-                await SystemBridge.moveFile(node.path, newPath);
-                await loadFileTree(rootPath);
-                // Zaktualizuj otwarte pliki
-                const idx = openFiles.findIndex(f => f.path === node.path);
-                if (idx !== -1) {
-                    const content = openFiles[idx].content;
-                    setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, path: newPath, content } : f));
-                }
-            };
+    const renameItem = async (node: FileNode) => {
+        const newName = prompt('New name:', node.name);
+        if (!newName || newName === node.name) return;
+        const newPath = node.path.replace(node.name, newName);
+        await SystemBridge.moveFile(node.path, newPath);
+        await loadFileTree(rootPath);
+        const idx = openFiles.findIndex(f => f.path === node.path);
+        if (idx !== -1) {
+            const content = openFiles[idx].content;
+            setOpenFiles(prev => prev.map((f, i) => i === idx ? { ...f, path: newPath, content } : f));
+        }
+    };
 
-            const copyItem = async (node: FileNode) => {
-                // proste kopiowanie – w praktyce lepiej użyć schowka systemowego
-                const newPath = node.path + '.copy';
-                await SystemBridge.copyFile(node.path, newPath);
-                await loadFileTree(rootPath);
-            };
+    const copyItem = async (node: FileNode) => {
+        const newPath = node.path + '.copy';
+        await SystemBridge.copyFile(node.path, newPath);
+        await loadFileTree(rootPath);
+    };
 
-            const refreshExplorer = () => loadFileTree(rootPath);
+    const refreshExplorer = () => loadFileTree(rootPath);
 
-            // Wyszukiwanie w plikach (proste, przeszukuje wszystkie pliki w katalogu)
-            const searchInFiles = async () => {
-                if (!searchTerm.trim()) return;
-                const results: SearchResult[] = [];
-                const searchDir = async (dir: string) => {
-                    const files = await SystemBridge.getFiles(dir);
-                    for (const file of files) {
-                        if (file.is_dir) {
-                            await searchDir(file.path);
-                        } else {
-                            const content = await SystemBridge.readFile(file.path);
-                            const lines = content.split('\n');
-                            for (let i = 0; i < lines.length; i++) {
-                                if (lines[i].toLowerCase().includes(searchTerm.toLowerCase())) {
-                                    results.push({ file: file.path, line: i + 1, content: lines[i].trim() });
-                                }
-                            }
+    const searchInFiles = async () => {
+        if (!searchTerm.trim()) return;
+        const results: SearchResult[] = [];
+        const searchDir = async (dir: string) => {
+            const files = await SystemBridge.getFiles(dir);
+            for (const file of files) {
+                if (file.is_dir) {
+                    await searchDir(file.path);
+                } else {
+                    const content = await SystemBridge.readFile(file.path);
+                    const lines = content.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        if (lines[i].toLowerCase().includes(searchTerm.toLowerCase())) {
+                            results.push({ file: file.path, line: i + 1, content: lines[i].trim() });
                         }
                     }
-                };
-                await searchDir(rootPath);
-                setSearchResults(results);
-                setShowSearch(true);
-            };
-
-            // Paleta komend
-            const commands = [
-                { id: 'save', label: 'Save File', action: () => saveFile(activeFileIndex) },
-                { id: 'saveAll', label: 'Save All Files', action: saveAll },
-                { id: 'newFile', label: 'New File', action: newFile },
-                { id: 'toggleTerminal', label: 'Toggle Terminal', action: () => setShowTerminal(!showTerminal) },
-                { id: 'toggleSidebar', label: 'Toggle Sidebar', action: () => setSidebarCollapsed(!sidebarCollapsed) },
-                { id: 'refreshExplorer', label: 'Refresh Explorer', action: refreshExplorer },
-                { id: 'searchFiles', label: 'Search in Files', action: () => setShowSearch(true) },
-            ];
-
-            const executeCommand = (cmd: typeof commands[0]) => {
-                cmd.action();
-                setShowCommandPalette(false);
-            };
-
-            // Edytor – obsługa zmian
-            const handleEditorChange = (value: string | undefined) => {
-                if (value === undefined) return;
-                setOpenFiles(prev => prev.map((f, i) =>
-                i === activeFileIndex ? { ...f, content: value, modified: true } : f
-                ));
-            };
-
-            // Konfiguracja Monaco
-            const handleEditorMount: OnMount = (editor, monaco) => {
-                editorRef.current = editor;
-                monacoRef.current = monaco;
-                // Dodaj skróty klawiszowe
-                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile(activeFileIndex));
-                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveAll());
-                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, () => setShowCommandPalette(true));
-                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => editor.getAction('actions.find')?.run());
-                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => setShowSearch(true));
-
-                // Motywy
-                monaco.editor.defineTheme('blue-dark', {
-                    base: 'vs-dark',
-                    inherit: true,
-                    rules: [],
-                    colors: {
-                        'editor.background': '#0f172a',
-                        'editor.lineHighlightBackground': '#1e293b',
-                        'editorLineNumber.foreground': '#475569',
-                        'editorLineNumber.activeForeground': '#94a3b8',
-                    },
-                });
-                monaco.editor.defineTheme('blue-light', {
-                    base: 'vs',
-                    inherit: true,
-                    rules: [],
-                    colors: {
-                        'editor.background': '#f8fafc',
-                        'editor.foreground': '#0f172a',
-                        'editorLineNumber.foreground': '#cbd5e1',
-                    },
-                });
-                monaco.editor.setTheme(editorTheme);
-            };
-
-            // Zmiana motywu edytora
-            useEffect(() => {
-                if (monacoRef.current) {
-                    monacoRef.current.editor.setTheme(editorTheme);
                 }
-            }, [editorTheme]);
+            }
+        };
+        await searchDir(rootPath);
+        setSearchResults(results);
+        setShowSearch(true);
+    };
 
-            // Rysowanie drzewa plików
-            const renderTree = (nodes: FileNode[], level = 0) => {
-                return nodes.map(node => (
-                    <div key={node.path}>
-                    <div
+    const commands = [
+        { id: 'save', label: 'Save File', action: () => saveFile(activeFileIndex) },
+        { id: 'saveAll', label: 'Save All Files', action: saveAll },
+        { id: 'newFile', label: 'New File', action: newFile },
+        { id: 'toggleTerminal', label: 'Toggle Terminal', action: () => setShowTerminal(!showTerminal) },
+        { id: 'toggleSidebar', label: 'Toggle Sidebar', action: () => setSidebarCollapsed(!sidebarCollapsed) },
+        { id: 'refreshExplorer', label: 'Refresh Explorer', action: refreshExplorer },
+        { id: 'searchFiles', label: 'Search in Files', action: () => setShowSearch(true) },
+    ];
+
+    const executeCommand = (cmd: typeof commands[0]) => {
+        cmd.action();
+        setShowCommandPalette(false);
+    };
+
+    const handleEditorChange = (value: string | undefined) => {
+        if (value === undefined) return;
+        setOpenFiles(prev => prev.map((f, i) =>
+            i === activeFileIndex ? { ...f, content: value, modified: true } : f
+        ));
+    };
+
+    const handleEditorMount: OnMount = (editor, monaco) => {
+        editorRef.current = editor;
+        monacoRef.current = monaco;
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile(activeFileIndex));
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyS, () => saveAll());
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, () => setShowCommandPalette(true));
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => editor.getAction('actions.find')?.run());
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => setShowSearch(true));
+
+        monaco.editor.defineTheme('blue-dark', {
+            base: 'vs-dark',
+            inherit: true,
+            rules: [],
+            colors: {
+                'editor.background': '#0f172a',
+                'editor.lineHighlightBackground': '#1e293b',
+                'editorLineNumber.foreground': '#475569',
+                'editorLineNumber.activeForeground': '#94a3b8',
+            },
+        });
+        monaco.editor.defineTheme('blue-light', {
+            base: 'vs',
+            inherit: true,
+            rules: [],
+            colors: {
+                'editor.background': '#f8fafc',
+                'editor.foreground': '#0f172a',
+                'editorLineNumber.foreground': '#cbd5e1',
+            },
+        });
+        monaco.editor.setTheme(editorTheme);
+    };
+
+    useEffect(() => {
+        if (monacoRef.current) {
+            monacoRef.current.editor.setTheme(editorTheme);
+        }
+    }, [editorTheme]);
+
+    const renderTree = (nodes: FileNode[], level = 0) => {
+        return nodes.map(node => (
+            <div key={node.path}>
+                <div
                     className="flex items-center gap-1 py-1 px-2 rounded cursor-pointer hover:bg-white/5 group"
                     style={{ paddingLeft: `${level * 16 + 8}px` }}
                     onDoubleClick={() => node.type === 'file' && openFile(node.path)}
@@ -354,13 +335,13 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
                         else if (choice === 'rename') renameItem(node);
                         else if (choice === 'copy') copyItem(node);
                     }}
-                    >
+                >
                     {node.type === 'directory' && (
                         <button
-                        className="w-4 h-4 flex items-center justify-center"
-                        onClick={(e) => { e.stopPropagation(); toggleDirectory(node); }}
+                            className="w-4 h-4 flex items-center justify-center"
+                            onClick={(e) => { e.stopPropagation(); toggleDirectory(node); }}
                         >
-                        {node.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            {node.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                         </button>
                     )}
                     {node.type === 'directory' ? (
@@ -370,242 +351,233 @@ const BlueCodeApp: React.FC<AppProps> = ({ windowId }) => {
                     )}
                     <span className="text-sm truncate flex-1">{node.name}</span>
                     <div className="hidden group-hover:flex gap-1">
-                    {node.type === 'file' && (
-                        <button onClick={(e) => { e.stopPropagation(); openFile(node.path); }} className="p-0.5 hover:bg-white/10 rounded">
-                        <FileCode size={12} />
+                        {node.type === 'file' && (
+                            <button onClick={(e) => { e.stopPropagation(); openFile(node.path); }} className="p-0.5 hover:bg-white/10 rounded">
+                                <FileCode size={12} />
+                            </button>
+                        )}
+                        <button onClick={(e) => { e.stopPropagation(); renameItem(node); }} className="p-0.5 hover:bg-white/10 rounded">
+                            <Edit size={12} />
                         </button>
-                    )}
-                    <button onClick={(e) => { e.stopPropagation(); renameItem(node); }} className="p-0.5 hover:bg-white/10 rounded">
-                    <Edit size={12} />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteItem(node); }} className="p-0.5 hover:bg-white/10 rounded">
-                    <Trash2 size={12} />
-                    </button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteItem(node); }} className="p-0.5 hover:bg-white/10 rounded">
+                            <Trash2 size={12} />
+                        </button>
                     </div>
-                    </div>
-                    {node.type === 'directory' && node.expanded && node.children && node.children.length > 0 && renderTree(node.children, level + 1)}
-                    </div>
-                ));
-            };
+                </div>
+                {node.type === 'directory' && node.expanded && node.children && node.children.length > 0 && renderTree(node.children, level + 1)}
+            </div>
+        ));
+    };
 
-            const activeFile = openFiles[activeFileIndex];
+    const activeFile = openFiles[activeFileIndex];
 
-            return (
-                <div className="flex flex-col h-full bg-slate-900 text-white relative">
-                {/* Pasek narzędzi */}
-                <div className="h-12 bg-slate-800 border-b border-white/5 flex items-center px-4 gap-2">
+    return (
+        <div className="flex flex-col h-full bg-slate-900 text-white relative">
+            {/* Toolbar */}
+            <div className="h-12 bg-slate-800 border-b border-white/5 flex items-center px-4 gap-2">
                 <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-2 hover:bg-white/10 rounded" title="Toggle sidebar">
-                <FolderOpen size={18} />
+                    <FolderOpen size={18} />
                 </button>
                 <button onClick={newFile} className="p-2 hover:bg-white/10 rounded" title="New File">
-                <Plus size={18} />
+                    <Plus size={18} />
                 </button>
                 <button onClick={() => saveFile(activeFileIndex)} className="p-2 hover:bg-white/10 rounded" title="Save">
-                <Save size={18} />
+                    <Save size={18} />
                 </button>
                 <button onClick={saveAll} className="p-2 hover:bg-white/10 rounded" title="Save All">
-                <Save size={18} className="text-blue-400" />
+                    <Save size={18} className="text-blue-400" />
                 </button>
                 <div className="w-px h-6 bg-white/10 mx-2" />
                 <button onClick={() => setShowTerminal(!showTerminal)} className={`p-2 rounded ${showTerminal ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}`} title="Toggle terminal">
-                <TerminalIcon size={18} />
+                    <TerminalIcon size={18} />
                 </button>
                 <button onClick={() => setShowSearch(true)} className="p-2 hover:bg-white/10 rounded" title="Search">
-                <Search size={18} />
+                    <Search size={18} />
                 </button>
                 <button onClick={() => setShowCommandPalette(true)} className="p-2 hover:bg-white/10 rounded" title="Command Palette">
-                <Command size={18} />
+                    <Command size={18} />
                 </button>
                 <div className="flex-1" />
-                <div className="text-xs text-slate-500">
-                {activeFile?.path || 'No file'}
-                </div>
+                <div className="text-xs text-slate-500">{activeFile?.path || 'No file'}</div>
                 <button onClick={refreshExplorer} className="p-2 hover:bg-white/10 rounded" title="Refresh">
-                <RefreshCw size={16} />
+                    <RefreshCw size={16} />
                 </button>
-                </div>
+            </div>
 
-                <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar – eksplorer plików */}
+            <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar */}
                 {!sidebarCollapsed && (
                     <div className="w-64 bg-slate-800/50 border-r border-white/5 overflow-y-auto p-2">
-                    <div className="flex items-center justify-between mb-2 px-2">
-                    <span className="text-xs font-semibold text-slate-400">EXPLORER</span>
-                    <button className="p-1 hover:bg-white/10 rounded" onClick={refreshExplorer} title="Refresh">
-                    <RefreshCw size={12} />
-                    </button>
-                    </div>
-                    {isLoading && <div className="text-center py-4 text-slate-500">Loading...</div>}
-                    {!isLoading && fileTree.length === 0 && <div className="text-center py-4 text-slate-500">No files</div>}
-                    {renderTree(fileTree)}
+                        <div className="flex items-center justify-between mb-2 px-2">
+                            <span className="text-xs font-semibold text-slate-400">EXPLORER</span>
+                            <button className="p-1 hover:bg-white/10 rounded" onClick={refreshExplorer}>
+                                <RefreshCw size={12} />
+                            </button>
+                        </div>
+                        {isLoading && <div className="text-center py-4 text-slate-500">Loading...</div>}
+                        {!isLoading && fileTree.length === 0 && <div className="text-center py-4 text-slate-500">No files</div>}
+                        {renderTree(fileTree)}
                     </div>
                 )}
 
-                {/* Główny obszar edytora */}
+                {/* Editor area */}
                 <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Tabs */}
-                <div className="flex bg-slate-800 border-b border-white/5 overflow-x-auto">
-                {openFiles.map((file, idx) => (
-                    <div
-                    key={idx}
-                    onClick={() => setActiveFileIndex(idx)}
-                    className={`flex items-center gap-2 px-4 py-2 cursor-pointer border-b-2 transition-colors ${
-                        activeFileIndex === idx
-                        ? 'border-blue-500 text-white bg-slate-900'
-                        : 'border-transparent text-slate-400 hover:text-white'
-                    }`}
-                    >
-                    <FileCode size={14} />
-                    <span className="text-sm truncate max-w-[150px]">{file.path.split('/').pop()}</span>
-                    {file.modified && <span className="w-2 h-2 bg-yellow-400 rounded-full" />}
-                    <button
-                    onClick={(e) => { e.stopPropagation(); closeFile(idx); }}
-                    className="p-0.5 hover:bg-white/10 rounded"
-                    >
-                    <X size={12} />
-                    </button>
+                    {/* Tabs */}
+                    <div className="flex bg-slate-800 border-b border-white/5 overflow-x-auto">
+                        {openFiles.map((file, idx) => (
+                            <div
+                                key={idx}
+                                onClick={() => setActiveFileIndex(idx)}
+                                className={`flex items-center gap-2 px-4 py-2 cursor-pointer border-b-2 transition-colors ${
+                                    activeFileIndex === idx
+                                        ? 'border-blue-500 text-white bg-slate-900'
+                                        : 'border-transparent text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <FileCode size={14} />
+                                <span className="text-sm truncate max-w-[150px]">{file.path.split('/').pop()}</span>
+                                {file.modified && <span className="w-2 h-2 bg-yellow-400 rounded-full" />}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); closeFile(idx); }}
+                                    className="p-0.5 hover:bg-white/10 rounded"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ))}
                     </div>
-                ))}
-                </div>
 
-                {/* Edytor Monaco */}
-                <div className="flex-1">
-                {activeFile && (
-                    <Editor
-                    height="100%"
-                    language={getLanguageFromPath(activeFile.path)}
-                    value={activeFile.content}
-                    onChange={handleEditorChange}
-                    onMount={handleEditorMount}
-                    options={{
-                        fontSize,
-                        minimap: { enabled: false },
-                        scrollBeyondLastLine: false,
-                        automaticLayout: true,
-                        fontFamily: 'JetBrains Mono, monospace',
-                        renderWhitespace: 'boundary',
-                    }}
-                    />
-                )}
-                </div>
-
-                {/* Terminal */}
-                {showTerminal && (
-                    <div className="h-48 bg-slate-900 border-t border-white/5">
-                    <TerminalComponent windowId={windowId} />
+                    {/* Monaco Editor */}
+                    <div className="flex-1">
+                        {activeFile && (
+                            <Editor
+                                height="100%"
+                                language={getLanguageFromPath(activeFile.path)}
+                                value={activeFile.content}
+                                onChange={handleEditorChange}
+                                onMount={handleEditorMount}
+                                options={{
+                                    fontSize,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    automaticLayout: true,
+                                    fontFamily: 'JetBrains Mono, monospace',
+                                    renderWhitespace: 'boundary',
+                                }}
+                            />
+                        )}
                     </div>
-                )}
-                </div>
-                </div>
 
-                {/* Pasek statusu */}
-                <div className="h-6 bg-slate-800 border-t border-white/5 flex items-center px-2 text-xs text-slate-400">
+                    {/* Terminal */}
+                    {showTerminal && (
+                        <div className="h-48 bg-slate-900 border-t border-white/5">
+                            <TerminalComponent windowId={windowId} />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Status bar */}
+            <div className="h-6 bg-slate-800 border-t border-white/5 flex items-center px-2 text-xs text-slate-400">
                 <div className="flex items-center gap-2">
-                <span>{activeFile ? getLanguageFromPath(activeFile.path).toUpperCase() : 'PLAINTEXT'}</span>
-                <span>|</span>
-                <span>Ln {editorRef.current?.getPosition()?.lineNumber || 1}, Col {editorRef.current?.getPosition()?.column || 1}</span>
+                    <span>{activeFile ? getLanguageFromPath(activeFile.path).toUpperCase() : 'PLAINTEXT'}</span>
+                    <span>|</span>
+                    <span>Ln {editorRef.current?.getPosition()?.lineNumber || 1}, Col {editorRef.current?.getPosition()?.column || 1}</span>
                 </div>
                 <div className="flex-1" />
                 <div className="flex gap-2">
-                <button onClick={() => setEditorTheme(editorTheme === 'blue-dark' ? 'blue-light' : 'blue-dark')} className="hover:text-white">
-                {editorTheme === 'blue-dark' ? '🌙' : '☀️'}
-                </button>
-                <button onClick={() => setFontSize(Math.max(8, fontSize - 2))}>A-</button>
-                <span>{fontSize}px</span>
-                <button onClick={() => setFontSize(Math.min(32, fontSize + 2))}>A+</button>
+                    <button onClick={() => setEditorTheme(editorTheme === 'blue-dark' ? 'blue-light' : 'blue-dark')} className="hover:text-white">
+                        {editorTheme === 'blue-dark' ? '🌙' : '☀️'}
+                    </button>
+                    <button onClick={() => setFontSize(Math.max(8, fontSize - 2))}>A-</button>
+                    <span>{fontSize}px</span>
+                    <button onClick={() => setFontSize(Math.min(32, fontSize + 2))}>A+</button>
                 </div>
-                </div>
+            </div>
 
-                {/* Panel wyszukiwania w plikach */}
-                {showSearch && (
-                    <div className="absolute inset-0 bg-black/50 flex items-start justify-center z-50 pt-20">
+            {/* Search panel */}
+            {showSearch && (
+                <div className="absolute inset-0 bg-black/50 flex items-start justify-center z-50 pt-20">
                     <div className="bg-slate-800 rounded-xl w-96 max-w-full p-4 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-4">
-                    <Search size={16} />
-                    <input
-                    type="text"
-                    placeholder="Search term..."
-                    className="flex-1 bg-slate-900 border border-white/10 rounded px-3 py-1 text-sm text-white"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && searchInFiles()}
-                    autoFocus
-                    />
-                    <button onClick={() => setShowSearch(false)} className="p-1 hover:bg-white/10 rounded">
-                    <X size={14} />
-                    </button>
-                    </div>
-                    <button onClick={searchInFiles} className="w-full bg-blue-600 hover:bg-blue-500 py-1 rounded text-sm mb-4">
-                    Search
-                    </button>
-                    <div className="max-h-96 overflow-y-auto space-y-2">
-                    {searchResults.map((res, idx) => (
-                        <div key={idx} className="text-xs border-b border-white/10 pb-1">
-                        <div className="text-blue-400">{res.file}:{res.line}</div>
-                        <div className="text-slate-300 truncate">{res.content}</div>
-                        </div>
-                    ))}
-                    {searchResults.length === 0 && searchTerm && <div className="text-center text-slate-500">No results</div>}
-                    </div>
-                    </div>
-                    </div>
-                )}
-
-                {/* Paleta komend */}
-                {showCommandPalette && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-slate-800 rounded-xl w-96 max-w-full p-4 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-4">
-                    <Command size={16} />
-                    <input
-                    type="text"
-                    placeholder="Type a command..."
-                    className="flex-1 bg-slate-900 border border-white/10 rounded px-3 py-1 text-sm text-white"
-                    value={commandInput}
-                    onChange={(e) => setCommandInput(e.target.value)}
-                    autoFocus
-                    />
-                    <button onClick={() => setShowCommandPalette(false)} className="p-1 hover:bg-white/10 rounded">
-                    <X size={14} />
-                    </button>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                    {commands
-                        .filter(cmd => cmd.label.toLowerCase().includes(commandInput.toLowerCase()))
-                        .map(cmd => (
-                            <button
-                            key={cmd.id}
-                            onClick={() => executeCommand(cmd)}
-                            className="w-full text-left px-3 py-2 hover:bg-white/10 rounded text-sm"
-                            >
-                            {cmd.label}
+                        <div className="flex items-center gap-2 mb-4">
+                            <Search size={16} />
+                            <input
+                                type="text"
+                                placeholder="Search term..."
+                                className="flex-1 bg-slate-900 border border-white/10 rounded px-3 py-1 text-sm text-white focus:outline-none"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && searchInFiles()}
+                                autoFocus
+                            />
+                            <button onClick={() => setShowSearch(false)} className="p-1 hover:bg-white/10 rounded">
+                                <X size={14} />
                             </button>
-                        ))}
                         </div>
+                        <button onClick={searchInFiles} className="w-full bg-blue-600 hover:bg-blue-500 py-1 rounded text-sm mb-4 transition-colors">
+                            Search
+                        </button>
+                        <div className="max-h-96 overflow-y-auto space-y-2">
+                            {searchResults.map((res, idx) => (
+                                <div key={idx} className="text-xs border-b border-white/10 pb-1">
+                                    <div className="text-blue-400">{res.file}:{res.line}</div>
+                                    <div className="text-slate-300 truncate">{res.content}</div>
+                                </div>
+                            ))}
+                            {searchResults.length === 0 && searchTerm && <div className="text-center text-slate-500">No results</div>}
                         </div>
-                        </div>
-                )}
+                    </div>
                 </div>
-            );
+            )}
+
+            {/* Command palette */}
+            {showCommandPalette && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-slate-800 rounded-xl w-96 max-w-full p-4 shadow-2xl">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Command size={16} />
+                            <input
+                                type="text"
+                                placeholder="Type a command..."
+                                className="flex-1 bg-slate-900 border border-white/10 rounded px-3 py-1 text-sm text-white focus:outline-none"
+                                value={commandInput}
+                                onChange={(e) => setCommandInput(e.target.value)}
+                                autoFocus
+                            />
+                            <button onClick={() => setShowCommandPalette(false)} className="p-1 hover:bg-white/10 rounded">
+                                <X size={14} />
+                            </button>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                            {commands
+                                .filter(cmd => cmd.label.toLowerCase().includes(commandInput.toLowerCase()))
+                                .map(cmd => (
+                                    <button
+                                        key={cmd.id}
+                                        onClick={() => executeCommand(cmd)}
+                                        className="w-full text-left px-3 py-2 hover:bg-white/10 rounded text-sm"
+                                    >
+                                        {cmd.label}
+                                    </button>
+                                ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 function getLanguageFromPath(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
     const map: Record<string, string> = {
-        // Web
         html: 'html', css: 'css', js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-        // Backend & system
         rs: 'rust', go: 'go', py: 'python', rb: 'ruby', pl: 'perl', php: 'php', lua: 'lua', nim: 'nim', vala: 'vala',
-        // C family
         c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp',
-        // Mobile & desktop
-        dart: 'dart', qml: 'qml', slint: 'slint',
-        // Data & config
+        dart: 'dart', qml: 'qml',
         json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml', xml: 'xml',
-        // Build
-        meson: 'meson', cmake: 'cmake', sh: 'shell', bash: 'shell', zsh: 'shell',
-        // Others
-        zig: 'zig', odin: 'odin', cr: 'crystal', nimble: 'nim',
+        sh: 'shell', bash: 'shell', zsh: 'shell',
+        md: 'markdown',
     };
     return map[ext || ''] || 'plaintext';
 }
