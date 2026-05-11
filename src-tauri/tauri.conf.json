@@ -1,42 +1,44 @@
 {
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "",
+    "beforeBuildCommand": "npm run build",
     "devPath": "http://localhost:1420",
     "distDir": "../dist",
     "withGlobalTauri": true
   },
   "package": {
     "productName": "blue-environment",
-    "version": "0.2.0"
+    "version": "0.4.0"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "fs": {
         "all": true,
-        "scope": ["$HOME/**", "/usr/share/**", "/etc/**"]
+        "scope": ["$HOME/**", "/usr/share/**", "/etc/**", "/proc/**"]
       },
-      "path": {
-        "all": true
-      },
+      "path": { "all": true },
       "shell": {
         "all": true,
         "open": true,
         "sidecar": true,
         "scope": [
-          { "name": "sh",        "cmd": "sh",           "args": true },
-          { "name": "shutdown",  "cmd": "shutdown",      "args": true },
-          { "name": "systemctl", "cmd": "systemctl",     "args": true },
-          { "name": "nmcli",    "cmd": "nmcli",          "args": true },
-          { "name": "uname",    "cmd": "uname",          "args": true },
-          { "name": "amixer",   "cmd": "amixer",         "args": true },
-          { "name": "appimage", "cmd": "/usr/share/HackerOS/Scripts/HackerOS-Apps/Hacker-Term.AppImage", "args": true }
+          { "name": "sh",           "cmd": "sh",            "args": true },
+          { "name": "bash",         "cmd": "bash",          "args": true },
+          { "name": "wmctrl",       "cmd": "wmctrl",        "args": true },
+          { "name": "xdotool",      "cmd": "xdotool",       "args": true },
+          { "name": "shutdown",     "cmd": "shutdown",      "args": true },
+          { "name": "systemctl",    "cmd": "systemctl",     "args": true },
+          { "name": "nmcli",        "cmd": "nmcli",         "args": true },
+          { "name": "bluetoothctl", "cmd": "bluetoothctl",  "args": true },
+          { "name": "pactl",        "cmd": "pactl",         "args": true },
+          { "name": "brightnessctl","cmd": "brightnessctl", "args": true },
+          { "name": "xrandr",       "cmd": "xrandr",        "args": true },
+          { "name": "flameshot",    "cmd": "flameshot",     "args": true },
+          { "name": "scrot",        "cmd": "scrot",         "args": true }
         ]
       },
-      "clipboard": {
-        "all": true
-      }
+      "clipboard": { "all": true }
     },
     "bundle": {
       "active": false,
@@ -44,16 +46,16 @@
       "identifier": "com.hackeros.blue-environment",
       "icon": ["icons/icon.png"]
     },
-    "security": {
-      "csp": null
-    },
+    "security": { "csp": null },
     "windows": [
       {
         "fullscreen": false,
         "resizable": true,
         "title": "Blue Environment",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "decorations": false,
+        "transparent": false
       }
     ]
   }
