@@ -1,15 +1,5 @@
 import { SystemBridge } from './systemBridge';
-
-export interface Notification {
-    id: string;
-    title: string;
-    message: string;
-    appId?: string;
-    timestamp: number;
-    read: boolean;
-    icon?: string;
-    actions?: { label: string; action: string }[];
-}
+import { Notification } from '../types';
 
 class NotificationManager {
     private listeners: ((notifications: Notification[]) => void)[] = [];
@@ -17,9 +7,7 @@ class NotificationManager {
 
     constructor() {
         this.loadHistory();
-        if (SystemBridge.isTauri()) {
-            window.addEventListener('blue:notification', this.handleNotification as EventListener);
-        }
+        window.addEventListener('blue:notification', this.handleNotification as EventListener);
     }
 
     private handleNotification = (e: CustomEvent) => {
