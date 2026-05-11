@@ -3,7 +3,7 @@ import React, { memo, useEffect, useState } from 'react';
 interface WorkspaceSwitcherProps {
     currentWorkspace: number;
     workspaceCount: number;
-    windowCounts: number[]; // how many windows per workspace
+    windowCounts: number[];
 }
 
 const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
@@ -18,7 +18,7 @@ const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
         if (currentWorkspace !== prevWorkspace) {
             setPrevWorkspace(currentWorkspace);
             setVisible(true);
-            const t = setTimeout(() => setVisible(false), 1200);
+            const t = setTimeout(() => setVisible(false), 1400);
             return () => clearTimeout(t);
         }
     }, [currentWorkspace, prevWorkspace]);
@@ -31,41 +31,49 @@ const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                 <span className="text-xs text-slate-400 font-medium uppercase tracking-widest">
                     Workspace
                 </span>
-
                 <div className="flex gap-3 items-center">
                     {Array.from({ length: workspaceCount }, (_, i) => (
-                        <div
-                            key={i}
-                            className={`relative flex flex-col items-center gap-1.5`}
-                        >
-                            {/* Mini workspace preview */}
-                            <div className={`w-14 h-10 rounded-lg border-2 transition-all flex items-end justify-center pb-1 gap-0.5
-                                ${i === currentWorkspace
-                                    ? 'border-blue-500 bg-blue-600/20 shadow-[0_0_12px_rgba(59,130,246,0.4)]'
-                                    : 'border-white/10 bg-white/5'
-                                }
-                            `}>
-                                {/* Mini window indicators */}
-                                {Array.from({ length: Math.min(windowCounts[i] ?? 0, 3) }, (_, wi) => (
-                                    <div
-                                        key={wi}
-                                        className={`h-3 w-3 rounded-sm ${i === currentWorkspace ? 'bg-blue-400/60' : 'bg-slate-600'}`}
-                                    />
-                                ))}
+                        <div key={i} className="flex flex-col items-center gap-1.5">
+                            <div
+                                className={`w-14 h-10 rounded-lg border-2 transition-all flex items-end justify-center pb-1 gap-0.5
+                                    ${i === currentWorkspace
+                                        ? 'border-blue-500 bg-blue-600/20 shadow-[0_0_12px_rgba(59,130,246,0.4)]'
+                                        : 'border-white/10 bg-white/5'
+                                    }
+                                `}
+                            >
+                                {Array.from(
+                                    { length: Math.min(windowCounts[i] ?? 0, 3) },
+                                    (_, wi) => (
+                                        <div
+                                            key={wi}
+                                            className={`h-3 w-3 rounded-sm ${
+                                                i === currentWorkspace
+                                                    ? 'bg-blue-400/60'
+                                                    : 'bg-slate-600'
+                                            }`}
+                                        />
+                                    )
+                                )}
                             </div>
-
-                            {/* Label */}
-                            <span className={`text-[11px] font-bold ${i === currentWorkspace ? 'text-blue-400' : 'text-slate-500'}`}>
+                            <span
+                                className={`text-[11px] font-bold ${
+                                    i === currentWorkspace ? 'text-blue-400' : 'text-slate-500'
+                                }`}
+                            >
                                 {i + 1}
                             </span>
                         </div>
                     ))}
                 </div>
-
                 <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-white/10 text-slate-400">Alt+⊞</kbd>
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-white/10 text-slate-400">
+                        Super
+                    </kbd>
                     <span>+</span>
-                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-white/10 text-slate-400">1–4</kbd>
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-white/10 text-slate-400">
+                        1–4
+                    </kbd>
                 </div>
             </div>
         </div>
