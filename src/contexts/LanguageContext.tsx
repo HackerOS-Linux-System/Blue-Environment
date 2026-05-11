@@ -3,14 +3,11 @@ import { SystemBridge } from '../utils/systemBridge';
 
 const translations = {
     en: {
-        // App
         'app.name': 'Blue Environment',
         'app.version': 'Version',
-        // TopBar
         'topbar.search': 'Search apps…',
         'topbar.start': 'Start',
         'topbar.workspace': 'Workspace',
-        // StartMenu
         'startmenu.recent': 'Recent',
         'startmenu.all_apps': 'All apps',
         'startmenu.power': 'Power',
@@ -22,7 +19,6 @@ const translations = {
         'startmenu.new_folder': 'New Folder',
         'startmenu.new_text_file': 'New Text File',
         'startmenu.session': 'Session',
-        // Settings
         'settings.title': 'Settings',
         'settings.display': 'Display',
         'settings.personalization': 'Personalization',
@@ -57,8 +53,8 @@ const translations = {
         'settings.disconnect': 'Disconnect',
         'settings.connect': 'Connect',
         'settings.connecting': 'Connecting...',
-        'settings.no_networks': 'No networks',
-        'settings.no_devices': 'No devices',
+        'settings.no_networks': 'No networks found',
+        'settings.no_devices': 'No devices found',
         'settings.disconnected': 'Disconnected',
         'settings.battery': 'Battery',
         'settings.charging': 'Charging',
@@ -84,43 +80,41 @@ const translations = {
         'settings.sunset': 'Sunset to sunrise',
         'settings.start_hour': 'Start hour',
         'settings.end_hour': 'End hour',
-        // Apps
+        'settings.loading': 'Loading',
+        'settings.no_custom_themes': 'No custom themes yet',
         'blueai.title': 'Blue AI',
         'bluecode.title': 'Blue Code',
         'bluesoftware.title': 'Blue Software',
         'mail.title': 'Mail',
-        // Terminal
+        'mail.select_email': 'Select an email to read',
+        'mail.send': 'Send',
         'terminal.title': 'Terminal',
         'terminal.help': 'Type "help" for commands.',
-        // Software
         'software.installed': 'Installed',
         'software.available': 'Available',
         'software.updates': 'Updates',
         'software.install': 'Install',
         'software.uninstall': 'Uninstall',
         'software.update': 'Update',
-        // Mail
         'mail.inbox': 'Inbox',
         'mail.sent': 'Sent',
         'mail.drafts': 'Drafts',
         'mail.compose': 'Compose',
         'mail.subject': 'Subject',
         'mail.body': 'Message',
-        // Code
         'code.file': 'File',
         'code.edit': 'Edit',
         'code.view': 'View',
         'code.new_file': 'New File',
         'code.open_file': 'Open File',
         'code.save': 'Save',
-        // AI
         'ai.service': 'AI Service',
         'ai.select_service': 'Select AI Service',
         'ai.login': 'Login',
         'ai.logout': 'Logout',
         'ai.placeholder': 'Ask me anything...',
         'ai.thinking': 'Thinking...',
-        'ai.welcome': 'Welcome! Choose an AI service and log in.',
+        'ai.welcome': 'Welcome to Blue AI! Choose a service and set your API key to get started.',
     },
     pl: {
         'app.name': 'Blue Environment',
@@ -200,12 +194,16 @@ const translations = {
         'settings.sunset': 'Zachód – wschód słońca',
         'settings.start_hour': 'Godzina rozpoczęcia',
         'settings.end_hour': 'Godzina zakończenia',
+        'settings.loading': 'Ładowanie',
+        'settings.no_custom_themes': 'Brak własnych motywów',
         'blueai.title': 'Blue AI',
         'bluecode.title': 'Blue Code',
         'bluesoftware.title': 'Blue Software',
         'mail.title': 'Poczta',
+        'mail.select_email': 'Wybierz wiadomość',
+        'mail.send': 'Wyślij',
         'terminal.title': 'Terminal',
-        'terminal.help': 'Wpisz "help" aby zobaczyć dostępne komendy.',
+        'terminal.help': 'Wpisz "help" aby zobaczyć komendy.',
         'software.installed': 'Zainstalowane',
         'software.available': 'Dostępne',
         'software.updates': 'Aktualizacje',
@@ -229,8 +227,8 @@ const translations = {
         'ai.login': 'Zaloguj',
         'ai.logout': 'Wyloguj',
         'ai.placeholder': 'Zadaj pytanie...',
-        'ai.thinking': 'Myślenie...',
-        'ai.welcome': 'Witaj! Wybierz usługę AI i zaloguj się.',
+        'ai.thinking': 'Myślę...',
+        'ai.welcome': 'Witaj w Blue AI! Wybierz usługę i ustaw klucz API.',
     },
 };
 
@@ -261,7 +259,9 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, []);
 
     const t = (key: string): string => {
-        return translations[language][key as keyof typeof translations[typeof language]] || key;
+        return (
+            translations[language][key as keyof typeof translations[typeof language]] || key
+        );
     };
 
     const handleSetLanguage = (lang: Language) => {
@@ -273,7 +273,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     return (
         <LanguageContext.Provider value={{ language, setLanguage: handleSetLanguage, t }}>
-        {children}
+            {children}
         </LanguageContext.Provider>
     );
 };
