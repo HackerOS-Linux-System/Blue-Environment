@@ -1,32 +1,22 @@
-// src-tauri/src/session.rs
-// Detects whether we're running in TTY (need compositor) or existing DE session
-
 use std::env;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionType {
-    /// Running inside existing Wayland session (KDE, GNOME, etc.)
     WaylandClient,
-    /// Running inside existing X11 session
     X11Client,
-    /// Running in raw TTY — needs compositor
     Tty,
 }
 
 pub fn detect_session() -> SessionType {
-    // Check for Wayland display socket
     if env::var("WAYLAND_DISPLAY").is_ok() {
         return SessionType::WaylandClient;
     }
-    // Check for X11 display
     if env::var("DISPLAY").is_ok() {
         return SessionType::X11Client;
     }
-    // No display server — raw TTY
     SessionType::Tty
 }
 
-#[allow(dead_code)]
 pub fn is_tty() -> bool {
     detect_session() == SessionType::Tty
 }
