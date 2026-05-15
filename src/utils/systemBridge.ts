@@ -1,3 +1,8 @@
+export const BLUE_SHARE = '/usr/share/Blue-Environment';
+export const BLUE_APPS = `${BLUE_SHARE}/apps`;
+export const BLUE_LIBS = `${BLUE_SHARE}/lib`;
+export const BLUE_WALLS = `${BLUE_SHARE}/wallpapers`;
+
 import {
     DesktopEntry, UserConfig, PowerProfile, ThemeDefinition,
     Notification, PackageInfo, AICallRequest, AIConfig, ExternalWindow, AIMessage
@@ -310,10 +315,18 @@ export const SystemBridge = {
 
     getWallpapers: async (): Promise<string[]> => {
         if (isTauri) {
-            const wps = await invoke('get_wallpapers') ?? [];
-            return wps.map((wp: string) => wp.startsWith('file://') ? wp : `file://${wp}`);
+            try {
+                const wps: string[] = await invoke('get_wallpapers') ?? [];
+                if (wps.length > 0) {
+                    return wps.map((wp: string) => wp.startsWith('file://') ? wp : `file://${wp}`);
+                }
+            } catch {}
         }
-        return ['file:///usr/share/wallpapers/default.png'];
+        // Fallback: both Blue-Environment and system wallpaper dirs
+        return [
+            'file:///usr/share/Blue-Environment/wallpapers/default.png',
+            'file:///usr/share/wallpapers/default.png',
+        ];
     },
 
     getWallpaperPreview: async (path: string): Promise<string | null> => {
@@ -358,7 +371,7 @@ export const SystemBridge = {
             try { return JSON.parse(local); } catch {}
         }
         return {
-            wallpaper: 'file:///usr/share/wallpapers/default.png',
+            wallpaper: 'file:///usr/share/Blue-Environment/wallpapers/default.png',
             theme: 'dark',
             themeName: 'blue-default',
             accentColor: 'blue',
