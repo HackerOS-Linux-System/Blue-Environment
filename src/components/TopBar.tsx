@@ -57,7 +57,8 @@ const TopBar: React.FC<TopBarProps> = ({
         else onStartClick();
     };
 
-    const pinnedApps = [AppId.TERMINAL, AppId.EXPLORER, AppId.AI_ASSISTANT, AppId.SETTINGS];
+    // v0.5: System Monitor instead of BlueAI
+    const pinnedApps = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS];
 
     return (
         <div className="absolute top-0 left-0 right-0 h-12 bg-slate-900/95 backdrop-blur-sm border-b border-white/5 flex items-center justify-between px-3 z-50 select-none">
@@ -70,7 +71,7 @@ const TopBar: React.FC<TopBarProps> = ({
                             ? 'bg-blue-600/20 text-blue-400'
                             : 'hover:bg-white/5 text-slate-300 hover:text-white'
                     }`}
-                    title="Start (⊞ or Alt+F1) | Full screen (double click)"
+                    title="Start (double click for full screen)"
                 >
                     <div className="relative">
                         <Command size={18} className="group-hover:rotate-12 transition-transform duration-200" />
@@ -83,7 +84,7 @@ const TopBar: React.FC<TopBarProps> = ({
                     onClick={onStartClick}
                 >
                     <Search size={12} />
-                    <span>Search apps…</span>
+                    <span>Search apps...</span>
                 </div>
             </div>
 
@@ -138,7 +139,7 @@ const TopBar: React.FC<TopBarProps> = ({
                             <button
                                 key={i}
                                 onClick={() => onSwitchWorkspace(i)}
-                                title={`Workspace ${i + 1} (Super+${i + 1})`}
+                                title={`Workspace ${i + 1}`}
                                 className={`transition-all duration-200 rounded-full ${
                                     i === currentWorkspace
                                         ? 'w-4 h-2 bg-blue-400'
@@ -163,7 +164,7 @@ const TopBar: React.FC<TopBarProps> = ({
                     className={`relative p-2 rounded-full transition-colors group ${
                         isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'
                     }`}
-                    title="Clipboard (Ctrl+Shift+V)"
+                    title="Clipboard"
                 >
                     <Clipboard size={15} className="group-hover:text-white" />
                     {hasClipboardContent && (
