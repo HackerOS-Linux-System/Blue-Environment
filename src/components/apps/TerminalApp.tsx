@@ -1,455 +1,258 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AppProps } from '../../types';
-import { SystemBridge } from '../../utils/systemBridge';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebLinksAddon } from 'xterm-addon-web-links';
-import 'xterm/css/xterm.css';
-import { Plus, X, Settings, ChevronDown } from 'lucide-react';
+import { Plus, X, ChevronDown, Settings, Maximize2 } from 'lucide-react';
+
+// Dynamic xterm import to avoid SSR issues
+let Terminal: any = null;
+let FitAddon: any = null;
+let WebLinksAddon: any = null;
 
 interface Tab {
     id: string;
     title: string;
-    terminal: Terminal | null;
-    fitAddon: FitAddon | null;
+    pid?: number;
 }
 
 const THEMES = {
-    'dark': {
-        background: '#0d1117',
-        foreground: '#c9d1d9',
-        cursor: '#58a6ff',
-        cursorAccent: '#0d1117',
-        selectionBackground: '#388bfd33',
-        black: '#484f58', red: '#ff7b72', green: '#3fb950', yellow: '#d29922',
-        blue: '#58a6ff', magenta: '#bc8cff', cyan: '#39c5cf', white: '#b1bac4',
+    'Blue Dark': {
+        background: '#0d1117', foreground: '#e6edf3', cursor: '#58a6ff',
+        black: '#161b22', red: '#ff7b72', green: '#3fb950', yellow: '#d29922',
+        blue: '#58a6ff', magenta: '#bc8cff', cyan: '#39d353', white: '#b1bac4',
         brightBlack: '#6e7681', brightRed: '#ffa198', brightGreen: '#56d364',
         brightYellow: '#e3b341', brightBlue: '#79c0ff', brightMagenta: '#d2a8ff',
-        brightCyan: '#56d4dd', brightWhite: '#f0f6fc',
+        brightCyan: '#56d364', brightWhite: '#f0f6fc',
     },
-    'dracula': {
-        background: '#282a36', foreground: '#f8f8f2', cursor: '#ff79c6',
+    'Dracula': {
+        background: '#282a36', foreground: '#f8f8f2', cursor: '#f8f8f2',
         black: '#21222c', red: '#ff5555', green: '#50fa7b', yellow: '#f1fa8c',
         blue: '#bd93f9', magenta: '#ff79c6', cyan: '#8be9fd', white: '#f8f8f2',
         brightBlack: '#6272a4', brightRed: '#ff6e6e', brightGreen: '#69ff94',
         brightYellow: '#ffffa5', brightBlue: '#d6acff', brightMagenta: '#ff92df',
         brightCyan: '#a4ffff', brightWhite: '#ffffff',
-        cursorAccent: '#282a36', selectionBackground: '#44475a',
     },
-    'solarized': {
-        background: '#002b36', foreground: '#839496', cursor: '#268bd2',
+    'Solarized': {
+        background: '#002b36', foreground: '#839496', cursor: '#839496',
         black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900',
         blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5',
         brightBlack: '#002b36', brightRed: '#cb4b16', brightGreen: '#586e75',
         brightYellow: '#657b83', brightBlue: '#839496', brightMagenta: '#6c71c4',
         brightCyan: '#93a1a1', brightWhite: '#fdf6e3',
-        cursorAccent: '#002b36', selectionBackground: '#073642',
     },
 } as const;
 
 type ThemeName = keyof typeof THEMES;
 
-const TerminalTab: React.FC<{
-    windowId: string;
-    tabId: string;
-    isActive: boolean;
-    theme: ThemeName;
-    fontSize: number;
-    onTitleChange: (id: string, title: string) => void;
-}> = ({ windowId, tabId, isActive, theme, fontSize, onTitleChange }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const termRef = useRef<Terminal | null>(null);
-    const fitRef = useRef<FitAddon | null>(null);
-    const resizeObserverRef = useRef<ResizeObserver | null>(null);
-
-    useEffect(() => {
-        if (!containerRef.current || termRef.current) return;
-
-        const term = new Terminal({
-            cursorBlink: true,
-            fontSize,
-            fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
-            fontWeight: '400',
-            lineHeight: 1.2,
-            letterSpacing: 0,
-            theme: THEMES[theme],
-            scrollback: 10000,
-            allowTransparency: false,
-            macOptionIsMeta: true,
-            rightClickSelectsWord: true,
-        });
-
-        const fit = new FitAddon();
-        term.loadAddon(fit);
-        term.loadAddon(new WebLinksAddon());
-        term.open(containerRef.current);
-
-        // Slight delay to ensure DOM is ready
-        setTimeout(() => {
-            fit.fit();
-        }, 50);
-
-        termRef.current = term;
-        fitRef.current = fit;
-
-        // Title tracking
-        term.onTitleChange(title => {
-            if (title) onTitleChange(tabId, title);
-        });
-
-        // Handle resize
-        resizeObserverRef.current = new ResizeObserver(() => {
-            if (fitRef.current) {
-                try { fitRef.current.fit(); } catch {}
-            }
-        });
-        resizeObserverRef.current.observe(containerRef.current);
-
-        // Spawn backend terminal process
-        SystemBridge.spawnTerminal(windowId + '-' + tabId).then(res => {
-            if (!res.success) {
-                term.writeln('\x1b[31m╔══════════════════════════════════════╗\x1b[0m');
-                term.writeln('\x1b[31m║   Backend terminal unavailable       ║\x1b[0m');
-                term.writeln('\x1b[31m╚══════════════════════════════════════╝\x1b[0m');
-                term.writeln('');
-                term.writeln('\x1b[33mRunning in fallback mode.\x1b[0m');
-                term.writeln('');
-                // Fallback: simple built-in shell emulation
-                runFallbackShell(term);
-            } else {
-                term.writeln('\x1b[32m✓ Terminal ready\x1b[0m');
-                term.writeln('');
-            }
-        });
-
-        // Receive output from backend
-        const handleOutput = (e: Event) => {
-            const ev = e as CustomEvent<{ data: string; windowId?: string }>;
-            if (!ev.detail.windowId || ev.detail.windowId === windowId + '-' + tabId) {
-                term.write(ev.detail.data);
-            }
-        };
-        window.addEventListener('terminal-output', handleOutput);
-
-        // Send input to backend
-        term.onData(data => {
-            SystemBridge.writeToTerminal(data);
-        });
-
-        return () => {
-            resizeObserverRef.current?.disconnect();
-            window.removeEventListener('terminal-output', handleOutput);
-            term.dispose();
-            termRef.current = null;
-            fitRef.current = null;
-        };
-    }, []);
-
-    // Update theme/fontSize when changed
-    useEffect(() => {
-        if (termRef.current) {
-            termRef.current.options.theme = THEMES[theme];
-            termRef.current.options.fontSize = fontSize;
-            if (fitRef.current) fitRef.current.fit();
-        }
-    }, [theme, fontSize]);
-
-    // Focus/fit when tab becomes active
-    useEffect(() => {
-        if (isActive && termRef.current && fitRef.current) {
-            setTimeout(() => {
-                fitRef.current?.fit();
-                termRef.current?.focus();
-            }, 50);
-        }
-    }, [isActive]);
-
-    return (
-        <div
-            ref={containerRef}
-            className="w-full h-full"
-            style={{ display: isActive ? 'block' : 'none' }}
-        />
-    );
-};
-
-// Fallback shell for when Tauri backend is not available
-function runFallbackShell(term: Terminal) {
-    let cwd = '~';
-    let history: string[] = [];
-    let histIdx = -1;
-    let currentLine = '';
-
-    const prompt = () => {
-        term.write(`\r\n\x1b[32m┌──(\x1b[36mblue\x1b[32m)-[\x1b[37m${cwd}\x1b[32m]\r\n└─$ \x1b[0m`);
-    };
-
-    const runCmd = async (cmd: string) => {
-        const parts = cmd.trim().split(/\s+/);
-        const c = parts[0];
-        const args = parts.slice(1);
-
-        switch(c) {
-            case '': break;
-            case 'clear': term.clear(); break;
-            case 'help':
-                term.writeln('\r\n\x1b[36mAvailable commands:\x1b[0m');
-                ['help','clear','echo','pwd','ls','cd','date','whoami','history','neofetch','exit'].forEach(cmd => {
-                    term.writeln(`  \x1b[33m${cmd}\x1b[0m`);
-                });
-                break;
-            case 'echo': term.writeln('\r\n' + args.join(' ')); break;
-            case 'pwd': term.writeln('\r\n' + cwd); break;
-            case 'date': term.writeln('\r\n' + new Date().toString()); break;
-            case 'whoami':
-                const user = SystemBridge.getUsername();
-                term.writeln('\r\n' + user);
-                break;
-            case 'history':
-                history.forEach((h, i) => term.writeln(`\r\n  ${String(i+1).padStart(4)}  ${h}`));
-                break;
-            case 'ls':
-                term.writeln('\r\n\x1b[34mDesktop  Documents  Downloads  Music  Pictures  Videos\x1b[0m');
-                break;
-            case 'cd':
-                cwd = args[0] === '~' || !args[0] ? '~' : `${cwd}/${args[0]}`;
-                break;
-            case 'neofetch':
-                const username = SystemBridge.getUsername();
-                term.writeln(`\r\n\x1b[34m    ___  __           \x1b[0m  \x1b[36m${username}\x1b[0m@\x1b[36mblue\x1b[0m`);
-                term.writeln(`\x1b[34m   / _ )/ /_ _____    \x1b[0m  ──────────────────`);
-                term.writeln(`\x1b[34m  / _  / / // / -_)   \x1b[0m  \x1b[33mOS:\x1b[0m HackerOS Linux`);
-                term.writeln(`\x1b[34m /____/_/\\_,_/\\__/    \x1b[0m  \x1b[33mDE:\x1b[0m Blue Environment 0.4.0`);
-                term.writeln(`\x1b[34m                       \x1b[0m  \x1b[33mShell:\x1b[0m Blue Terminal`);
-                term.writeln(`\x1b[34m  Blue Environment     \x1b[0m  \x1b[33mTheme:\x1b[0m Blue Glass`);
-                break;
-            case 'exit':
-                term.writeln('\r\n\x1b[33mGoodbye!\x1b[0m');
-                return;
-            default:
-                // Try system command via SystemBridge
-                try {
-                    const res = await SystemBridge.executeCommand(cmd);
-                    if (res.stdout) term.writeln('\r\n' + res.stdout.trimEnd());
-                    if (res.stderr) term.writeln('\r\n\x1b[31m' + res.stderr.trimEnd() + '\x1b[0m');
-                } catch {
-                    term.writeln(`\r\n\x1b[31mCommand not found: ${c}\x1b[0m`);
-                }
-        }
-        prompt();
-    };
-
-    prompt();
-
-    term.onKey(({ key, domEvent }) => {
-        const printable = !domEvent.altKey && !domEvent.ctrlKey && !domEvent.metaKey;
-
-        if (domEvent.key === 'Enter') {
-            const cmd = currentLine;
-            if (cmd.trim()) {
-                history.unshift(cmd);
-                histIdx = -1;
-            }
-            currentLine = '';
-            runCmd(cmd);
-        } else if (domEvent.key === 'Backspace') {
-            if (currentLine.length > 0) {
-                currentLine = currentLine.slice(0, -1);
-                term.write('\b \b');
-            }
-        } else if (domEvent.key === 'ArrowUp') {
-            if (histIdx < history.length - 1) {
-                histIdx++;
-                // Clear current line
-                term.write('\r\x1b[K');
-                term.write('\x1b[32m└─$ \x1b[0m' + history[histIdx]);
-                currentLine = history[histIdx];
-            }
-        } else if (domEvent.key === 'ArrowDown') {
-            if (histIdx > 0) {
-                histIdx--;
-                term.write('\r\x1b[K');
-                term.write('\x1b[32m└─$ \x1b[0m' + history[histIdx]);
-                currentLine = history[histIdx];
-            } else if (histIdx === 0) {
-                histIdx = -1;
-                term.write('\r\x1b[K');
-                term.write('\x1b[32m└─$ \x1b[0m');
-                currentLine = '';
-            }
-        } else if (domEvent.ctrlKey && domEvent.key === 'c') {
-            term.write('^C');
-            currentLine = '';
-            prompt();
-        } else if (domEvent.ctrlKey && domEvent.key === 'l') {
-            term.clear();
-            prompt();
-        } else if (printable) {
-            currentLine += key;
-            term.write(key);
-        }
-    });
-}
-
 const TerminalApp: React.FC<AppProps> = ({ windowId }) => {
-    const [tabs, setTabs] = useState<Tab[]>([
-        { id: 'tab-1', title: 'Terminal', terminal: null, fitAddon: null }
-    ]);
-    const [activeTab, setActiveTab] = useState('tab-1');
-    const [theme, setTheme] = useState<ThemeName>('dark');
-    const [fontSize, setFontSize] = useState(13);
+    const [tabs, setTabs] = useState<Tab[]>([]);
+    const [activeTab, setActiveTab] = useState<string | null>(null);
+    const [themeName, setThemeName] = useState<ThemeName>('Blue Dark');
+    const [fontSize, setFontSize] = useState(14);
     const [showSettings, setShowSettings] = useState(false);
-    const tabCounter = useRef(2);
+    const [loaded, setLoaded] = useState(false);
+    const termRefs = useRef<Map<string, any>>(new Map()); // tabId -> {term, fitAddon, container}
 
-    const addTab = () => {
-        const id = `tab-${tabCounter.current++}`;
-        setTabs(prev => [...prev, { id, title: 'Terminal', terminal: null, fitAddon: null }]);
-        setActiveTab(id);
-    };
-
-    const closeTab = (id: string) => {
-        if (tabs.length === 1) return;
-        setTabs(prev => prev.filter(t => t.id !== id));
-        if (activeTab === id) {
-            const remaining = tabs.filter(t => t.id !== id);
-            setActiveTab(remaining[remaining.length - 1]?.id || '');
-        }
-    };
-
-    const handleTitleChange = useCallback((id: string, title: string) => {
-        setTabs(prev => prev.map(t => t.id === id ? { ...t, title } : t));
+    // Dynamically load xterm
+    useEffect(() => {
+        import('xterm').then(m => { Terminal = m.Terminal; })
+            .then(() => import('xterm-addon-fit').then(m => { FitAddon = m.FitAddon; }))
+            .then(() => import('xterm-addon-web-links').then(m => { WebLinksAddon = m.WebLinksAddon; }))
+            .then(() => { setLoaded(true); })
+            .catch(() => setLoaded(true)); // fall through even if xterm missing
     }, []);
 
-    return (
-        <div className="flex flex-col h-full bg-[#0d1117]" style={{ background: THEMES[theme].background }}>
-            {/* Tab bar */}
-            <div
-                className="flex items-center shrink-0 border-b"
-                style={{ background: THEMES[theme].background, borderColor: 'rgba(255,255,255,0.08)', minHeight: '36px' }}
-            >
-                {/* Tabs */}
-                <div className="flex items-center flex-1 overflow-x-auto">
-                    {tabs.map(tab => (
-                        <div
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs font-medium border-r transition-colors shrink-0 ${
-                                activeTab === tab.id
-                                    ? 'text-white border-b-2 border-b-blue-400'
-                                    : 'text-slate-500 hover:text-slate-300'
-                            }`}
-                            style={{
-                                background: activeTab === tab.id ? 'rgba(255,255,255,0.05)' : 'transparent',
-                                borderColor: 'rgba(255,255,255,0.05)',
-                            }}
-                        >
-                            <span className="max-w-[120px] truncate">{tab.title}</span>
-                            {tabs.length > 1 && (
-                                <button
-                                    onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
-                                    className="opacity-50 hover:opacity-100 transition-opacity rounded"
-                                >
-                                    <X size={10} />
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
 
-                {/* Controls */}
-                <div className="flex items-center gap-1 px-2 shrink-0">
-                    <button
-                        onClick={addTab}
-                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                        title="New tab (Ctrl+T)"
+    const newTab = useCallback(async () => {
+        const id = `tab-${Date.now()}`;
+        const tab: Tab = { id, title: 'Terminal' };
+        setTabs(prev => [...prev, tab]);
+        setActiveTab(id);
+    }, []);
+
+    const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        // Cleanup PTY
+        if (isTauri) {
+            (window as any).__TAURI__?.invoke('pty_close', { id }).catch(() => {});
+        }
+        const ref = termRefs.current.get(id);
+        if (ref?.term) ref.term.dispose();
+        termRefs.current.delete(id);
+        setTabs(prev => {
+            const next = prev.filter(t => t.id !== id);
+            setActiveTab(curr => curr === id ? next[next.length - 1]?.id || null : curr);
+            return next;
+        });
+    }, [isTauri]);
+
+    // Initialize terminal when tab becomes active
+    const initTerminal = useCallback((id: string, container: HTMLDivElement | null) => {
+        if (!container || !loaded || !Terminal || termRefs.current.get(id)?.term) return;
+
+        const theme = THEMES[themeName];
+        const term = new Terminal({
+            theme, fontSize, fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+            cursorBlink: true, scrollback: 5000, allowTransparency: false,
+            bellStyle: 'none', convertEol: true,
+        });
+        const fitAddon = FitAddon ? new FitAddon() : null;
+        const webLinksAddon = WebLinksAddon ? new WebLinksAddon() : null;
+        term.loadAddon(fitAddon);
+        if (webLinksAddon) term.loadAddon(webLinksAddon);
+        term.open(container);
+        fitAddon?.fit();
+        termRefs.current.set(id, { term, fitAddon, container });
+
+        if (isTauri) {
+            // Real PTY via Tauri
+            const { invoke, event } = (window as any).__TAURI__;
+            invoke('pty_create', { id, cols: term.cols, rows: term.rows }).catch((e: any) => {
+                term.write(`\r\x1b[31mFailed to start PTY: ${e}\x1b[0m\r\n`);
+            });
+
+            // Listen for output
+            event.listen(`pty-data-${id}`, ({ payload }: any) => {
+                term.write(payload);
+            });
+            event.listen(`pty-exit-${id}`, () => {
+                term.write('\r\n\x1b[33m[Process exited — press any key to close]\x1b[0m\r\n');
+            });
+
+            // Send input to PTY
+            term.onData((data: string) => {
+                invoke('pty_write', { id, data }).catch(() => {});
+            });
+
+            // Handle resize
+            term.onResize(({ cols, rows }: any) => {
+                invoke('pty_resize', { id, cols, rows }).catch(() => {});
+            });
+        } else {
+            // Fallback: simulate bash-like environment
+            term.write('\x1b[32mBlue Terminal v0.5\x1b[0m — xterm.js shell emulator\r\n');
+            term.write('\x1b[33mℹ Running without Tauri PTY — limited functionality\x1b[0m\r\n');
+            term.write('$ ');
+
+            let line = '';
+            const simPrompt = () => { term.write('\r\n$ '); line = ''; };
+            const simRun = async (cmd: string) => {
+                const trimmed = cmd.trim();
+                if (!trimmed) { simPrompt(); return; }
+                try {
+                    const result = await fetch('/dev/null').catch(() => null);
+                    term.write(`\r\n\x1b[2m[Command: ${trimmed}]\x1b[0m`);
+                } catch {}
+                simPrompt();
+            };
+
+            term.onKey(({ key, domEvent }: any) => {
+                const code = domEvent.keyCode;
+                if (code === 13) { simRun(line); }
+                else if (code === 8) {
+                    if (line.length > 0) { line = line.slice(0, -1); term.write('\b \b'); }
+                } else if (key.charCodeAt(0) >= 32) {
+                    line += key; term.write(key);
+                }
+            });
+        }
+
+        // Resize observer
+        const ro = new ResizeObserver(() => fitAddon?.fit());
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, [loaded, themeName, fontSize, isTauri]);
+
+    // Open first tab on load
+    useEffect(() => { if (loaded && tabs.length === 0) newTab(); }, [loaded]);
+
+    // Apply theme changes to existing terminals
+    useEffect(() => {
+        termRefs.current.forEach(({ term }) => {
+            term?.setOption?.('theme', THEMES[themeName]);
+        });
+    }, [themeName]);
+
+    useEffect(() => {
+        termRefs.current.forEach(({ term, fitAddon }) => {
+            term?.setOption?.('fontSize', fontSize);
+            fitAddon?.fit();
+        });
+    }, [fontSize]);
+
+    return (
+        <div className="flex flex-col h-full bg-slate-950 text-white overflow-hidden select-none">
+            {/* Tab bar */}
+            <div className="shrink-0 flex items-center bg-slate-900 border-b border-white/5 overflow-x-auto scrollbar-hide">
+                {tabs.map(tab => (
+                    <div
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex items-center gap-2 px-4 py-2.5 cursor-pointer shrink-0 border-r border-white/5 min-w-0 group transition-colors ${
+                            activeTab === tab.id ? 'bg-slate-950 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                        style={{ maxWidth: 160 }}
                     >
-                        <Plus size={14} />
-                    </button>
-                    <button
-                        onClick={() => setShowSettings(s => !s)}
-                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                        title="Settings"
-                    >
-                        <Settings size={14} />
+                        <span className="text-xs truncate">{tab.title}</span>
+                        <button
+                            onClick={e => closeTab(tab.id, e)}
+                            className="ml-1 p-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400 rounded transition-all shrink-0"
+                        >
+                            <X size={10} />
+                        </button>
+                    </div>
+                ))}
+                <button onClick={newTab} className="p-2.5 hover:bg-slate-800 text-slate-500 hover:text-white transition-colors shrink-0">
+                    <Plus size={14} />
+                </button>
+                <div className="ml-auto flex items-center gap-1 px-2">
+                    <button onClick={() => setShowSettings(s => !s)}
+                        className={`p-1.5 rounded transition-colors ${showSettings ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-white'}`}>
+                        <Settings size={13} />
                     </button>
                 </div>
             </div>
 
-            {/* Settings dropdown */}
+            {/* Settings panel */}
             {showSettings && (
-                <div
-                    className="absolute right-2 top-10 z-50 rounded-xl border p-4 shadow-2xl w-64"
-                    style={{ background: THEMES[theme].background, borderColor: 'rgba(255,255,255,0.12)' }}
-                >
-                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Terminal Settings</div>
-
-                    <div className="mb-3">
-                        <label className="text-xs text-slate-400 block mb-1">Theme</label>
-                        <div className="flex gap-2">
-                            {(Object.keys(THEMES) as ThemeName[]).map(t => (
-                                <button
-                                    key={t}
-                                    onClick={() => setTheme(t)}
-                                    className={`px-2 py-1 rounded text-xs capitalize transition-colors ${
-                                        theme === t
-                                            ? 'bg-blue-600 text-white'
-                                            : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
-                                    }`}
-                                >
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
+                <div className="shrink-0 flex items-center gap-4 px-4 py-2 bg-slate-900 border-b border-white/5 text-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-xs">Theme:</span>
+                        <select value={themeName} onChange={e => setThemeName(e.target.value as ThemeName)}
+                            className="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none">
+                            {Object.keys(THEMES).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
                     </div>
-
-                    <div className="mb-3">
-                        <label className="text-xs text-slate-400 block mb-1">Font Size: {fontSize}px</label>
-                        <input
-                            type="range" min="8" max="24" value={fontSize}
-                            onChange={e => setFontSize(parseInt(e.target.value))}
-                            className="w-full h-1.5 accent-blue-500"
-                        />
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-xs">Size:</span>
+                        <input type="number" value={fontSize} min={10} max={24}
+                            onChange={e => setFontSize(parseInt(e.target.value) || 14)}
+                            className="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs text-white w-14 focus:outline-none" />
                     </div>
-
-                    <div className="text-xs text-slate-600 mt-3 pt-3 border-t border-white/5">
-                        <div className="font-medium text-slate-400 mb-1">Shortcuts</div>
-                        <div className="space-y-0.5">
-                            <div>Ctrl+C — interrupt</div>
-                            <div>Ctrl+L — clear screen</div>
-                            <div>↑/↓ — history</div>
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={() => setShowSettings(false)}
-                        className="mt-3 w-full text-xs text-slate-500 hover:text-white transition-colors"
-                    >
-                        Close
+                    <button onClick={() => setShowSettings(false)} className="ml-auto text-slate-500 hover:text-white">
+                        <X size={13} />
                     </button>
                 </div>
             )}
 
-            {/* Terminal content */}
-            <div className="flex-1 overflow-hidden relative">
+            {/* Terminal panes */}
+            <div className="flex-1 relative overflow-hidden">
                 {tabs.map(tab => (
                     <div
                         key={tab.id}
-                        className="absolute inset-0"
-                        style={{ display: activeTab === tab.id ? 'block' : 'none' }}
-                    >
-                        <TerminalTab
-                            windowId={windowId}
-                            tabId={tab.id}
-                            isActive={activeTab === tab.id}
-                            theme={theme}
-                            fontSize={fontSize}
-                            onTitleChange={handleTitleChange}
-                        />
-                    </div>
+                        className={`absolute inset-0 ${activeTab === tab.id ? '' : 'invisible pointer-events-none'}`}
+                        ref={el => el && initTerminal(tab.id, el)}
+                        style={{ padding: '4px 4px' }}
+                    />
                 ))}
+                {tabs.length === 0 && (
+                    <div className="flex items-center justify-center h-full text-slate-600">
+                        <button onClick={newTab} className="flex items-center gap-2 hover:text-white transition-colors">
+                            <Plus size={16} /> New Terminal
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
 };
-
 export default TerminalApp;
