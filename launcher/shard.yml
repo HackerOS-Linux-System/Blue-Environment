@@ -1,17 +1,8 @@
 name: blue
-version: 0.4.0
+version: 0.1.0
 description: Blue Environment launcher and package manager
-
-authors:
-  - HackerOS Team <hackeros068@gmail.com>
-
 targets:
   blue:
     main: src/main.cr
-
-dependencies:
-  http:
-    github: crystal-lang/crystal-http
-
 crystal: ">= 1.8.0"
-license: MIT
+license: GPL-3.0
