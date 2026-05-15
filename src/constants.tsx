@@ -1,4 +1,4 @@
-import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, FileText, FileCode, Package, Mail } from 'lucide-react';
+import { Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity, Monitor, FileText, FileCode, Package, Mail, Camera } from 'lucide-react';
 import { AppDefinition, AppId } from './types';
 
 import TerminalApp from './components/apps/TerminalApp';
@@ -9,6 +9,7 @@ import AboutApp from './components/apps/AboutApp';
 import BlueWebApp from './components/apps/BlueWebApp';
 import CalculatorApp from './components/apps/CalculatorApp';
 import SystemMonitorApp from './components/apps/SystemMonitorApp';
+import CameraApp from './components/apps/CameraApp';
 import NotepadApp from './components/apps/NotepadApp';
 import BlueCodeApp from './components/apps/BlueCodeApp';
 import BlueSoftwareApp from './components/apps/BlueSoftwareApp';
@@ -55,6 +56,11 @@ export const APPS: Record<AppId, AppDefinition> = {
         component: CalculatorApp,
         defaultWidth: 320,
         defaultHeight: 460,
+    },
+    [AppId.CAMERA]: {
+        id: AppId.CAMERA, title: 'Camera',
+        icon: Camera, component: CameraApp,
+        defaultWidth: 720, defaultHeight: 560,
     },
     [AppId.SYSTEM_MONITOR]: {
         id: AppId.SYSTEM_MONITOR,
