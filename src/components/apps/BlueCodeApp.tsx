@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppProps } from '../../types';
+import { GitPanel } from '../GitPanel';
 import { SystemBridge } from '../../utils/systemBridge';
 import { useLanguage } from '../../contexts/LanguageContext';
 import Editor, { Monaco, OnMount } from '@monaco-editor/react';
