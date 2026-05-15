@@ -2,344 +2,264 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppProps } from '../../types';
 import { SystemBridge } from '../../utils/systemBridge';
 import {
-    Folder, File, ChevronRight, ChevronLeft, Home, RefreshCw,
-    Grid, List, Search, Eye, EyeOff, Copy, Scissors, Clipboard,
-    Trash2, Plus, FolderPlus, Edit3, ArrowUp, HardDrive, Star,
-    Download, Image, FileText, Film, Music, Archive, Code,
-    MoreHorizontal, X, Check
+    Folder, File, ChevronRight, ChevronLeft, Home, RefreshCw, Grid, List,
+    Search, Eye, EyeOff, Copy, Scissors, Clipboard, Trash2, Plus,
+    FolderPlus, Edit3, ArrowUp, HardDrive, Download, Image, FileText,
+    Film, Music, Archive, Code, X, Check, AlertTriangle
 } from 'lucide-react';
 
 interface FileEntry {
-    name: string;
-    path: string;
-    isDir: boolean;
-    size: number;
-    modified: string;
-    extension: string;
+    name: string; path: string; isDir: boolean;
+    size: number; modified: string; extension: string;
 }
 
-interface ClipboardItem {
-    paths: string[];
-    mode: 'copy' | 'cut';
+interface ClipboardItem { paths: string[]; mode: 'copy' | 'cut'; }
+type SortKey = 'name' | 'size' | 'modified';
+
+// Inline dialog component - replaces window.prompt/confirm
+interface DialogProps {
+    type: 'input' | 'confirm';
+    title: string;
+    message?: string;
+    defaultValue?: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: (value?: string) => void;
+    onCancel: () => void;
+}
+
+function InlineDialog({ type, title, message, defaultValue = '', confirmLabel = 'OK', danger, onConfirm, onCancel }: DialogProps) {
+    const [value, setValue] = useState(defaultValue);
+    const inputRef = useRef<HTMLInputElement>(null);
+    useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+
+    const handleKey = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') onConfirm(type === 'input' ? value : undefined);
+        if (e.key === 'Escape') onCancel();
+    };
+
+    return (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-slate-800 rounded-2xl border border-white/10 shadow-2xl p-6 w-80" onKeyDown={handleKey}>
+                <div className="flex items-center gap-3 mb-4">
+                    {danger && <AlertTriangle size={18} className="text-red-400 shrink-0" />}
+                    <h3 className="font-semibold text-white">{title}</h3>
+                </div>
+                {message && <p className="text-sm text-slate-400 mb-4">{message}</p>}
+                {type === 'input' && (
+                    <input
+                        ref={inputRef}
+                        value={value}
+                        onChange={e => setValue(e.target.value)}
+                        className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500/60 mb-4"
+                        placeholder="Enter name..."
+                    />
+                )}
+                <div className="flex gap-2 justify-end">
+                    <button onClick={onCancel}
+                        className="px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors">
+                        Cancel
+                    </button>
+                    <button onClick={() => onConfirm(type === 'input' ? value : undefined)}
+                        className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${danger ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}>
+                        {confirmLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
-    // Images
-    png: Image, jpg: Image, jpeg: Image, gif: Image, webp: Image, svg: Image, ico: Image,
-    // Video
-    mp4: Film, mkv: Film, avi: Film, mov: Film, webm: Film,
-    // Audio
-    mp3: Music, wav: Music, flac: Music, ogg: Music, m4a: Music,
-    // Docs
+    png: Image, jpg: Image, jpeg: Image, gif: Image, webp: Image, svg: Image,
+    mp4: Film, mkv: Film, avi: Film, mov: Film,
+    mp3: Music, wav: Music, flac: Music, ogg: Music,
     txt: FileText, md: FileText, pdf: FileText, doc: FileText, docx: FileText,
-    // Code
-    ts: Code, tsx: Code, js: Code, jsx: Code, rs: Code, py: Code, sh: Code, json: Code, toml: Code, yaml: Code, yml: Code, css: Code, html: Code, cr: Code,
-    // Archives
-    zip: Archive, tar: Archive, gz: Archive, '7z': Archive, rar: Archive,
+    ts: Code, tsx: Code, js: Code, jsx: Code, rs: Code, py: Code, sh: Code, json: Code, toml: Code, hk: Code, cr: Code,
+    zip: Archive, tar: Archive, gz: Archive,
 };
 
-function getFileIcon(entry: FileEntry): React.ComponentType<any> {
-    if (entry.isDir) return Folder;
-    return ICON_MAP[entry.extension?.toLowerCase()] || File;
-}
-
-function formatSize(bytes: number): string {
-    if (bytes === 0) return '—';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+function getIcon(e: FileEntry) { return e.isDir ? Folder : ICON_MAP[e.extension?.toLowerCase()] || File; }
+function fmtSize(b: number) {
+    if (!b) return '—';
+    if (b < 1024) return `${b} B`;
+    if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
+    if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
+    return `${(b / 1073741824).toFixed(2)} GB`;
 }
 
 const BOOKMARKS = [
-    { label: 'Home',      path: '',       icon: Home },
+    { label: 'Home', path: '', icon: Home },
     { label: 'Downloads', path: '/Downloads', icon: Download },
     { label: 'Documents', path: '/Documents', icon: FileText },
-    { label: 'Pictures',  path: '/Pictures',  icon: Image },
-    { label: 'Music',     path: '/Music',     icon: Music },
-    { label: 'Videos',    path: '/Videos',    icon: Film },
+    { label: 'Pictures', path: '/Pictures', icon: Image },
+    { label: 'Music', path: '/Music', icon: Music },
+    { label: 'Videos', path: '/Videos', icon: Film },
 ];
 
 const ExplorerApp: React.FC<AppProps> = () => {
-    const [currentPath, setCurrentPath] = useState('');
+    const [path, setPath] = useState('');
     const [entries, setEntries] = useState<FileEntry[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [clipboard, setClipboard] = useState<ClipboardItem | null>(null);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [view, setView] = useState<'grid' | 'list'>('grid');
     const [showHidden, setShowHidden] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [history, setHistory] = useState<string[]>([]);
-    const [historyIndex, setHistoryIndex] = useState(-1);
+    const [histIdx, setHistIdx] = useState(-1);
     const [renaming, setRenaming] = useState<string | null>(null);
-    const [renameValue, setRenameValue] = useState('');
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
+    const [renameVal, setRenameVal] = useState('');
+    const [dialog, setDialog] = useState<DialogProps | null>(null);
     const [homeDir, setHomeDir] = useState('');
-    const renameInputRef = useRef<HTMLInputElement>(null);
+    const renameRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        // Get home dir
-        SystemBridge.executeCommand('echo $HOME').then(result => {
-            const home = (typeof result === 'string' ? result : result.stdout).trim();
-            setHomeDir(home);
-            navigate(home);
+        SystemBridge.executeCommand('echo $HOME').then(r => {
+            const h = (typeof r === 'string' ? r : r?.stdout || '').trim();
+            setHomeDir(h); go(h, true);
         });
     }, []);
 
-    const navigate = useCallback(async (path: string, addToHistory = true) => {
-        setLoading(true);
-        setError(null);
-        setSelected(new Set());
-        setSearchQuery('');
+    const run = useCallback(async (cmd: string) => {
+        const r = await SystemBridge.executeCommand(cmd);
+        return typeof r === 'string' ? r : r?.stdout || '';
+    }, []);
+
+    const go = useCallback(async (p: string, addHist = true) => {
+        setLoading(true); setError(null); setSelected(new Set()); setQuery('');
         try {
-            const raw = await SystemBridge.executeCommand(
-                `ls -la --time-style="+%Y-%m-%d %H:%M" "${path}" 2>&1 || echo "ERROR"`
-            );
-            const result = typeof raw === 'string' ? raw : (raw.stdout || raw.stderr || '');
-
-            if (result.includes('ERROR') && !result.trim().startsWith('total')) {
-                setError(`Cannot access: ${path}`);
-                setLoading(false);
-                return;
-            }
-
-            const lines = result.split('\n').filter((l: string) => l.trim() && !l.startsWith('total'));
+            const out = await run(`ls -la --time-style="+%Y-%m-%d %H:%M" "${p}" 2>&1`);
+            if (!out.trim() || out.startsWith('ls: cannot access')) { setError(`Cannot access: ${p}`); setLoading(false); return; }
             const parsed: FileEntry[] = [];
-
-            for (const line of lines) {
+            for (const line of out.split('\n').filter(l => l.trim() && !l.startsWith('total'))) {
                 const parts = line.trim().split(/\s+/);
                 if (parts.length < 9) continue;
-                const perms = parts[0];
-                const size = parseInt(parts[4]) || 0;
                 const name = parts.slice(8).join(' ');
                 if (name === '.' || name === '..') continue;
-                const isDir = perms.startsWith('d');
-                const isLink = perms.startsWith('l');
-                const ext = name.includes('.') ? name.split('.').pop() || '' : '';
-                const entryPath = `${path}/${name}`.replace('//', '/');
-                parsed.push({ name, path: entryPath, isDir: isDir || (isLink && false), size, modified: `${parts[6]} ${parts[7]}`, extension: ext });
+                const isDir = parts[0].startsWith('d');
+                const size = parseInt(parts[4]) || 0;
+                const ext = name.includes('.') ? name.split('.').pop()! : '';
+                parsed.push({ name, path: `${p}/${name}`.replace('//', '/'), isDir, size, modified: `${parts[6]} ${parts[7]}`, extension: ext });
             }
-
-            // Sort: dirs first, then files, both alphabetically
-            parsed.sort((a, b) => {
-                if (a.isDir && !b.isDir) return -1;
-                if (!a.isDir && b.isDir) return 1;
-                return a.name.localeCompare(b.name);
-            });
-
-            setEntries(parsed);
-            setCurrentPath(path);
-
-            if (addToHistory) {
-                const newHistory = [...history.slice(0, historyIndex + 1), path];
-                setHistory(newHistory);
-                setHistoryIndex(newHistory.length - 1);
+            parsed.sort((a, b) => { if (a.isDir !== b.isDir) return a.isDir ? -1 : 1; return a.name.localeCompare(b.name); });
+            setEntries(parsed); setPath(p);
+            if (addHist) {
+                const next = [...history.slice(0, histIdx + 1), p];
+                setHistory(next); setHistIdx(next.length - 1);
             }
-        } catch (e) {
-            setError('Failed to read directory');
-        } finally {
-            setLoading(false);
-        }
-    }, [history, historyIndex]);
+        } catch { setError('Failed to read directory'); }
+        setLoading(false);
+    }, [history, histIdx, run]);
 
-    const goBack = () => {
-        if (historyIndex > 0) {
-            const path = history[historyIndex - 1];
-            setHistoryIndex(h => h - 1);
-            navigate(path, false);
-        }
-    };
+    const goBack    = () => { if (histIdx > 0) { const p = history[histIdx - 1]; setHistIdx(h => h - 1); go(p, false); } };
+    const goFwd     = () => { if (histIdx < history.length - 1) { const p = history[histIdx + 1]; setHistIdx(h => h + 1); go(p, false); } };
+    const goUp      = () => { const parent = path.split('/').slice(0, -1).join('/') || '/'; go(parent); };
+    const goRefresh = () => go(path, false);
 
-    const goForward = () => {
-        if (historyIndex < history.length - 1) {
-            const path = history[historyIndex + 1];
-            setHistoryIndex(h => h + 1);
-            navigate(path, false);
-        }
-    };
+    const open = (e: FileEntry) => { e.isDir ? go(e.path) : run(`xdg-open "${e.path}" &`); };
 
-    const goUp = () => {
-        const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
-        navigate(parent);
-    };
-
-    const handleOpen = (entry: FileEntry) => {
-        if (entry.isDir) {
-            navigate(entry.path);
-        } else {
-            SystemBridge.executeCommand(`xdg-open "${entry.path}" &`).catch(() => {});
-        }
-    };
-
-    const handleSelect = (e: React.MouseEvent, path: string) => {
+    const sel = useCallback((e: React.MouseEvent, p: string) => {
         if (e.ctrlKey || e.metaKey) {
-            setSelected(prev => {
-                const next = new Set(prev);
-                next.has(path) ? next.delete(path) : next.add(path);
-                return next;
+            setSelected(prev => { const n = new Set(prev); n.has(p) ? n.delete(p) : n.add(p); return n; });
+        } else setSelected(new Set([p]));
+    }, []);
+
+    const showDialog = (d: Omit<DialogProps, 'onConfirm' | 'onCancel'>) =>
+        new Promise<string | boolean | null>(resolve => {
+            setDialog({
+                ...d,
+                onConfirm: (v) => { setDialog(null); resolve(d.type === 'input' ? v ?? '' : true); },
+                onCancel: () => { setDialog(null); resolve(null); },
             });
-        } else if (e.shiftKey) {
-            const idx = filteredEntries.findIndex(f => f.path === path);
-            const lastSelected = filteredEntries.findIndex(f => selected.has(f.path));
-            if (lastSelected >= 0) {
-                const [from, to] = [Math.min(idx, lastSelected), Math.max(idx, lastSelected)];
-                setSelected(new Set(filteredEntries.slice(from, to + 1).map(f => f.path)));
-            }
-        } else {
-            setSelected(new Set([path]));
-        }
+        });
+
+    const newFolder = async () => {
+        const name = await showDialog({ type: 'input', title: 'New Folder', defaultValue: 'New Folder' });
+        if (!name) return;
+        await run(`mkdir -p "${path}/${name}"`); goRefresh();
     };
 
-    const handleCopy = (paths: string[]) => setClipboard({ paths, mode: 'copy' });
-    const handleCut = (paths: string[]) => setClipboard({ paths, mode: 'cut' });
+    const newFile = async () => {
+        const name = await showDialog({ type: 'input', title: 'New File', defaultValue: 'new-file.txt' });
+        if (!name) return;
+        await run(`touch "${path}/${name}"`); goRefresh();
+    };
 
-    const handlePaste = async () => {
+    const doCopy = (paths: string[]) => setClipboard({ paths, mode: 'copy' });
+    const doCut  = (paths: string[]) => setClipboard({ paths, mode: 'cut' });
+
+    const doPaste = async () => {
         if (!clipboard) return;
-        const cmd = clipboard.mode === 'copy'
-            ? `cp -r ${clipboard.paths.map(p => `"${p}"`).join(' ')} "${currentPath}/"`
-            : `mv ${clipboard.paths.map(p => `"${p}"`).join(' ')} "${currentPath}/"`;
-        await SystemBridge.executeCommand(cmd).catch(() => {});
+        const srcs = clipboard.paths.map(p => `"${p}"`).join(' ');
+        await run(`${clipboard.mode === 'copy' ? 'cp -r' : 'mv'} ${srcs} "${path}/"`);
         if (clipboard.mode === 'cut') setClipboard(null);
-        navigate(currentPath, false);
+        goRefresh();
     };
 
-    const handleDelete = async (paths: string[]) => {
+    const doDelete = async (paths: string[]) => {
         const names = paths.map(p => p.split('/').pop()).join(', ');
-        if (!window.confirm(`Delete ${names}?`)) return;
-        await SystemBridge.executeCommand(`rm -rf ${paths.map(p => `"${p}"`).join(' ')}`);
-        setSelected(new Set());
-        navigate(currentPath, false);
+        const ok = await showDialog({ type: 'confirm', title: 'Delete files', message: `Delete ${names}?`, confirmLabel: 'Delete', danger: true });
+        if (!ok) return;
+        await run(`rm -rf ${paths.map(p => `"${p}"`).join(' ')}`);
+        setSelected(new Set()); goRefresh();
     };
 
-    const handleNewFolder = async () => {
-        const name = window.prompt('Folder name:');
-        if (!name) return;
-        await SystemBridge.executeCommand(`mkdir -p "${currentPath}/${name}"`);
-        navigate(currentPath, false);
-    };
-
-    const handleNewFile = async () => {
-        const name = window.prompt('File name:');
-        if (!name) return;
-        await SystemBridge.executeCommand(`touch "${currentPath}/${name}"`);
-        navigate(currentPath, false);
-    };
-
-    const startRename = (entry: FileEntry) => {
-        setRenaming(entry.path);
-        setRenameValue(entry.name);
-        setTimeout(() => renameInputRef.current?.select(), 50);
-    };
-
+    const startRename = (e: FileEntry) => { setRenaming(e.path); setRenameVal(e.name); setTimeout(() => renameRef.current?.select(), 50); };
     const finishRename = async () => {
-        if (!renaming || !renameValue.trim()) { setRenaming(null); return; }
+        if (!renaming || !renameVal.trim()) { setRenaming(null); return; }
         const dir = renaming.split('/').slice(0, -1).join('/');
-        const newPath = `${dir}/${renameValue.trim()}`;
-        if (newPath !== renaming) {
-            await SystemBridge.executeCommand(`mv "${renaming}" "${newPath}"`);
-            navigate(currentPath, false);
-        }
+        const np = `${dir}/${renameVal.trim()}`;
+        if (np !== renaming) { await run(`mv "${renaming}" "${np}"`); goRefresh(); }
         setRenaming(null);
     };
 
-    const handleContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
-        e.preventDefault();
-        setContextMenu({ x: e.clientX, y: e.clientY, path: entry.path, isDir: entry.isDir });
-        if (!selected.has(entry.path)) setSelected(new Set([entry.path]));
-    };
-
-    const filteredEntries = entries.filter(e => {
+    const filtered = entries.filter(e => {
         if (!showHidden && e.name.startsWith('.')) return false;
-        if (searchQuery && !e.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        if (query && !e.name.toLowerCase().includes(query.toLowerCase())) return false;
         return true;
     });
 
-    const selectedPaths = Array.from(selected);
-
-    const pathParts = currentPath.split('/').filter(Boolean);
+    const selPaths = Array.from(selected);
+    const pathParts = path.split('/').filter(Boolean);
 
     return (
-        <div
-            className="flex flex-col h-full bg-slate-900 text-white overflow-hidden"
-            onClick={() => setContextMenu(null)}
-        >
+        <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden relative" onClick={() => setSelected(new Set())}>
+            {/* Inline dialog overlay */}
+            {dialog && <InlineDialog {...dialog} />}
+
             {/* Toolbar */}
             <div className="shrink-0 flex items-center gap-1 px-3 py-2 bg-slate-800 border-b border-white/5">
-                {/* Nav buttons */}
-                <button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30 transition-colors">
-                    <ChevronLeft size={16} />
-                </button>
-                <button onClick={goForward} disabled={historyIndex >= history.length - 1} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30 transition-colors">
-                    <ChevronRight size={16} />
-                </button>
-                <button onClick={goUp} disabled={currentPath === '/'} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30 transition-colors">
-                    <ArrowUp size={16} />
-                </button>
-                <button onClick={() => navigate(homeDir)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
-                    <Home size={16} />
-                </button>
-                <button onClick={() => navigate(currentPath, false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
-                    <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                </button>
+                <button onClick={goBack} disabled={histIdx <= 0} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30"><ChevronLeft size={16} /></button>
+                <button onClick={goFwd} disabled={histIdx >= history.length - 1} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30"><ChevronRight size={16} /></button>
+                <button onClick={goUp} disabled={path === '/'} className="p-1.5 hover:bg-white/10 rounded-lg disabled:opacity-30"><ArrowUp size={16} /></button>
+                <button onClick={() => go(homeDir)} className="p-1.5 hover:bg-white/10 rounded-lg"><Home size={16} /></button>
+                <button onClick={goRefresh} className="p-1.5 hover:bg-white/10 rounded-lg"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /></button>
 
                 {/* Breadcrumb */}
-                <div className="flex-1 flex items-center gap-0.5 bg-slate-900/50 rounded-lg px-2 py-1 mx-1 overflow-x-auto scrollbar-hide text-sm">
-                    <button onClick={() => navigate('/')} className="hover:text-blue-400 text-slate-400 shrink-0">/</button>
-                    {pathParts.map((part, i) => {
-                        const path = '/' + pathParts.slice(0, i + 1).join('/');
-                        return (
-                            <React.Fragment key={i}>
-                                <ChevronRight size={12} className="text-slate-600 shrink-0" />
-                                <button onClick={() => navigate(path)} className="hover:text-blue-400 whitespace-nowrap shrink-0 transition-colors">
-                                    {part}
-                                </button>
-                            </React.Fragment>
-                        );
-                    })}
+                <div className="flex-1 flex items-center gap-0.5 bg-slate-900/50 rounded-lg px-2 py-1 mx-1 overflow-x-auto text-sm">
+                    <button onClick={() => go('/')} className="hover:text-blue-400 text-slate-400 shrink-0">/</button>
+                    {pathParts.map((part, i) => (
+                        <React.Fragment key={i}>
+                            <ChevronRight size={12} className="text-slate-600 shrink-0" />
+                            <button onClick={() => go('/' + pathParts.slice(0, i + 1).join('/'))} className="hover:text-blue-400 whitespace-nowrap shrink-0">{part}</button>
+                        </React.Fragment>
+                    ))}
                 </div>
 
                 {/* Search */}
                 <div className="relative">
                     <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="Search..."
-                        className="bg-slate-900/50 border border-white/10 rounded-lg pl-7 pr-3 py-1 text-sm w-40 focus:outline-none focus:border-blue-500/50"
-                    />
-                    {searchQuery && (
-                        <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
-                            <X size={12} className="text-slate-400" />
-                        </button>
-                    )}
+                    <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." className="bg-slate-900/50 border border-white/10 rounded-lg pl-7 pr-3 py-1 text-sm w-36 focus:outline-none focus:border-blue-500/50" />
                 </div>
 
-                {/* View toggles */}
-                <button onClick={() => setShowHidden(s => !s)} className={`p-1.5 rounded-lg transition-colors ${showHidden ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`} title="Show hidden">
-                    {showHidden ? <Eye size={15} /> : <EyeOff size={15} />}
-                </button>
-                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`}>
-                    <Grid size={15} />
-                </button>
-                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-lg transition-colors ${viewMode === 'list' ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`}>
-                    <List size={15} />
-                </button>
-
-                {/* Actions */}
-                <div className="flex gap-0.5 ml-1 border-l border-white/10 pl-1">
-                    <button onClick={handleNewFolder} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400" title="New folder">
-                        <FolderPlus size={15} />
-                    </button>
-                    <button onClick={handleNewFile} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400" title="New file">
-                        <Plus size={15} />
-                    </button>
-                    {clipboard && (
-                        <button onClick={handlePaste} className="p-1.5 hover:bg-white/10 rounded-lg text-green-400" title="Paste">
-                            <Clipboard size={15} />
-                        </button>
-                    )}
-                </div>
+                <button onClick={() => setShowHidden(s => !s)} className={`p-1.5 rounded-lg ${showHidden ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`}>{showHidden ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+                <button onClick={() => setView('grid')} className={`p-1.5 rounded-lg ${view === 'grid' ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`}><Grid size={15} /></button>
+                <button onClick={() => setView('list')} className={`p-1.5 rounded-lg ${view === 'list' ? 'text-blue-400 bg-blue-500/10' : 'hover:bg-white/10 text-slate-400'}`}><List size={15} /></button>
+                <button onClick={newFolder} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400"><FolderPlus size={15} /></button>
+                <button onClick={newFile} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400"><Plus size={15} /></button>
+                {clipboard && <button onClick={doPaste} className="p-1.5 hover:bg-white/10 rounded-lg text-green-400"><Clipboard size={15} /></button>}
             </div>
 
             <div className="flex flex-1 overflow-hidden">
@@ -347,81 +267,46 @@ const ExplorerApp: React.FC<AppProps> = () => {
                 <div className="w-40 shrink-0 bg-slate-800/50 border-r border-white/5 overflow-y-auto py-2">
                     <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
                     {BOOKMARKS.map(bm => {
-                        const fullPath = bm.path ? homeDir + bm.path : homeDir;
+                        const full = bm.path ? homeDir + bm.path : homeDir;
                         const Icon = bm.icon;
                         return (
-                            <button
-                                key={bm.label}
-                                onClick={() => navigate(fullPath)}
-                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors text-left ${currentPath === fullPath ? 'text-blue-400 bg-blue-500/10' : 'text-slate-300'}`}
-                            >
-                                <Icon size={14} className="shrink-0" />
-                                {bm.label}
+                            <button key={bm.label} onClick={() => go(full)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors text-left ${path === full ? 'text-blue-400 bg-blue-500/10' : 'text-slate-300 hover:bg-white/10'}`}>
+                                <Icon size={14} className="shrink-0" />{bm.label}
                             </button>
                         );
                     })}
                     <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-3">Devices</div>
-                    {['/'].map(path => (
-                        <button
-                            key={path}
-                            onClick={() => navigate(path)}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors text-left text-slate-300"
-                        >
-                            <HardDrive size={14} className="shrink-0" />
-                            Root (/)
-                        </button>
-                    ))}
+                    <button onClick={() => go('/')} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10 transition-colors text-left">
+                        <HardDrive size={14} className="shrink-0" />Root (/)
+                    </button>
                 </div>
 
-                {/* Main content */}
-                <div
-                    className="flex-1 overflow-y-auto p-3"
-                    onClick={() => setSelected(new Set())}
-                >
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-3" onClick={() => setSelected(new Set())}>
                     {error ? (
-                        <div className="flex flex-col items-center justify-center h-full text-red-400">
-                            <X size={32} className="mb-2" />
-                            <p className="text-sm">{error}</p>
-                        </div>
+                        <div className="flex flex-col items-center justify-center h-full text-red-400 gap-2"><X size={32} className="opacity-50" /><p className="text-sm">{error}</p></div>
                     ) : loading ? (
-                        <div className="flex items-center justify-center h-full">
-                            <RefreshCw size={24} className="animate-spin text-blue-400" />
-                        </div>
-                    ) : filteredEntries.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                            <Folder size={48} className="mb-3 opacity-30" />
-                            <p className="text-sm">{searchQuery ? 'No matches' : 'Empty folder'}</p>
-                        </div>
-                    ) : viewMode === 'grid' ? (
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] gap-2">
-                            {filteredEntries.map(entry => {
-                                const Icon = getFileIcon(entry);
-                                const isSelected = selected.has(entry.path);
-                                const isRenaming = renaming === entry.path;
+                        <div className="flex items-center justify-center h-full"><RefreshCw size={24} className="animate-spin text-blue-400" /></div>
+                    ) : filtered.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500"><Folder size={48} className="opacity-20 mb-2" /><p className="text-sm">{query ? 'No results' : 'Empty folder'}</p></div>
+                    ) : view === 'grid' ? (
+                        <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2">
+                            {filtered.map(e => {
+                                const Icon = getIcon(e);
+                                const isSel = selected.has(e.path);
+                                const isRen = renaming === e.path;
                                 return (
-                                    <div
-                                        key={entry.path}
-                                        onClick={e => { e.stopPropagation(); handleSelect(e, entry.path); }}
-                                        onDoubleClick={() => isRenaming ? undefined : handleOpen(entry)}
-                                        onContextMenu={e => handleContextMenu(e, entry)}
-                                        className={`flex flex-col items-center gap-1 p-2 rounded-xl cursor-pointer transition-all select-none ${isSelected ? 'bg-blue-600/30 ring-1 ring-blue-500/50' : 'hover:bg-white/5'}`}
-                                    >
-                                        <Icon size={36} className={`shrink-0 ${entry.isDir ? 'text-blue-400' : 'text-slate-400'}`} />
-                                        {isRenaming ? (
-                                            <input
-                                                ref={renameInputRef}
-                                                value={renameValue}
-                                                onChange={e => setRenameValue(e.target.value)}
-                                                onBlur={finishRename}
-                                                onKeyDown={e => { if (e.key === 'Enter') finishRename(); if (e.key === 'Escape') setRenaming(null); }}
-                                                onClick={e => e.stopPropagation()}
-                                                className="w-full bg-slate-700 text-white text-xs text-center rounded px-1 focus:outline-none"
-                                                autoFocus
-                                            />
+                                    <div key={e.path} onClick={ev => { ev.stopPropagation(); sel(ev, e.path); }}
+                                        onDoubleClick={() => !isRen && open(e)}
+                                        className={`flex flex-col items-center gap-1 p-2 rounded-xl cursor-pointer select-none transition-all ${isSel ? 'bg-blue-600/30 ring-1 ring-blue-500/40' : 'hover:bg-white/5'}`}>
+                                        <Icon size={34} className={e.isDir ? 'text-blue-400' : 'text-slate-400'} />
+                                        {isRen ? (
+                                            <input ref={renameRef} value={renameVal} onChange={ev => setRenameVal(ev.target.value)}
+                                                onBlur={finishRename} onKeyDown={ev => { if (ev.key === 'Enter') finishRename(); if (ev.key === 'Escape') setRenaming(null); }}
+                                                onClick={ev => ev.stopPropagation()}
+                                                className="w-full bg-slate-700 text-white text-xs text-center rounded px-1 focus:outline-none" autoFocus />
                                         ) : (
-                                            <span className="text-xs text-center break-all line-clamp-2 text-slate-200 w-full">
-                                                {entry.name}
-                                            </span>
+                                            <span className="text-xs text-center break-all line-clamp-2 text-slate-200 w-full">{e.name}</span>
                                         )}
                                     </div>
                                 );
@@ -437,39 +322,26 @@ const ExplorerApp: React.FC<AppProps> = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredEntries.map(entry => {
-                                    const Icon = getFileIcon(entry);
-                                    const isSelected = selected.has(entry.path);
-                                    const isRenaming = renaming === entry.path;
+                                {filtered.map(e => {
+                                    const Icon = getIcon(e);
+                                    const isSel = selected.has(e.path);
+                                    const isRen = renaming === e.path;
                                     return (
-                                        <tr
-                                            key={entry.path}
-                                            onClick={e => { e.stopPropagation(); handleSelect(e, entry.path); }}
-                                            onDoubleClick={() => handleOpen(entry)}
-                                            onContextMenu={e => handleContextMenu(e, entry)}
-                                            className={`cursor-pointer transition-colors rounded-lg ${isSelected ? 'bg-blue-600/20' : 'hover:bg-white/5'}`}
-                                        >
+                                        <tr key={e.path} onClick={ev => { ev.stopPropagation(); sel(ev, e.path); }} onDoubleClick={() => open(e)}
+                                            className={`cursor-pointer transition-colors rounded-lg ${isSel ? 'bg-blue-600/20' : 'hover:bg-white/5'}`}>
                                             <td className="py-1 px-2">
                                                 <div className="flex items-center gap-2">
-                                                    <Icon size={16} className={`shrink-0 ${entry.isDir ? 'text-blue-400' : 'text-slate-400'}`} />
-                                                    {isRenaming ? (
-                                                        <input
-                                                            ref={renameInputRef}
-                                                            value={renameValue}
-                                                            onChange={e => setRenameValue(e.target.value)}
-                                                            onBlur={finishRename}
-                                                            onKeyDown={e => { if (e.key === 'Enter') finishRename(); if (e.key === 'Escape') setRenaming(null); }}
-                                                            onClick={e => e.stopPropagation()}
-                                                            className="bg-slate-700 text-white text-sm rounded px-1 focus:outline-none w-48"
-                                                            autoFocus
-                                                        />
-                                                    ) : (
-                                                        <span className="text-slate-200 truncate">{entry.name}</span>
-                                                    )}
+                                                    <Icon size={15} className={e.isDir ? 'text-blue-400' : 'text-slate-400'} />
+                                                    {isRen ? (
+                                                        <input ref={renameRef} value={renameVal} onChange={ev => setRenameVal(ev.target.value)}
+                                                            onBlur={finishRename} onKeyDown={ev => { if (ev.key === 'Enter') finishRename(); if (ev.key === 'Escape') setRenaming(null); }}
+                                                            onClick={ev => ev.stopPropagation()}
+                                                            className="bg-slate-700 text-white text-sm rounded px-1 focus:outline-none w-48" autoFocus />
+                                                    ) : <span className="text-slate-200 truncate">{e.name}</span>}
                                                 </div>
                                             </td>
-                                            <td className="py-1 px-2 text-right text-slate-500 text-xs">{entry.isDir ? '—' : formatSize(entry.size)}</td>
-                                            <td className="py-1 px-2 text-right text-slate-500 text-xs">{entry.modified}</td>
+                                            <td className="py-1 px-2 text-right text-slate-500 text-xs">{e.isDir ? '—' : fmtSize(e.size)}</td>
+                                            <td className="py-1 px-2 text-right text-slate-500 text-xs">{e.modified}</td>
                                         </tr>
                                     );
                                 })}
@@ -481,58 +353,25 @@ const ExplorerApp: React.FC<AppProps> = () => {
 
             {/* Status bar */}
             <div className="shrink-0 flex items-center justify-between px-4 py-1.5 bg-slate-800/50 border-t border-white/5 text-xs text-slate-500">
-                <span>{filteredEntries.length} items{selected.size > 0 ? ` · ${selected.size} selected` : ''}</span>
-                <div className="flex items-center gap-3">
+                <span>{filtered.length} items{selected.size > 0 ? ` · ${selected.size} selected` : ''}</span>
+                <div className="flex gap-2 items-center">
                     {clipboard && (
-                        <span className={`${clipboard.mode === 'cut' ? 'text-orange-400' : 'text-green-400'}`}>
-                            {clipboard.paths.length} item(s) ready to {clipboard.mode === 'cut' ? 'move' : 'copy'}
-                            <button onClick={() => setClipboard(null)} className="ml-1 hover:text-white"><X size={10} /></button>
+                        <span className={`flex items-center gap-1 ${clipboard.mode === 'cut' ? 'text-orange-400' : 'text-green-400'}`}>
+                            {clipboard.paths.length} ready to {clipboard.mode}
+                            <button onClick={() => setClipboard(null)}><X size={10} /></button>
                         </span>
                     )}
-                    {selectedPaths.length > 0 && (
+                    {selPaths.length > 0 && (
                         <div className="flex gap-1">
-                            <button onClick={() => handleCopy(selectedPaths)} className="hover:text-white p-0.5" title="Copy"><Copy size={12} /></button>
-                            <button onClick={() => handleCut(selectedPaths)} className="hover:text-white p-0.5" title="Cut"><Scissors size={12} /></button>
-                            <button onClick={() => handleDelete(selectedPaths)} className="hover:text-red-400 p-0.5" title="Delete"><Trash2 size={12} /></button>
+                            <button onClick={() => doCopy(selPaths)} className="hover:text-white p-0.5" title="Copy"><Copy size={12} /></button>
+                            <button onClick={() => doCut(selPaths)} className="hover:text-white p-0.5" title="Cut"><Scissors size={12} /></button>
+                            <button onClick={() => { const e = filtered.find(f => f.path === selPaths[0]); if (e) startRename(e); }} className="hover:text-white p-0.5" title="Rename"><Edit3 size={12} /></button>
+                            <button onClick={() => doDelete(selPaths)} className="hover:text-red-400 p-0.5" title="Delete"><Trash2 size={12} /></button>
                         </div>
                     )}
                 </div>
             </div>
-
-            {/* Context menu */}
-            {contextMenu && (
-                <div
-                    className="fixed z-50 bg-slate-800 border border-white/10 rounded-xl shadow-2xl py-1 min-w-44"
-                    style={{ left: contextMenu.x, top: contextMenu.y }}
-                    onClick={e => e.stopPropagation()}
-                >
-                    {[
-                        { label: 'Open', icon: contextMenu.isDir ? Folder : File, action: () => { const e = filteredEntries.find(f => f.path === contextMenu.path); if (e) handleOpen(e); } },
-                        { label: 'Rename', icon: Edit3, action: () => { const e = filteredEntries.find(f => f.path === contextMenu.path); if (e) startRename(e); } },
-                        null,
-                        { label: 'Copy', icon: Copy, action: () => handleCopy(selectedPaths.length > 0 ? selectedPaths : [contextMenu.path]) },
-                        { label: 'Cut', icon: Scissors, action: () => handleCut(selectedPaths.length > 0 ? selectedPaths : [contextMenu.path]) },
-                        clipboard ? { label: 'Paste', icon: Clipboard, action: handlePaste } : null,
-                        null,
-                        { label: 'Delete', icon: Trash2, action: () => handleDelete(selectedPaths.length > 0 ? selectedPaths : [contextMenu.path]), danger: true },
-                    ].map((item, i) => {
-                        if (!item) return <div key={i} className="border-t border-white/5 my-1" />;
-                        const Icon = item.icon;
-                        return (
-                            <button
-                                key={item.label}
-                                onClick={() => { item.action(); setContextMenu(null); }}
-                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors text-left ${(item as any).danger ? 'text-red-400' : 'text-slate-200'}`}
-                            >
-                                <Icon size={14} className="shrink-0" />
-                                {item.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
         </div>
     );
 };
-
 export default ExplorerApp;
