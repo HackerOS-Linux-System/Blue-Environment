@@ -56,9 +56,10 @@ interface StartMenuProps {
     isOpen: boolean; isFullScreen: boolean;
     onOpenApp: (appId: string, isExternal?: boolean, exec?: string) => void;
     onClose: () => void; onToggleFullScreen: () => void;
+    appsEnabled?: Record<string, boolean>;
 }
 
-const StartMenu: React.FC<StartMenuProps> = ({ isOpen, isFullScreen, onOpenApp, onClose, onToggleFullScreen }) => {
+const StartMenu: React.FC<StartMenuProps> = ({ isOpen, isFullScreen, onOpenApp, onClose, onToggleFullScreen, appsEnabled = {} }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [systemApps, setSystemApps] = useState<SystemApp[]>([]);
     const [recentApps, setRecentApps] = useState<string[]>([]);
@@ -77,11 +78,23 @@ const StartMenu: React.FC<StartMenuProps> = ({ isOpen, isFullScreen, onOpenApp, 
             });
     }, [isOpen]);
 
+    const APP_ENABLED_KEYS: Record<string, string> = {
+        'ai_assistant': 'blueAI', 'blue_code': 'blueCode',
+        'blue_software': 'blueSoftware', 'mail': 'mail',
+        'calculator': 'calculator', 'notepad': 'notepad',
+        'system_monitor': 'systemMonitor', 'explorer': 'explorer',
+        'terminal': 'terminal', 'blue_web': 'blueWeb', 'camera': 'camera',
+    };
     const internalApps = useMemo((): InternalApp[] =>
         Object.values(APPS)
-            .filter(app => !app.isExternal && app.component)
+            .filter(app => {
+                if (app.isExternal || !app.component) return false;
+                const key = APP_ENABLED_KEYS[app.id as string];
+                if (key && appsEnabled[key] === false) return false;
+                return true;
+            })
             .map(app => ({ id: app.id as string, name: app.title, icon: app.icon as React.ComponentType<any>, categories: INTERNAL_APP_CATEGORIES[app.id as string] || ['Other'], isInternal: true as const })),
-    []);
+    [appsEnabled]);
 
     const allApps = useMemo((): AnyApp[] => {
         const term = searchTerm.toLowerCase().trim();
