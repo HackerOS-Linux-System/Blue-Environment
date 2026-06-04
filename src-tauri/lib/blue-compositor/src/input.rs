@@ -15,7 +15,7 @@ use smithay::{
         },
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{Logical, Point, Size, SERIAL_COUNTER},
     wayland::seat::WaylandFocus,
 };
 
@@ -143,10 +143,10 @@ fn handle_keyboard<B: InputBackend, E: KeyboardKeyEvent<B>>(
                         if let Some(t) = win.toplevel() {
                             t.with_pending_state(|s| {
                                 use smithay::wayland::shell::xdg::ToplevelState;
-                                if s.states.contains(ToplevelState::Maximized) {
-                                    s.states.unset(ToplevelState::Maximized);
+                                if s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized) {
+                                    s.states.unset(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
                                 } else {
-                                    s.states.set(ToplevelState::Maximized);
+                                    s.states.set(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
                                 }
                             });
                             t.send_configure();
