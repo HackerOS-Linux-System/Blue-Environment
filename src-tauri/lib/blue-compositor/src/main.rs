@@ -111,23 +111,9 @@ fn run_udev() {
     // Register session notifier
     loop_handle
         .insert_source(notifier, |event, _, state| {
-            use smithay::backend::session::SessionEvent;
-            match event {
-                SessionEvent::PauseSession => {
-                    info!("Session paused (VT switch away)");
-                    // Pause DRM devices
-                    if let state::BackendData::Udev(ref mut data) = state.backend_data {
-                        for device in data.devices.values_mut() {
-                            device.drm.pause();
-                        }
-                    }
-                }
-                SessionEvent::ActivateSession => {
-                    info!("Session activated (VT switch back)");
-                    if let state::BackendData::Udev(ref mut data) = state.backend_data {
-                        for device in data.devices.values_mut() {
-                            if let Err(e) = device.drm.activate(false) {
-                                error!("Failed to activate DRM device: {}", e);
+
+            match event {}
+                }", e);
                             }
                         }
                     }
