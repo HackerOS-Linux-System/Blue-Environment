@@ -222,10 +222,10 @@ fn handle_shell_message(state: &mut BlueState, msg: ShellMessage) {
                 if let Some(t) = window.toplevel() {
                     t.with_pending_state(|s| {
                         use smithay::wayland::shell::xdg::ToplevelState;
-                        if s.states.contains(ToplevelState::Maximized) {
-                            s.states.unset(ToplevelState::Maximized);
+                        if s.states.contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized) {
+                            s.states.unset(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
                         } else {
-                            s.states.set(ToplevelState::Maximized);
+                            s.states.set(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Maximized);
                         }
                     });
                     t.send_configure();
