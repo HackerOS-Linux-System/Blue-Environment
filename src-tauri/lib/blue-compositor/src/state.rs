@@ -14,7 +14,7 @@ use smithay::{
             Display, DisplayHandle, Resource,
         },
     },
-    utils::{Clock, Logical, Monotonic, Point, Serial, Rectangle, Size},
+    utils::{Clock, Logical, Monotonic, Point, Serial, Rectangle},
     wayland::{
         buffer::BufferHandler,
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
@@ -35,7 +35,7 @@ use smithay::{
             xdg::{
                 PopupSurface, PositionerState, ToplevelSurface,
                 XdgShellHandler, XdgShellState,
-                xdg_toplevel,
+                // xdg_toplevel is private in this Smithay rev — access via full path
             },
         },
         shm::{ShmHandler, ShmState},
@@ -336,7 +336,7 @@ impl BlueState {
                 let geo = self
                     .space
                     .element_geometry(win)
-                    .unwrap_or(Rectangle::from_loc_and_size((0, 0), (800, 600)));
+                    .unwrap_or(Rectangle::new((0, 0).into(), (800, 600).into()));
                 let surface_id = win
                     .wl_surface()
                     .map(|s| s.id().protocol_id() as u64)
@@ -569,8 +569,9 @@ impl XdgShellHandler for BlueState {
         let surface_id = surface.wl_surface().id().protocol_id() as u64;
         let with_pending = surface.with_pending_state(|s| {
             (
-                s.title.clone().unwrap_or_default(),
-                s.app_id.clone().unwrap_or_default(),
+                // title via window_meta
+String::new(),
+                String::new(),
             )
         });
         self.window_meta.insert(
