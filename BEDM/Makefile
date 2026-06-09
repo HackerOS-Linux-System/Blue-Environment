@@ -1,8 +1,3 @@
-################################################################################
-# BEDM — Blue Environment Display Manager
-# Makefile — build, install, uninstall
-################################################################################
-
 PREFIX       ?= /usr
 SYSCONFDIR   ?= /etc
 VARDIR       ?= /var
