@@ -5,7 +5,6 @@ members = [
     "src-tauri/lib/blue-compositor",
     "BEDM/daemon",
     "BEDM/greeter",
-    "BEDM/pam",
 ]
 
 [profile.release]
