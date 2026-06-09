@@ -10,17 +10,16 @@ name = "bedm"
 path = "src/main.rs"
 
 [dependencies]
-tokio       = { version = "1", features = ["full"] }
-nix         = { version = "0.27", features = ["fs", "process", "signal", "user", "ioctl"] }
-libc        = "0.2"
-serde       = { version = "1", features = ["derive"] }
-serde_json  = "1"
-tracing     = "0.1"
+tokio              = { version = "1", features = ["full"] }
+nix                = { version = "0.27", features = ["fs", "process", "signal", "user", "ioctl"] }
+libc               = "0.2"
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
-toml        = "0.8"
-users       = "0.11"
-dirs        = "5.0"
-glob        = "0.3"
-chrono      = { version = "0.4", features = ["serde"] }
-uuid        = { version = "1", features = ["v4"] }
+tracing-appender   = "0.2"
+hk-parser          = "0.3.0"
+dirs               = "5.0"
+glob               = "0.3"
+chrono             = { version = "0.4", features = ["serde"] }
+uuid               = { version = "1", features = ["v4"] }
