@@ -1,5 +1,3 @@
-// BEDM VT (Virtual Terminal) management
-
 use tracing::warn;
 
 /// Switch to a virtual terminal
