@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "src-tauri",
     "compositor",
+    "BEDM/bedm-daemon",
+    "BEDM/bedm-greeter",
 ]
 
 [profile.release]
