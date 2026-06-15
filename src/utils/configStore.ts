@@ -1,9 +1,7 @@
-import { parseHk, serializeHk, resolveInterpolations, loadHkConfig, saveHkConfig, HkConfig } from './hkParser';
-import { UserConfig } from '../types';
-import { SystemBridge } from './systemBridge';
+import { SystemBridge, UserConfig, AIConfig } from './systemBridge';
 
 const DEFAULT_CONFIG: UserConfig = {
-    wallpaper: "file:///usr/share/wallpapers/default.png",
+    wallpaper: 'file:///usr/share/Blue-Environment/wallpapers/default.png',
     theme: 'dark',
     themeName: 'blue-default',
     accentColor: 'blue',
@@ -24,72 +22,69 @@ const DEFAULT_CONFIG: UserConfig = {
         blueCode: true,
         blueSoftware: true,
         mail: true,
+        calculator: true,
+        notepad: true,
+        systemMonitor: true,
+        explorer: true,
+        terminal: true,
+        blueWeb: true,
+        about: true,
     },
     accounts: {},
 };
 
-class ConfigStore extends EventTarget {
-    private config: UserConfig = DEFAULT_CONFIG;
-    private initialized = false;
+type Listener = (cfg: UserConfig) => void;
+
+class ConfigStore {
+    private config: UserConfig = { ...DEFAULT_CONFIG };
+    private loaded = false;
+    private listeners: Set<Listener> = new Set();
+
+    async load(): Promise<UserConfig> {
+        if (this.loaded) return this.config;
+        try {
+            const loaded = await SystemBridge.loadConfig();
+            this.config = { ...DEFAULT_CONFIG, ...loaded } as UserConfig;
+        } catch {
+            this.config = { ...DEFAULT_CONFIG };
+        }
+        this.loaded = true;
+        return this.config;
+    }
 
     async init(): Promise<UserConfig> {
-        if (this.initialized) return this.config;
-        const loaded = await SystemBridge.loadConfig();
+        return this.load();
+    }
 
-        // Fill in any missing fields from defaults
-        const merged: UserConfig = { ...DEFAULT_CONFIG, ...loaded };
-
-        if (!merged.desktopPath) {
-            merged.desktopPath = await SystemBridge.getDefaultDesktopPath();
+    subscribe(listener: Listener): () => void {
+        this.listeners.add(listener);
+        // immediately emit current config if already loaded
+        if (this.loaded) {
+            listener(this.config);
         }
-        // Normalize wallpaper path
-        if (
-            merged.wallpaper &&
-            !merged.wallpaper.startsWith('file://') &&
-            !merged.wallpaper.startsWith('data:')
-        ) {
-            merged.wallpaper = `file://${merged.wallpaper}`;
-        }
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
 
-        this.config = merged;
-        this.initialized = true;
-        this.applyTheme(this.config.themeName);
-        return this.config;
+    private notify(): void {
+        this.listeners.forEach(l => l(this.config));
     }
 
     get(): UserConfig {
         return this.config;
     }
 
-    async update(patch: Partial<UserConfig>): Promise<void> {
+    async save(patch: Partial<UserConfig>): Promise<void> {
         this.config = { ...this.config, ...patch };
-        if (patch.themeName) this.applyTheme(patch.themeName);
         await SystemBridge.saveConfig(this.config);
-        this.dispatchEvent(new CustomEvent<UserConfig>('change', { detail: this.config }));
+        this.notify();
     }
 
-    subscribe(cb: (cfg: UserConfig) => void): () => void {
-        const handler = (e: Event) => cb((e as CustomEvent<UserConfig>).detail);
-        this.addEventListener('change', handler);
-        return () => this.removeEventListener('change', handler);
-    }
-
-    private applyTheme(themeName: string): void {
-        document.documentElement.setAttribute('data-theme', themeName);
-        const customTheme = this.config.customThemes?.find(t => t.id === themeName);
-        if (customTheme?.css) {
-            let style = document.getElementById('custom-theme-style');
-            if (!style) {
-                style = document.createElement('style');
-                style.id = 'custom-theme-style';
-                document.head.appendChild(style);
-            }
-            style.innerHTML = customTheme.css;
-        } else {
-            const style = document.getElementById('custom-theme-style');
-            if (style) style.remove();
-        }
+    async setAIConfig(aiConfig: AIConfig): Promise<void> {
+        await this.save({ aiConfig });
     }
 }
 
 export const configStore = new ConfigStore();
+export type { UserConfig, AIConfig };
