@@ -4,63 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blue Environment</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-      :root {
-        --bg-primary:   #0f172a;
-        --bg-secondary: #1e293b;
-        --text-primary: #f1f5f9;
-        --text-secondary: #94a3b8;
-        --accent:       #2563eb;
-        --accent-hover: #3b82f6;
-      }
-      [data-theme='cyberpunk'] {
-        --bg-primary:   #09090b;
-        --bg-secondary: #18181b;
-        --text-primary: #e4e4e7;
-        --text-secondary: #a1a1aa;
-        --accent:       #eab308;
-        --accent-hover: #facc15;
-      }
-      [data-theme='dracula'] {
-        --bg-primary:   #282a36;
-        --bg-secondary: #44475a;
-        --text-primary: #f8f8f2;
-        --text-secondary: #6272a4;
-        --accent:       #bd93f9;
-        --accent-hover: #ff79c6;
-      }
-      [data-theme='light-glass'] {
-        --bg-primary:   #e2e8f0;
-        --bg-secondary: #ffffff;
-        --text-primary: #0f172a;
-        --text-secondary: #64748b;
-        --accent:       #0ea5e9;
-        --accent-hover: #38bdf8;
-      }
-      body {
-        font-family: 'Inter', sans-serif;
-        overflow: hidden;
-        background-color: var(--bg-primary);
-        color: var(--text-primary);
-        transition: background-color 0.3s ease, color 0.3s ease;
-        margin: 0; padding: 0;
-      }
-      .font-mono { font-family: 'JetBrains Mono', monospace; }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
-      ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: var(--accent-hover); }
-      .theme-bg-primary    { background-color: var(--bg-primary); }
-      .theme-bg-secondary  { background-color: var(--bg-secondary); }
-      .theme-text-primary  { color: var(--text-primary); }
-      .theme-text-secondary{ color: var(--text-secondary); }
-      .theme-accent        { background-color: var(--accent); }
-      .theme-accent-text   { color: var(--accent); }
-      .theme-border        { border-color: rgba(255,255,255,0.1); }
-      [data-theme='light-glass'] .theme-border { border-color: rgba(0,0,0,0.1); }
-    </style>
   </head>
   <body class="h-screen w-screen overflow-hidden selection:bg-blue-500 selection:text-white">
     <div id="root"></div>
