@@ -5,6 +5,7 @@ mod cache;
 mod apps;
 mod window_tracker;
 mod ai;
+mod packages;
 
 use std::fs;
 use std::path::PathBuf;
@@ -13,14 +14,13 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Mutex as StdMutex;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use std::sync::Arc;
 use glob::glob;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cache::CachedApp;
 use tokio::process::{Command as TokioCommand};
 use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tauri::Window;
+use tauri::{Window, Emitter};
 use lazy_static::lazy_static;
 use serde::{Serialize, Deserialize};
 
@@ -132,8 +132,8 @@ struct TerminalProcess {
 }
 
 lazy_static! {
-    static ref TERMINALS: Arc<Mutex<HashMap<String, TerminalProcess>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    static ref TERMINALS: std::sync::Arc<Mutex<HashMap<String, TerminalProcess>>> =
+    std::sync::Arc::new(Mutex::new(HashMap::new()));
 }
 
 fn clipboard_history_path() -> PathBuf {
@@ -191,7 +191,7 @@ fn launch_process(command: String, app_id: Option<String>) {
         match session {
             session::SessionType::Tty => {
                 cmd.env("WAYLAND_DISPLAY", "wayland-blue-1")
-                    .arg(format!("{} &", command));
+                .arg(format!("{} &", command));
             }
             _ => {
                 cmd.arg(format!("{} &", command));
@@ -223,32 +223,23 @@ fn close_external_window(win_id: String) {
     window_tracker::close_window(&win_id);
 }
 
-/// Embed an external window into a Blue Environment frame using XReparentWindow (X11)
-/// or wlr-foreign-toplevel (Wayland). Returns true if successful.
 #[tauri::command]
 fn embed_external_window(win_id: String, _parent_id: String) -> bool {
     let session = session::detect_session();
     match session {
         session::SessionType::X11Client => {
-            // Try xdotool to move window so it appears inside our container
-            // In full implementation, use XReparentWindow via x11rb or xcb
             let _ = Command::new("xdotool")
-                .args(["windowfocus", "--sync", &win_id])
-                .spawn();
+            .args(["windowfocus", "--sync", &win_id])
+            .spawn();
             true
         }
         session::SessionType::WaylandClient => {
-            // With wlr-foreign-toplevel we can track and manipulate surfaces
-            // Proper embedding requires a wlroots extension; for now we focus the window
             let _ = Command::new("swaymsg")
-                .args(["[pid=", &win_id, "]", "focus"])
-                .spawn();
-            false // Full embedding not yet available without compositor support
+            .args(["[pid=", &win_id, "]", "focus"])
+            .spawn();
+            false
         }
-        session::SessionType::Tty => {
-            // We ARE the compositor — XWayland surfaces can be fully reparented
-            true
-        }
+        session::SessionType::Tty => true,
     }
 }
 
@@ -277,39 +268,30 @@ fn list_files(path: String) -> Vec<FileEntry> {
                     "inode/directory".to_string()
                 } else {
                     let ext = entry.path().extension()
-                        .map(|e| e.to_string_lossy().to_lowercase())
-                        .unwrap_or_default();
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
                     match ext.as_str() {
                         "png"|"jpg"|"jpeg"|"gif"|"webp"|"svg" => "image",
-                        "mp4"|"mkv"|"webm"|"avi"|"mov"         => "video",
-                        "mp3"|"wav"|"ogg"|"flac"|"aac"          => "audio",
-                        "pdf"                                     => "application/pdf",
-                        "txt"|"md"|"rs"|"ts"|"js"|"py"|"toml"    => "text",
-                        _                                          => "application/octet-stream",
+                        "mp4"|"mkv"|"webm"|"avi"|"mov"        => "video",
+                        "mp3"|"wav"|"ogg"|"flac"|"aac"         => "audio",
+                        "pdf"                                    => "application/pdf",
+                        "txt"|"md"|"rs"|"ts"|"js"|"py"|"toml"  => "text",
+                        _                                        => "application/octet-stream",
                     }.to_string()
                 };
                 let modified = meta.modified().ok().map(|t| {
                     chrono::DateTime::<chrono::Local>::from(t)
-                        .format("%Y-%m-%d %H:%M")
-                        .to_string()
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string()
                 });
-                entries.push(FileEntry {
-                    name,
-                    path: entry.path().to_string_lossy().to_string(),
-                    is_dir,
-                    size,
-                    mime_type,
-                    modified,
-                });
+                entries.push(FileEntry { name, path: entry.path().to_string_lossy().to_string(), is_dir, size, mime_type, modified });
             }
         }
     }
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
     entries
 }
@@ -321,22 +303,16 @@ fn read_text_file(path: String) -> String {
 
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
-    fs::write(path, content).map_err(|e| e.to_string())?;
-    Ok(())
+    fs::write(path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn git_status(path: String) -> Vec<String> {
     Command::new("git")
-        .args(["-C", &path, "status", "--short"])
-        .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(|l| l.to_string())
-                .collect()
-        })
-        .unwrap_or_default()
+    .args(["-C", &path, "status", "--short"])
+    .output()
+    .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect())
+    .unwrap_or_default()
 }
 
 // ── System stats ───────────────────────────────────────────────────────────
@@ -347,28 +323,28 @@ fn get_system_stats() -> SystemStats {
     let mut sys = System::new_all();
     sys.refresh_all();
 
-    let volume = get_pipewire_volume().unwrap_or_else(|| get_alsa_volume());
+    let volume = get_pipewire_volume().unwrap_or_else(get_alsa_volume);
     let wifi_ssid = Command::new("nmcli")
-        .args(["-t", "-f", "active,ssid", "dev", "wifi"])
-        .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .find(|l| l.starts_with("yes:"))
-                .map(|l| l.replacen("yes:", "", 1))
-                .unwrap_or_else(|| "Disconnected".to_string())
-        })
-        .unwrap_or("Unknown".to_string());
+    .args(["-t", "-f", "active,ssid", "dev", "wifi"])
+    .output()
+    .map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .find(|l| l.starts_with("yes:"))
+        .map(|l| l.replacen("yes:", "", 1))
+        .unwrap_or_else(|| "Disconnected".to_string())
+    })
+    .unwrap_or("Unknown".to_string());
 
     let kernel = Command::new("uname").arg("-r")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or("Unknown".to_string());
+    .output()
+    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    .unwrap_or("Unknown".to_string());
 
     let (battery, is_charging) = get_battery_info();
 
     SystemStats {
-        cpu: sys.global_cpu_info().cpu_usage(),
+        cpu: sys.global_cpu_info().cpu_usage(),  // FIX: was global_cpu_usage()
         ram: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
         battery,
         is_charging,
@@ -381,19 +357,15 @@ fn get_system_stats() -> SystemStats {
 }
 
 fn get_battery_info() -> (f32, bool) {
-    let bat_paths = [
-        "/sys/class/power_supply/BAT0",
-        "/sys/class/power_supply/BAT1",
-        "/sys/class/power_supply/battery",
-    ];
+    let bat_paths = ["/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1", "/sys/class/power_supply/battery"];
     for bat in &bat_paths {
         let cap_path = PathBuf::from(bat).join("capacity");
         let status_path = PathBuf::from(bat).join("status");
         if let Ok(cap) = fs::read_to_string(&cap_path) {
             let level: f32 = cap.trim().parse().unwrap_or(0.0);
             let charging = fs::read_to_string(&status_path)
-                .map(|s| s.trim() == "Charging" || s.trim() == "Full")
-                .unwrap_or(false);
+            .map(|s| s.trim() == "Charging" || s.trim() == "Full")
+            .unwrap_or(false);
             return (level, charging);
         }
     }
@@ -401,11 +373,7 @@ fn get_battery_info() -> (f32, bool) {
 }
 
 fn get_brightness() -> i32 {
-    let paths = [
-        "/sys/class/backlight/intel_backlight",
-        "/sys/class/backlight/amdgpu_bl0",
-        "/sys/class/backlight/acpi_video0",
-    ];
+    let paths = ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/amdgpu_bl0", "/sys/class/backlight/acpi_video0"];
     for p in &paths {
         let cur = fs::read_to_string(format!("{}/brightness", p));
         let max = fs::read_to_string(format!("{}/max_brightness", p));
@@ -419,48 +387,28 @@ fn get_brightness() -> i32 {
 }
 
 fn get_pipewire_volume() -> Option<i32> {
-    let out = Command::new("pactl")
-        .args(["get-sink-volume", "@DEFAULT_SINK@"])
-        .output().ok()?;
+    let out = Command::new("pactl").args(["get-sink-volume", "@DEFAULT_SINK@"]).output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
-    let vol: i32 = text.split('%')
-        .next()?
-        .rsplit('/')
-        .next()?
-        .trim()
-        .parse().ok()?;
-    Some(vol)
+    text.split('%').next()?.rsplit('/').next()?.trim().parse().ok()
 }
 
 fn get_alsa_volume() -> i32 {
     Command::new("sh")
-        .arg("-c")
-        .arg("amixer get Master 2>/dev/null | grep -o '[0-9]*%' | head -1")
-        .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .replace('%', "")
-                .trim()
-                .parse()
-                .unwrap_or(50)
-        })
-        .unwrap_or(50)
+    .arg("-c")
+    .arg("amixer get Master 2>/dev/null | grep -o '[0-9]*%' | head -1")
+    .output()
+    .map(|o| String::from_utf8_lossy(&o.stdout).replace('%', "").trim().parse().unwrap_or(50))
+    .unwrap_or(50)
 }
 
 #[tauri::command]
 fn get_audio_sinks() -> Vec<AudioSink> {
     let mut sinks = Vec::new();
-    let default_out = Command::new("pactl")
-        .args(["get-default-sink"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    let default_out = Command::new("pactl").args(["get-default-sink"]).output()
+    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    .unwrap_or_default();
 
-    let out = Command::new("pactl")
-        .args(["--format=json", "list", "sinks"])
-        .output();
-
-    if let Ok(o) = out {
+    if let Ok(o) = Command::new("pactl").args(["--format=json", "list", "sinks"]).output() {
         let text = String::from_utf8_lossy(&o.stdout);
         if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(arr) = arr.as_array() {
@@ -470,17 +418,10 @@ fn get_audio_sinks() -> Vec<AudioSink> {
                     let desc = s["description"].as_str().unwrap_or("").to_string();
                     let muted = s["mute"].as_bool().unwrap_or(false);
                     let vol_left = s["volume"]["front-left"]["value_percent"]
-                        .as_str()
-                        .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok())
-                        .unwrap_or(0.0);
-                    sinks.push(AudioSink {
-                        id,
-                        is_default: name == default_out,
-                        name,
-                        description: desc,
-                        volume: vol_left,
-                        muted,
-                    });
+                    .as_str()
+                    .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                    sinks.push(AudioSink { id, is_default: name == default_out, name, description: desc, volume: vol_left, muted });
                 }
             }
         }
@@ -490,38 +431,25 @@ fn get_audio_sinks() -> Vec<AudioSink> {
 
 #[tauri::command]
 fn set_sink_volume(sink_name: String, volume: f32) -> Result<(), String> {
-    let vol_pct = format!("{}%", volume.clamp(0.0, 150.0) as u32);
-    Command::new("pactl")
-        .args(["set-sink-volume", &sink_name, &vol_pct])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    Command::new("pactl").args(["set-sink-volume", &sink_name, &format!("{}%", volume.clamp(0.0, 150.0) as u32)]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn set_default_sink(sink_name: String) -> Result<(), String> {
-    Command::new("pactl")
-        .args(["set-default-sink", &sink_name])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    Command::new("pactl").args(["set-default-sink", &sink_name]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn toggle_sink_mute(sink_name: String) -> Result<(), String> {
-    Command::new("pactl")
-        .args(["set-sink-mute", &sink_name, "toggle"])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    Command::new("pactl").args(["set-sink-mute", &sink_name, "toggle"]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn set_volume(level: i32) {
-    let pct = format!("{}%", level.clamp(0, 150));
-    let _ = Command::new("pactl")
-        .args(["set-sink-volume", "@DEFAULT_SINK@", &pct])
-        .spawn();
+    let _ = Command::new("pactl").args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", level.clamp(0, 150))]).spawn();
 }
 
 // ── Wi-Fi ─────────────────────────────────────────────────────────────────
@@ -530,15 +458,7 @@ fn set_volume(level: i32) {
 fn get_wifi_networks_real() -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
     let _ = Command::new("nmcli").args(["dev", "wifi", "rescan"]).output();
-    let out = Command::new("nmcli")
-        .args([
-            "-t", "-f",
-            "IN-USE,BSSID,SSID,MODE,CHAN,FREQ,RATE,SIGNAL,BARS,SECURITY",
-            "dev", "wifi", "list",
-        ])
-        .output();
-
-    if let Ok(o) = out {
+    if let Ok(o) = Command::new("nmcli").args(["-t", "-f", "IN-USE,BSSID,SSID,MODE,CHAN,FREQ,RATE,SIGNAL,BARS,SECURITY", "dev", "wifi", "list"]).output() {
         let text = String::from_utf8_lossy(&o.stdout);
         let mut seen = std::collections::HashSet::new();
         for line in text.lines() {
@@ -550,10 +470,10 @@ fn get_wifi_networks_real() -> Vec<WifiNetwork> {
             networks.push(WifiNetwork {
                 in_use: parts[0] == "*",
                 bssid: parts[1].to_string(),
-                ssid,
-                frequency: parts[5].to_string(),
-                signal: parts[7].parse().unwrap_or(0),
-                secure: parts.get(9).map(|s| !s.is_empty() && *s != "--").unwrap_or(false),
+                          ssid,
+                          frequency: parts[5].to_string(),
+                          signal: parts[7].parse().unwrap_or(0),
+                          secure: parts.get(9).map(|s| !s.is_empty() && *s != "--").unwrap_or(false),
             });
         }
     }
@@ -568,30 +488,20 @@ fn connect_wifi_real(ssid: String, password: String) -> Result<String, String> {
     } else {
         vec!["dev".to_string(), "wifi".to_string(), "connect".to_string(), ssid, "password".to_string(), password]
     };
-    let o = Command::new("nmcli")
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if o.status.success() {
-        Ok(String::from_utf8_lossy(&o.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&o.stderr).to_string())
-    }
+    let o = Command::new("nmcli").args(&args).output().map_err(|e| e.to_string())?;
+    if o.status.success() { Ok(String::from_utf8_lossy(&o.stdout).to_string()) }
+    else { Err(String::from_utf8_lossy(&o.stderr).to_string()) }
 }
 
 #[tauri::command]
 fn disconnect_wifi() -> Result<(), String> {
-    Command::new("nmcli")
-        .args(["dev", "disconnect", "wlan0"])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    Command::new("nmcli").args(["dev", "disconnect", "wlan0"]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn toggle_wifi(enabled: bool) {
-    let state = if enabled { "on" } else { "off" };
-    let _ = Command::new("nmcli").args(["radio", "wifi", state]).spawn();
+    let _ = Command::new("nmcli").args(["radio", "wifi", if enabled { "on" } else { "off" }]).spawn();
 }
 
 // ── Bluetooth ──────────────────────────────────────────────────────────────
@@ -599,33 +509,27 @@ fn toggle_wifi(enabled: bool) {
 #[tauri::command]
 fn get_bluetooth_devices_real() -> Vec<BluetoothDevice> {
     let mut devices = Vec::new();
-    let out = Command::new("bluetoothctl").arg("devices").output();
-    if let Ok(o) = out {
+    if let Ok(o) = Command::new("bluetoothctl").arg("devices").output() {
         for line in String::from_utf8_lossy(&o.stdout).lines() {
             if !line.starts_with("Device ") { continue; }
             let parts: Vec<&str> = line.splitn(3, ' ').collect();
             if parts.len() < 3 { continue; }
             let mac = parts[1].to_string();
             let name = parts[2].to_string();
-            let info = Command::new("bluetoothctl")
-                .args(["info", &mac])
-                .output()
-                .map(|i| String::from_utf8_lossy(&i.stdout).to_string())
-                .unwrap_or_default();
-
-            let connected = info.contains("Connected: yes");
-            let paired = info.contains("Paired: yes");
-            let trusted = info.contains("Trusted: yes");
-            let device_type = info.lines()
-                .find(|l| l.trim_start().starts_with("Icon:"))
-                .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
-                .unwrap_or("unknown".to_string());
-            let battery = info.lines()
-                .find(|l| l.trim_start().starts_with("Battery Percentage:"))
-                .and_then(|l| l.split('(').nth(1)
-                    .and_then(|s| s.trim_end_matches(')').parse::<u8>().ok()));
-
-            devices.push(BluetoothDevice { name, mac, device_type, connected, paired, trusted, battery });
+            let info = Command::new("bluetoothctl").args(["info", &mac]).output()
+            .map(|i| String::from_utf8_lossy(&i.stdout).to_string())
+            .unwrap_or_default();
+            devices.push(BluetoothDevice {
+                name, mac,
+                connected: info.contains("Connected: yes"),
+                         paired: info.contains("Paired: yes"),
+                         trusted: info.contains("Trusted: yes"),
+                         device_type: info.lines().find(|l| l.trim_start().starts_with("Icon:"))
+                         .map(|l| l.split(':').nth(1).unwrap_or("").trim().to_string())
+                         .unwrap_or("unknown".to_string()),
+                         battery: info.lines().find(|l| l.trim_start().starts_with("Battery Percentage:"))
+                         .and_then(|l| l.split('(').nth(1).and_then(|s| s.trim_end_matches(')').parse::<u8>().ok())),
+            });
         }
     }
     devices
@@ -655,56 +559,27 @@ fn bluetooth_pair(mac: String) -> Result<(), String> {
 fn get_power_profiles() -> Vec<PowerProfile> {
     let mut profiles = Vec::new();
     let out = Command::new("powerprofilesctl").arg("list").output();
-
     let (has_saver, has_balanced, has_perf, active) = if let Ok(o) = out {
         let text = String::from_utf8_lossy(&o.stdout).to_string();
-        let active = text.lines()
-            .find(|l| l.contains('*'))
-            .and_then(|l| l.split_whitespace().next())
-            .unwrap_or("")
-            .trim_end_matches(':')
-            .to_string();
-        (
-            text.contains("power-saver"),
-            text.contains("balanced"),
-            text.contains("performance"),
-            active,
-        )
-    } else {
-        (false, false, false, "balanced".to_string())
-    };
+        let active = text.lines().find(|l| l.contains('*'))
+        .and_then(|l| l.split_whitespace().next())
+        .unwrap_or("").trim_end_matches(':').to_string();
+        (text.contains("power-saver"), text.contains("balanced"), text.contains("performance"), active)
+    } else { (false, false, false, "balanced".to_string()) };
 
     if has_saver || !has_balanced {
-        profiles.push(PowerProfile {
-            name: "power-saver".to_string(),
-            active: active == "power-saver",
-            icon: Some("Battery".to_string()),
-            description: "Oszczędzanie energii".to_string(),
-        });
+        profiles.push(PowerProfile { name: "power-saver".to_string(), active: active == "power-saver", icon: Some("Battery".to_string()), description: "Oszczędzanie energii".to_string() });
     }
-    profiles.push(PowerProfile {
-        name: "balanced".to_string(),
-        active: active == "balanced" || active.is_empty(),
-        icon: Some("Wind".to_string()),
-        description: "Zrównoważony".to_string(),
-    });
+    profiles.push(PowerProfile { name: "balanced".to_string(), active: active == "balanced" || active.is_empty(), icon: Some("Wind".to_string()), description: "Zrównoważony".to_string() });
     if has_perf {
-        profiles.push(PowerProfile {
-            name: "performance".to_string(),
-            active: active == "performance",
-            icon: Some("Zap".to_string()),
-            description: "Wydajność".to_string(),
-        });
+        profiles.push(PowerProfile { name: "performance".to_string(), active: active == "performance", icon: Some("Zap".to_string()), description: "Wydajność".to_string() });
     }
     profiles
 }
 
 #[tauri::command]
 fn set_power_profile(profile: String) -> Result<(), String> {
-    Command::new("powerprofilesctl")
-        .args(["set", &profile])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    Command::new("powerprofilesctl").args(["set", &profile]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -712,18 +587,10 @@ fn set_power_profile(profile: String) -> Result<(), String> {
 
 #[tauri::command]
 fn set_brightness(level: i32) {
-    if Command::new("brightnessctl")
-        .args(["set", &format!("{}%", level)])
-        .spawn()
-        .is_err()
-    {
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "xrandr --output $(xrandr | grep ' connected' | head -1 | cut -d' ' -f1) --brightness {:.2}",
-                level as f32 / 100.0
-            ))
-            .spawn();
+    if Command::new("brightnessctl").args(["set", &format!("{}%", level)]).spawn().is_err() {
+        let _ = Command::new("sh").arg("-c")
+        .arg(format!("xrandr --output $(xrandr | grep ' connected' | head -1 | cut -d' ' -f1) --brightness {:.2}", level as f32 / 100.0))
+        .spawn();
     }
 }
 
@@ -733,12 +600,12 @@ fn set_brightness(level: i32) {
 fn get_processes() -> Vec<ProcessEntry> {
     use sysinfo::System;
     let mut sys = System::new_all();
-    sys.refresh_processes();
+    sys.refresh_processes();  // FIX: was refresh_processes(ProcessesToUpdate::All, true)
     let mut procs: Vec<ProcessEntry> = sys.processes().iter().map(|(pid, p)| ProcessEntry {
         pid: pid.to_string(),
-        name: p.name().to_string(),
-        cpu: p.cpu_usage(),
-        memory: p.memory(),
+                                                                  name: p.name().to_string(),  // FIX: was to_string_lossy().to_string()
+    cpu: p.cpu_usage(),
+                                                                  memory: p.memory(),
     }).collect();
     procs.sort_by(|a, b| b.memory.cmp(&a.memory));
     procs.truncate(50);
@@ -753,11 +620,8 @@ fn take_screenshot() {
     let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let path = pics.join(format!("screenshot-{}.png", ts)).to_string_lossy().to_string();
     let cmd = format!(
-        "flameshot gui -p '{path}' 2>/dev/null || \
-         scrot '{path}' 2>/dev/null || \
-         gnome-screenshot -f '{path}' 2>/dev/null || \
-         spectacle -b -o '{path}' 2>/dev/null",
-        path = path
+        "flameshot gui -p '{p}' 2>/dev/null || scrot '{p}' 2>/dev/null || gnome-screenshot -f '{p}' 2>/dev/null || spectacle -b -o '{p}' 2>/dev/null",
+        p = path
     );
     let _ = Command::new("sh").arg("-c").arg(cmd).spawn();
 }
@@ -775,29 +639,19 @@ fn get_wallpapers() -> Vec<String> {
         seen.insert("default.png".to_string());
     }
 
-    let search_patterns = [
+    let patterns = [
         "/usr/share/Blue-Environment/wallpapers/*.png",
         "/usr/share/Blue-Environment/wallpapers/*.jpg",
-        "/usr/share/Blue-Environment/wallpapers/*.jpeg",
-        "/usr/share/Blue-Environment/wallpapers/**/*.png",
-        "/usr/share/Blue-Environment/wallpapers/**/*.jpg",
         "/usr/share/wallpapers/*.png",
         "/usr/share/wallpapers/*.jpg",
-        "/usr/share/wallpapers/*.jpeg",
-        "/usr/share/wallpapers/**/*.png",
-        "/usr/share/wallpapers/**/*.jpg",
         "/usr/share/backgrounds/*.png",
         "/usr/share/backgrounds/*.jpg",
-        "/usr/share/backgrounds/**/*.png",
-        "/usr/share/backgrounds/**/*.jpg",
     ];
 
-    for pat in &search_patterns {
+    for pat in &patterns {
         if let Ok(entries) = glob(pat) {
             for entry in entries.filter_map(Result::ok) {
-                let fname = entry.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                let fname = entry.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 if !seen.contains(&fname) {
                     seen.insert(fname.clone());
                     wallpapers.push(format!("file://{}", entry.to_string_lossy()));
@@ -805,7 +659,6 @@ fn get_wallpapers() -> Vec<String> {
             }
         }
     }
-
     if wallpapers.is_empty() {
         wallpapers.push("file:///usr/share/Blue-Environment/wallpapers/default.png".to_string());
     }
@@ -814,19 +667,15 @@ fn get_wallpapers() -> Vec<String> {
 
 #[tauri::command]
 fn get_wallpaper_preview(path: String) -> Result<String, String> {
-    let path = path.replace("file://", "");
-    let path = PathBuf::from(path);
-    if !path.exists() {
-        return Err("File not found".to_string());
-    }
+    let path = PathBuf::from(path.replace("file://", ""));
+    if !path.exists() { return Err("File not found".to_string()); }
     let data = fs::read(&path).map_err(|e| e.to_string())?;
     let mime = match path.extension().and_then(|e| e.to_str()) {
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         _ => "application/octet-stream",
     };
-    let base64 = BASE64.encode(data);
-    Ok(format!("data:{};base64,{}", mime, base64))
+    Ok(format!("data:{};base64,{}", mime, BASE64.encode(data)))
 }
 
 #[tauri::command]
@@ -835,13 +684,11 @@ fn load_distro_info() -> std::collections::HashMap<String, String> {
     info.insert("Name".to_string(), "HackerOS".to_string());
     info.insert("Version".to_string(), "0.2.0-alpha".to_string());
     info.insert("Copyright".to_string(), "© 2026 HackerOS Team".to_string());
-
     for p in &["/etc/xdg/kcm-about-distrorc", "/etc/os-release"] {
         if let Ok(content) = fs::read_to_string(p) {
             for line in content.lines() {
                 if let Some((k, v)) = line.split_once('=') {
-                    let v = v.trim_matches('"').to_string();
-                    info.entry(k.trim().to_string()).or_insert(v);
+                    info.entry(k.trim().to_string()).or_insert(v.trim_matches('"').to_string());
                 }
             }
             break;
@@ -891,9 +738,7 @@ fn load_window_state() -> Vec<cache::WindowCache> {
 #[tauri::command]
 fn read_file_as_data_url(path: String) -> Result<String, String> {
     let path = PathBuf::from(path);
-    if !path.exists() {
-        return Err("File not found".to_string());
-    }
+    if !path.exists() { return Err("File not found".to_string()); }
     let data = fs::read(&path).map_err(|e| e.to_string())?;
     let mime = match path.extension().and_then(|e| e.to_str()) {
         Some("png") => "image/png",
@@ -902,8 +747,7 @@ fn read_file_as_data_url(path: String) -> Result<String, String> {
         Some("svg") => "image/svg+xml",
         _ => "application/octet-stream",
     };
-    let base64 = BASE64.encode(data);
-    Ok(format!("data:{};base64,{}", mime, base64))
+    Ok(format!("data:{};base64,{}", mime, BASE64.encode(data)))
 }
 
 #[tauri::command]
@@ -914,11 +758,8 @@ fn create_folder(path: String, name: String) -> Result<(), String> {
 #[tauri::command]
 fn delete_file(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|e| e.to_string())
-    } else {
-        fs::remove_file(path).map_err(|e| e.to_string())
-    }
+    if path.is_dir() { fs::remove_dir_all(path).map_err(|e| e.to_string()) }
+    else { fs::remove_file(path).map_err(|e| e.to_string()) }
 }
 
 #[tauri::command]
@@ -935,26 +776,21 @@ fn move_file(src: String, dest: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn execute_command(command: String) -> Result<CommandOutput, String> {
-    let output = TokioCommand::new("sh")
-        .arg("-c")
-        .arg(&command)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let output = TokioCommand::new("sh").arg("-c").arg(&command).output().await.map_err(|e| e.to_string())?;
     Ok(CommandOutput {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+       stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
 }
 
 #[tauri::command]
 async fn spawn_terminal(window: Window, window_id: String) -> Result<bool, String> {
     let mut child = TokioCommand::new("bash")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .map_err(|e| e.to_string())?;
 
     let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
     let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
@@ -962,25 +798,17 @@ async fn spawn_terminal(window: Window, window_id: String) -> Result<bool, Strin
 
     let window_clone = window.clone();
     tokio::spawn(async move {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
+        let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            let _ = window_clone.emit("terminal-output", serde_json::json!({
-                "type": "stdout",
-                "data": line + "\r\n"
-            }));
+            let _ = window_clone.emit("terminal-output", serde_json::json!({"type":"stdout","data":line+"\r\n"}));
         }
     });
 
     let window_clone = window.clone();
     tokio::spawn(async move {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
+        let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            let _ = window_clone.emit("terminal-output", serde_json::json!({
-                "type": "stderr",
-                "data": line + "\r\n"
-            }));
+            let _ = window_clone.emit("terminal-output", serde_json::json!({"type":"stderr","data":line+"\r\n"}));
         }
     });
 
@@ -1014,9 +842,7 @@ fn get_default_desktop_path() -> String {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     for dir_name in &["Desktop", "Pulpit"] {
         let dir = home.join(dir_name);
-        if dir.exists() {
-            return dir.to_string_lossy().to_string();
-        }
+        if dir.exists() { return dir.to_string_lossy().to_string(); }
     }
     "HOME/Desktop".to_string()
 }
@@ -1030,25 +856,19 @@ fn create_text_file(path: String, name: String, content: String) -> Result<(), S
 
 #[tauri::command]
 fn get_clipboard_history() -> Vec<ClipboardItem> {
-    let path = clipboard_history_path();
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(clipboard_history_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[tauri::command]
 fn add_to_clipboard_history(content: String) {
-    let path = clipboard_history_path();
     let mut history: Vec<ClipboardItem> = get_clipboard_history();
-    let new_item = ClipboardItem {
+    history.insert(0, ClipboardItem {
         id: chrono::Utc::now().timestamp_millis().to_string(),
-        content,
-        timestamp: chrono::Utc::now().timestamp_millis() as u64,
-    };
-    history.insert(0, new_item);
+                   content,
+                   timestamp: chrono::Utc::now().timestamp_millis() as u64,
+    });
     history.truncate(50);
-    let _ = fs::write(path, serde_json::to_string(&history).unwrap());
+    let _ = fs::write(clipboard_history_path(), serde_json::to_string(&history).unwrap());
 }
 
 #[tauri::command]
@@ -1060,21 +880,15 @@ fn clear_clipboard_history() {
 
 #[tauri::command]
 fn set_night_light_enabled(enabled: bool) -> Result<(), String> {
-    let session = session::detect_session();
-    match session {
+    match session::detect_session() {
         session::SessionType::WaylandClient => {
             let gamma = if enabled { "1.0:0.8:0.6" } else { "1.0:1.0:1.0" };
-            let _ = Command::new("wlr-randr")
-                .args(["--output", "eDP-1", "--gamma", gamma])
-                .spawn();
+            let _ = Command::new("wlr-randr").args(["--output", "eDP-1", "--gamma", gamma]).spawn();
         }
         session::SessionType::X11Client => {
             let temp = if enabled { 4000 } else { 6500 };
             let factor = temp as f32 / 6500.0;
-            let _ = Command::new("xrandr")
-                .args(["--output", "eDP-1", "--gamma",
-                    &format!("{:.2}:{:.2}:{:.2}", 1.0f32, factor * 0.8, factor * 0.6)])
-                .spawn();
+            let _ = Command::new("xrandr").args(["--output", "eDP-1", "--gamma", &format!("{:.2}:{:.2}:{:.2}", 1.0f32, factor * 0.8, factor * 0.6)]).spawn();
         }
         _ => {}
     }
@@ -1083,22 +897,11 @@ fn set_night_light_enabled(enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn set_night_light_temperature(temperature: u32) -> Result<(), String> {
-    let session = session::detect_session();
     let factor = temperature as f32 / 6500.0;
-    let r = 1.0f32;
-    let g = factor * 0.8;
-    let b = factor * 0.6;
-    match session {
-        session::SessionType::WaylandClient => {
-            let _ = Command::new("wlr-randr")
-                .args(["--output", "eDP-1", "--gamma", &format!("{:.2}:{:.2}:{:.2}", r, g, b)])
-                .spawn();
-        }
-        session::SessionType::X11Client => {
-            let _ = Command::new("xrandr")
-                .args(["--output", "eDP-1", "--gamma", &format!("{:.2}:{:.2}:{:.2}", r, g, b)])
-                .spawn();
-        }
+    let gamma = format!("{:.2}:{:.2}:{:.2}", 1.0f32, factor * 0.8, factor * 0.6);
+    match session::detect_session() {
+        session::SessionType::WaylandClient => { let _ = Command::new("wlr-randr").args(["--output", "eDP-1", "--gamma", &gamma]).spawn(); }
+        session::SessionType::X11Client => { let _ = Command::new("xrandr").args(["--output", "eDP-1", "--gamma", &gamma]).spawn(); }
         _ => {}
     }
     Ok(())
@@ -1108,11 +911,7 @@ fn set_night_light_temperature(temperature: u32) -> Result<(), String> {
 
 #[tauri::command]
 fn get_notification_history() -> Vec<Notification> {
-    let path = notifications_path();
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    fs::read_to_string(notifications_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1124,13 +923,8 @@ fn save_notification_history(notifications: Vec<Notification>) {
 
 #[tauri::command]
 fn get_custom_themes() -> Vec<cache::ThemeDefinition> {
-    let path = dirs::home_dir()
-        .unwrap_or(PathBuf::from("/tmp"))
-        .join(".config/Blue-Environment/themes.json");
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/themes.json");
+    fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1138,9 +932,7 @@ fn save_custom_theme(theme: cache::ThemeDefinition) {
     let mut themes = get_custom_themes();
     themes.retain(|t| t.id != theme.id);
     themes.push(theme);
-    let path = dirs::home_dir()
-        .unwrap_or(PathBuf::from("/tmp"))
-        .join(".config/Blue-Environment/themes.json");
+    let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/themes.json");
     let _ = fs::write(path, serde_json::to_string_pretty(&themes).unwrap());
 }
 
@@ -1148,9 +940,7 @@ fn save_custom_theme(theme: cache::ThemeDefinition) {
 fn delete_custom_theme(theme_id: String) {
     let mut themes = get_custom_themes();
     themes.retain(|t| t.id != theme_id);
-    let path = dirs::home_dir()
-        .unwrap_or(PathBuf::from("/tmp"))
-        .join(".config/Blue-Environment/themes.json");
+    let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/themes.json");
     let _ = fs::write(path, serde_json::to_string_pretty(&themes).unwrap());
 }
 
@@ -1163,71 +953,48 @@ async fn ai_call(request: ai::AICallRequest) -> Result<String, String> {
 
 #[tauri::command]
 async fn get_ai_config() -> Result<Option<ai::AIConfig>, String> {
-    let path = dirs::home_dir()
-        .unwrap_or(PathBuf::from("/tmp"))
-        .join(".config/Blue-Environment/ai_config.json");
-    let result = fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<ai::AIConfig>(&s).ok());
-    Ok(result)
+    let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/ai_config.json");
+    Ok(fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<ai::AIConfig>(&s).ok()))
 }
 
 #[tauri::command]
 async fn save_ai_config(config: ai::AIConfig) -> Result<(), String> {
-    let path = dirs::home_dir()
-        .unwrap_or(PathBuf::from("/tmp"))
-        .join(".config/Blue-Environment/ai_config.json");
-    let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/ai_config.json");
+    fs::write(path, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 // ── Package managers ───────────────────────────────────────────────────────
 
 #[tauri::command]
 async fn get_apt_packages() -> Vec<ai::PackageInfo> { vec![] }
-
 #[tauri::command]
 async fn get_flatpak_packages() -> Vec<ai::PackageInfo> { vec![] }
-
 #[tauri::command]
 async fn get_snap_packages() -> Vec<ai::PackageInfo> { vec![] }
-
 #[tauri::command]
 async fn get_appimage_packages() -> Vec<ai::PackageInfo> { vec![] }
-
 #[tauri::command]
 async fn install_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn remove_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn update_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn install_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn remove_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn update_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn install_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn remove_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn update_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn install_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn remove_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-
 #[tauri::command]
 async fn update_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
 
@@ -1239,16 +1006,13 @@ fn set_panel_enabled(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────
+// ── PTY ───────────────────────────────────────────────────────────────────
 
-
-// PTY session management
 struct PtySession {
     writer: Box<dyn std::io::Write + Send>,
-    pid: u32,  // process id for kill
+    pid: u32,
 }
 type PtySessions = std::sync::Arc<StdMutex<HashMap<String, PtySession>>>;
-
 
 #[tauri::command]
 fn pty_create(
@@ -1262,15 +1026,12 @@ fn pty_create(
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: rows.unwrap_or(24),
-        cols: cols.unwrap_or(80),
-        pixel_width: 0,
-        pixel_height: 0,
+                                  cols: cols.unwrap_or(80),
+                                  pixel_width: 0,
+                                  pixel_height: 0,
     }).map_err(|e| e.to_string())?;
 
-    let shell_path = shell.unwrap_or_else(|| {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
-    });
-
+    let shell_path = shell.unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()));
     let mut cmd = CommandBuilder::new(&shell_path);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -1317,10 +1078,7 @@ fn pty_write(id: String, data: String, sessions: tauri::State<PtySessions>) -> R
 }
 
 #[tauri::command]
-fn pty_resize(id: String, cols: u16, rows: u16, sessions: tauri::State<PtySessions>) -> Result<(), String> {
-    // Resize is handled by the master fd — portable-pty doesn't expose it directly
-    // so we use ioctl via libc
-    let _ = (id, cols, rows, sessions);
+fn pty_resize(_id: String, _cols: u16, _rows: u16, _sessions: tauri::State<PtySessions>) -> Result<(), String> {
     Ok(())
 }
 
@@ -1334,6 +1092,8 @@ fn pty_close(id: String, sessions: tauri::State<PtySessions>) -> Result<(), Stri
     }
     Ok(())
 }
+
+// ── Config files ───────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn read_config_file(filename: String) -> Result<String, String> {
@@ -1367,6 +1127,8 @@ fn write_cache_file(filename: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+// ── Main ───────────────────────────────────────────────────────────────────
+
 fn main() {
     cache::ensure_dirs();
 
@@ -1378,130 +1140,46 @@ fn main() {
     }
 
     tauri::Builder::default()
-        .manage(std::sync::Arc::new(StdMutex::new(HashMap::<String, PtySession>::new())))
-            .invoke_handler(tauri::generate_handler![
-            // Session
-            get_session_type,
-            // Apps
-            get_system_apps,
-            get_recent_apps,
-            record_app_launch,
-            invalidate_app_cache,
-            launch_process,
-            // External windows
-            get_external_windows,
-            focus_external_window,
-            minimize_external_window,
-            close_external_window,
-            embed_external_window,
-            // Files
-            list_files,
-            read_text_file,
-            write_text_file,
-            git_status,
-            // System
-            get_system_stats,
-            get_processes,
-            read_config_file,
-            write_config_file,
-            read_cache_file,
-            write_cache_file,
-            take_screenshot,
-            get_wallpapers,
-            get_wallpaper_preview,
-            load_distro_info,
-            system_power,
-            // Audio
-            get_audio_sinks,
-            set_sink_volume,
-            set_default_sink,
-            toggle_sink_mute,
-            set_volume,
-            // Wi-Fi
-            get_wifi_networks_real,
-            connect_wifi_real,
-            disconnect_wifi,
-            toggle_wifi,
-            // Bluetooth
-            get_bluetooth_devices_real,
-            bluetooth_connect,
-            bluetooth_disconnect,
-            bluetooth_pair,
-            // Power
-            get_power_profiles,
-            set_power_profile,
-            // Brightness
-            set_brightness,
-            // Config
-            save_config,
-            load_config,
-            save_window_state,
-            load_window_state,
-            // File ops
-            read_file_as_data_url,
-            create_folder,
-            delete_file,
-            copy_file,
-            move_file,
-            // Terminal
-            execute_command,
-            pty_create,
-            pty_write,
-            pty_resize,
-            pty_close,
-            spawn_terminal,
-            write_to_terminal,
-            // Desktop
-            get_default_desktop_path,
-            create_text_file,
-            // Clipboard
-            get_clipboard_history,
-            add_to_clipboard_history,
-            clear_clipboard_history,
-            // Night Light
-            set_night_light_enabled,
-            set_night_light_temperature,
-            // Notifications
-            get_notification_history,
-            save_notification_history,
-            // Themes
-            get_custom_themes,
-            save_custom_theme,
-            delete_custom_theme,
-            // AI
-            ai_call,
-            get_ai_config,
-            save_ai_config,
-            // Packages
-            get_apt_packages,
-            get_flatpak_packages,
-            get_snap_packages,
-            get_appimage_packages,
-            install_apt_package,
-            remove_apt_package,
-            update_apt_package,
-            install_flatpak_package,
-            remove_flatpak_package,
-            update_flatpak_package,
-            install_snap_package,
-            remove_snap_package,
-            update_snap_package,
-            install_appimage,
-            remove_appimage,
-            update_appimage,
-            // Panel
-            set_panel_enabled,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running Blue Environment");
+    .manage(std::sync::Arc::new(StdMutex::new(HashMap::<String, PtySession>::new())))
+    .invoke_handler(tauri::generate_handler![
+        get_session_type,
+        get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
+        get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
+        list_files, read_text_file, write_text_file, git_status,
+        get_system_stats, get_processes,
+        read_config_file, write_config_file, read_cache_file, write_cache_file,
+        take_screenshot, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
+        get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
+        get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi,
+        get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair,
+        get_power_profiles, set_power_profile,
+        set_brightness,
+        save_config, load_config, save_window_state, load_window_state,
+        read_file_as_data_url, create_folder, delete_file, copy_file, move_file,
+        execute_command, pty_create, pty_write, pty_resize, pty_close, spawn_terminal, write_to_terminal,
+        get_default_desktop_path, create_text_file,
+        get_clipboard_history, add_to_clipboard_history, clear_clipboard_history,
+        set_night_light_enabled, set_night_light_temperature,
+        get_notification_history, save_notification_history,
+        get_custom_themes, save_custom_theme, delete_custom_theme,
+        ai_call, get_ai_config, save_ai_config,
+        get_apt_packages, get_flatpak_packages, get_snap_packages, get_appimage_packages,
+        install_apt_package, remove_apt_package, update_apt_package,
+        install_flatpak_package, remove_flatpak_package, update_flatpak_package,
+        install_snap_package, remove_snap_package, update_snap_package,
+        install_appimage, remove_appimage, update_appimage,
+        set_panel_enabled,
+    ])
+    .run(tauri::generate_context!())
+    .expect("error while running Blue Environment");
 }
 
 fn start_panel() {
     let panel_path = std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(std::path::Path::new("/"))
-        .join("blue-panel");
+    .unwrap_or_default()
+    .parent()
+    .unwrap_or(std::path::Path::new("/"))
+    .join("blue-panel");
     if panel_path.exists() {
         let _ = Command::new(panel_path).spawn();
     }
