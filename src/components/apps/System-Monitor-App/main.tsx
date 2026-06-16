@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Activity, Cpu, CircuitBoard, HardDrive, Network, RefreshCw, X, ChevronUp, ChevronDown, Search } from 'lucide-react';
-import { AppProps } from '../../types';
-import { SystemBridge } from '../../utils/systemBridge';
+import { AppProps } from '../../../types';
+import { SystemBridge } from '../../../utils/systemBridge';
 
 interface ProcessEntry { pid: string; name: string; cpu: number; memory: number; }
 interface HistPoint { t: number; v: number; }
