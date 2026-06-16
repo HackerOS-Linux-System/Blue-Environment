@@ -1,329 +1,296 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-    Camera, Settings, History, Check, Loader2,
-    Copy, Download, ZoomIn, ZoomOut, RotateCcw,
-    Monitor, Crop, AppWindow, Timer, X,
+    Camera, Download, Copy, Trash2, Timer, Monitor,
+    Crop, RefreshCw, Check, X, Maximize2, Square
 } from 'lucide-react';
-import type { AppProps } from '../../../types';
+import { AppProps } from '../../../types';
 import { SystemBridge } from '../../../utils/systemBridge';
-import type { CaptureMode, Screenshot, ScreenshotSettings } from './types';
-import { DEFAULT_SETTINGS } from './types';
-import CaptureButton from './CaptureButton';
-import HistoryPanel from './HistoryPanel';
-import SettingsPanel from './SettingsPanel';
 
-type PanelView = 'history' | 'settings' | null;
+type CaptureMode = 'fullscreen' | 'window' | 'region';
+type DelayOption = 0 | 3 | 5 | 10;
+
+interface Screenshot {
+    id: string;
+    dataUrl: string;
+    timestamp: Date;
+    mode: CaptureMode;
+    width: number;
+    height: number;
+}
 
 const BlueScreenshot: React.FC<AppProps> = () => {
-    const [mode, setMode]           = useState<CaptureMode>('fullscreen');
-    const [capturing, setCapturing] = useState(false);
-    const [countdown, setCountdown] = useState(0);
-    const [panel, setPanel]         = useState<PanelView>('history');
+    const [mode, setMode]     = useState<CaptureMode>('fullscreen');
+    const [delay, setDelay]   = useState<DelayOption>(0);
     const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
-    const [selected, setSelected]   = useState<string | null>(null);
-    const [settings, setSettings]   = useState<ScreenshotSettings>(DEFAULT_SETTINGS);
-    const [zoom, setZoom]           = useState(1);
-    const [status, setStatus]       = useState<{ type: 'success'|'error'; msg: string } | null>(null);
+    const [capturing, setCapturing]     = useState(false);
+    const [countdown, setCountdown]     = useState(0);
+    const [selected, setSelected]       = useState<Screenshot | null>(null);
+    const [copied, setCopied]           = useState(false);
+    const [savePath, setSavePath]       = useState('~/Pictures/Screenshots');
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    const previewRef = useRef<HTMLDivElement>(null);
-
-    // Load saved settings & history from localStorage
-    useEffect(() => {
-        try {
-            const s = localStorage.getItem('blue-screenshot-settings');
-            if (s) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
-            const h = localStorage.getItem('blue-screenshot-history');
-            if (h) setScreenshots(JSON.parse(h));
-        } catch {}
-    }, []);
-
-    const saveSettings = useCallback((patch: Partial<ScreenshotSettings>) => {
-        const next = { ...settings, ...patch };
-        setSettings(next);
-        localStorage.setItem('blue-screenshot-settings', JSON.stringify(next));
-    }, [settings]);
-
-    const selectedShot = screenshots.find(s => s.id === selected);
-
-    // ── Capture logic ─────────────────────────────────────────────────────
-
-    const buildGrimCmd = (m: CaptureMode, outPath: string, s: ScreenshotSettings): string => {
-        const cursor = s.showCursor ? '--include-cursor' : '';
-        switch (m) {
-            case 'fullscreen': return `grim ${cursor} "${outPath}"`;
-            case 'region':     return `grim ${cursor} -g "$(slurp)" "${outPath}"`;
-            case 'window':     return `grim ${cursor} -g "$(swaymsg -t get_tree | jq -r '.. | select(.focused?) | .rect | "\\(.x),\\(.y) \\(.width)x\\(.height)"' 2>/dev/null || slurp)" "${outPath}"`;
-            default:           return `grim ${cursor} "${outPath}"`;
-        }
-    };
-
-    const buildX11Cmd = (m: CaptureMode, outPath: string, s: ScreenshotSettings): string => {
-        switch (m) {
-            case 'fullscreen': return `scrot "${outPath}" 2>/dev/null || gnome-screenshot -f "${outPath}"`;
-            case 'region':     return `scrot -s "${outPath}" 2>/dev/null || gnome-screenshot -a -f "${outPath}"`;
-            case 'window':     return `scrot -u "${outPath}" 2>/dev/null || gnome-screenshot -w -f "${outPath}"`;
-            default:           return `scrot "${outPath}"`;
-        }
-    };
-
-    const doCapture = useCallback(async () => {
-        if (capturing) return;
+    const capture = useCallback(async () => {
         setCapturing(true);
-        setStatus(null);
+
+        if (delay > 0) {
+            setCountdown(delay);
+            for (let i = delay; i > 0; i--) {
+                await new Promise(r => setTimeout(r, 1000));
+                setCountdown(i - 1);
+            }
+        }
 
         try {
-            // Delay countdown
-            if (settings.delay > 0) {
-                for (let i = settings.delay; i > 0; i--) {
-                    setCountdown(i);
-                    await new Promise(r => setTimeout(r, 1000));
+            let dataUrl = '';
+
+            if (SystemBridge.isTauri()) {
+                // Use backend screenshot command
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const outPath   = `/tmp/blue-screenshot-${timestamp}.png`;
+
+                const cmd =
+                    mode === 'fullscreen' ? `grim "${outPath}"` :
+                    mode === 'window'     ? `grim -g "$(swaymsg -t get_tree | jq -j '.. | select(.focused?) | .rect | "\\(.x),\\(.y) \\(.width)x\\(.height)"')" "${outPath}"` :
+                    /* region */           `grim -g "$(slurp)" "${outPath}"`;
+
+                const result = await SystemBridge.executeCommand(cmd);
+
+                // Fixed: use result.code instead of result.returnCode
+                if (result.stderr?.includes('error') || (result.code !== undefined && result.code !== 0)) {
+                    throw new Error(result.stderr || 'Screenshot failed');
                 }
-                setCountdown(0);
+
+                dataUrl = await SystemBridge.readFileAsDataURL(outPath);
+                await SystemBridge.executeCommand(`rm -f "${outPath}"`);
+            } else {
+                // Browser fallback using getDisplayMedia
+                const stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true });
+                const video  = document.createElement('video');
+                video.srcObject = stream;
+                await new Promise<void>(r => { video.onloadedmetadata = () => { video.play(); r(); }; });
+                const canvas = canvasRef.current!;
+                canvas.width  = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d')!.drawImage(video, 0, 0);
+                dataUrl = canvas.toDataURL('image/png');
+                stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
             }
 
-            // Resolve save path
-            const timestamp = Date.now();
-            const filename  = `screenshot-${new Date(timestamp).toISOString().replace(/[:.]/g, '-')}.${settings.format}`;
-            const saveDir   = settings.savePath.replace('HOME', await SystemBridge.getHomePath());
-            const outPath   = `${saveDir}/${filename}`;
+            if (!dataUrl) throw new Error('Empty screenshot data');
 
-            // Ensure save dir exists
-            await SystemBridge.executeCommand(`mkdir -p "${saveDir}"`);
+            const img   = new Image();
+            img.src     = dataUrl;
+            await new Promise(r => { img.onload = r; });
 
-            // Detect session type
-            const session = await SystemBridge.getSessionType();
-            const isWayland = session.startsWith('wayland');
-            const cmd = isWayland
-                ? buildGrimCmd(mode, outPath, settings)
-                : buildX11Cmd(mode, outPath, settings);
-
-            const result = await SystemBridge.executeCommand(cmd);
-            if (result.stderr?.includes('error') || result.returnCode !== 0) {
-                throw new Error(result.stderr || 'Capture failed');
-            }
-
-            // Read back as data URL for preview
-            const dataUrl = await SystemBridge.readFileAsDataURL(outPath) ?? '';
-
-            // Get dimensions from dataUrl
-            let width = 1920, height = 1080;
-            if (dataUrl) {
-                await new Promise<void>(resolve => {
-                    const img = new window.Image();
-                    img.onload = () => { width = img.width; height = img.height; resolve(); };
-                    img.onerror = () => resolve();
-                    img.src = dataUrl;
-                });
-            }
-
-            const shot: Screenshot = {
-                id: `ss-${timestamp}`, path: outPath, dataUrl,
-                width, height, timestamp, mode,
+            const ss: Screenshot = {
+                id:        Date.now().toString(),
+                dataUrl,
+                timestamp: new Date(),
+                mode,
+                width:  img.naturalWidth,
+                height: img.naturalHeight,
             };
 
-            const next = [...screenshots, shot];
-            setScreenshots(next);
-            localStorage.setItem('blue-screenshot-history', JSON.stringify(next.slice(-50)));
-            setSelected(shot.id);
-            setPanel('history');
-
-            // Copy to clipboard
-            if (settings.copyToClipboard && dataUrl) {
-                await SystemBridge.writeClipboardImage(dataUrl);
-            }
-
-            // Sound effect
-            if (settings.playSoundEffect) {
-                await SystemBridge.executeCommand(
-                    `paplay /usr/share/sounds/freedesktop/stereo/camera-shutter.oga 2>/dev/null || true`
-                );
-            }
-
-            setStatus({ type: 'success', msg: `Saved: ${filename}` });
-        } catch (e: any) {
-            setStatus({ type: 'error', msg: e.message || 'Capture failed' });
+            setScreenshots(prev => [ss, ...prev]);
+            setSelected(ss);
+        } catch (e) {
+            console.error('Screenshot error:', e);
         } finally {
             setCapturing(false);
             setCountdown(0);
         }
-    }, [mode, settings, screenshots, capturing]);
+    }, [mode, delay]);
 
-    const handleDelete = (id: string) => {
-        const next = screenshots.filter(s => s.id !== id);
-        setScreenshots(next);
-        localStorage.setItem('blue-screenshot-history', JSON.stringify(next.slice(-50)));
-        if (selected === id) setSelected(next.length > 0 ? next[next.length - 1].id : null);
+    const saveToFile = async (ss: Screenshot) => {
+        const name = `screenshot-${ss.timestamp.toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+        if (SystemBridge.isTauri()) {
+            await SystemBridge.saveFile(`${savePath.replace('~', '')}/${name}`, ss.dataUrl);
+        } else {
+            const a = document.createElement('a');
+            a.href = ss.dataUrl;
+            a.download = name;
+            a.click();
+        }
     };
 
-    // Keyboard shortcut: Enter to capture
-    useEffect(() => {
-        const h = (e: KeyboardEvent) => {
-            if (e.key === 'Enter' && !capturing) doCapture();
-            if (e.key === 'Escape' && capturing) setCapturing(false);
-            if (e.key === '+' || e.key === '=') setZoom(z => Math.min(3, z + 0.25));
-            if (e.key === '-') setZoom(z => Math.max(0.25, z - 0.25));
-            if (e.key === '0') setZoom(1);
-        };
-        window.addEventListener('keydown', h);
-        return () => window.removeEventListener('keydown', h);
-    }, [capturing, doCapture]);
+    const copyToClipboard = async (ss: Screenshot) => {
+        await SystemBridge.writeClipboardImage(ss.dataUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
-    const MODES: { mode: CaptureMode; label: string; desc: string }[] = [
-        { mode: 'fullscreen', label: 'Full Screen',  desc: 'Entire display' },
-        { mode: 'region',     label: 'Region',       desc: 'Select area' },
-        { mode: 'window',     label: 'Window',       desc: 'Active window' },
-        { mode: 'timer',      label: 'Timer',        desc: `${settings.delay}s delay` },
+    const deleteScreenshot = (id: string) => {
+        setScreenshots(prev => prev.filter(s => s.id !== id));
+        if (selected?.id === id) setSelected(null);
+    };
+
+    const MODES: { id: CaptureMode; label: string; icon: React.ReactNode }[] = [
+        { id: 'fullscreen', label: 'Full Screen', icon: <Monitor size={16} /> },
+        { id: 'window',     label: 'Window',      icon: <Square size={16} /> },
+        { id: 'region',     label: 'Region',      icon: <Crop size={16} /> },
     ];
+
+    const DELAYS: DelayOption[] = [0, 3, 5, 10];
 
     return (
         <div className="flex h-full bg-slate-900 text-white overflow-hidden">
-            {/* Main area */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Toolbar */}
-                <div className="h-12 bg-slate-800 border-b border-white/5 flex items-center px-4 gap-2 shrink-0">
-                    <Camera size={18} className="text-blue-400" />
-                    <span className="font-semibold text-sm mr-auto">Blue Screenshot</span>
+            <canvas ref={canvasRef} className="hidden" />
 
-                    {status && (
-                        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs
-                            ${status.type === 'success' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>
-                            {status.type === 'success' ? <Check size={12}/> : <X size={12}/>}
-                            {status.msg}
-                        </div>
-                    )}
-
-                    <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="p-1.5 hover:bg-white/10 rounded" title="Zoom out (-)"><ZoomOut size={15}/></button>
-                    <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom*100)}%</span>
-                    <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-1.5 hover:bg-white/10 rounded" title="Zoom in (+)"><ZoomIn size={15}/></button>
-                    <button onClick={() => setZoom(1)} className="p-1.5 hover:bg-white/10 rounded" title="Reset zoom (0)"><RotateCcw size={15}/></button>
-
-                    <div className="w-px h-5 bg-white/10 mx-1"/>
-
-                    <button onClick={() => setPanel(p => p === 'history' ? null : 'history')}
-                        className={`p-1.5 rounded ${panel==='history' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}`}>
-                        <History size={15}/>
-                    </button>
-                    <button onClick={() => setPanel(p => p === 'settings' ? null : 'settings')}
-                        className={`p-1.5 rounded ${panel==='settings' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}`}>
-                        <Settings size={15}/>
-                    </button>
-                </div>
-
-                {/* Capture mode selector */}
-                <div className="flex gap-3 p-4 border-b border-white/5 shrink-0">
-                    {MODES.map(m => (
-                        <CaptureButton key={m.mode}
-                            mode={m.mode === 'timer' ? mode : m.mode}
-                            label={m.label}
-                            description={m.mode === 'timer' ? `${settings.delay}s delay` : m.desc}
-                            isActive={mode === m.mode}
-                            onClick={() => setMode(m.mode)}
-                        />
-                    ))}
-                </div>
-
-                {/* Preview area */}
-                <div ref={previewRef} className="flex-1 overflow-auto flex items-center justify-center bg-[#0a0f1e] p-4">
-                    {capturing && countdown > 0 ? (
-                        <div className="flex flex-col items-center gap-4">
-                            <div className="text-8xl font-light tabular-nums"
-                                style={{ fontFamily: '"Oxanium", monospace', color: '#3b82f6',
-                                    textShadow: '0 0 60px rgba(59,130,246,0.5)' }}>
-                                {countdown}
-                            </div>
-                            <p className="text-slate-400 text-sm">Capturing in…</p>
-                        </div>
-                    ) : capturing ? (
-                        <div className="flex flex-col items-center gap-4">
-                            <Loader2 size={40} className="animate-spin text-blue-400"/>
-                            <p className="text-slate-400 text-sm">Capturing…</p>
-                        </div>
-                    ) : selectedShot?.dataUrl ? (
-                        <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center', transition: 'transform 0.15s ease' }}>
-                            <img
-                                src={selectedShot.dataUrl}
-                                alt="screenshot preview"
-                                className="max-w-full rounded-lg shadow-2xl"
-                                style={{ imageRendering: zoom > 1.5 ? 'pixelated' : 'auto' }}
-                            />
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-4 text-slate-700">
-                            <div className="w-24 h-24 bg-slate-800 rounded-3xl flex items-center justify-center">
-                                <Camera size={40} className="text-slate-600"/>
-                            </div>
-                            <p className="text-sm">Press <kbd className="px-2 py-0.5 bg-slate-800 rounded text-slate-400 text-xs">Enter</kbd> or click Capture</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Bottom bar */}
-                <div className="h-14 bg-slate-800 border-t border-white/5 flex items-center justify-between px-4 shrink-0">
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                        {selectedShot && (
-                            <>
-                                <span>{selectedShot.width}×{selectedShot.height}</span>
-                                <span>·</span>
-                                <span>{selectedShot.mode}</span>
-                                <span>·</span>
-                                <span>{new Date(selectedShot.timestamp).toLocaleString()}</span>
-                            </>
-                        )}
+            {/* Sidebar */}
+            <div className="w-64 bg-slate-800/50 border-r border-white/5 flex flex-col">
+                {/* Mode */}
+                <div className="p-4 border-b border-white/5">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Capture Mode</div>
+                    <div className="space-y-1">
+                        {MODES.map(m => (
+                            <button
+                                key={m.id}
+                                onClick={() => setMode(m.id)}
+                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${mode === m.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5'}`}
+                            >
+                                {m.icon} {m.label}
+                            </button>
+                        ))}
                     </div>
+                </div>
 
-                    <div className="flex items-center gap-2">
-                        {selectedShot && (
-                            <>
-                                <button
-                                    onClick={() => SystemBridge.writeClipboardImage(selectedShot.dataUrl)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs transition-colors">
-                                    <Copy size={13}/> Copy
-                                </button>
-                                <button
-                                    onClick={() => SystemBridge.saveFile(selectedShot.path, selectedShot.dataUrl)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs transition-colors">
-                                    <Download size={13}/> Save As
-                                </button>
-                            </>
-                        )}
+                {/* Delay */}
+                <div className="p-4 border-b border-white/5">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                        <Timer size={12} /> Delay
+                    </div>
+                    <div className="flex gap-2">
+                        {DELAYS.map(d => (
+                            <button
+                                key={d}
+                                onClick={() => setDelay(d)}
+                                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${delay === d ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                            >
+                                {d === 0 ? 'Now' : `${d}s`}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Save path */}
+                <div className="p-4 border-b border-white/5">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Save to</div>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={savePath}
+                            onChange={e => setSavePath(e.target.value)}
+                            className="flex-1 bg-slate-700 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none min-w-0"
+                        />
                         <button
-                            onClick={doCapture}
-                            disabled={capturing}
-                            className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-500/20 disabled:cursor-not-allowed">
-                            {capturing
-                                ? <Loader2 size={16} className="animate-spin"/>
-                                : <Camera size={16}/>
-                            }
-                            {capturing ? 'Capturing…' : 'Capture'}
+                            onClick={async () => { const p = await SystemBridge.pickDirectory(); if (p) setSavePath(p); }}
+                            className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"
+                        >
+                            <RefreshCw size={13} />
                         </button>
                     </div>
+                </div>
+
+                {/* Capture button */}
+                <div className="p-4">
+                    <button
+                        onClick={capture}
+                        disabled={capturing}
+                        className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
+                    >
+                        {capturing ? (
+                            countdown > 0 ? <><Timer size={16} /> {countdown}s</> : <><RefreshCw size={16} className="animate-spin" /> Capturing…</>
+                        ) : (
+                            <><Camera size={16} /> Take Screenshot</>
+                        )}
+                    </button>
+                </div>
+
+                {/* Gallery list */}
+                <div className="flex-1 overflow-y-auto p-2">
+                    {screenshots.length === 0 ? (
+                        <div className="text-center text-slate-600 text-xs py-8">No screenshots yet</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {screenshots.map(ss => (
+                                <div
+                                    key={ss.id}
+                                    onClick={() => setSelected(ss)}
+                                    className={`rounded-xl overflow-hidden cursor-pointer border-2 transition-colors ${selected?.id === ss.id ? 'border-blue-500' : 'border-transparent hover:border-white/20'}`}
+                                >
+                                    <img src={ss.dataUrl} alt="" className="w-full h-24 object-cover" />
+                                    <div className="px-2 py-1 bg-slate-800 flex items-center justify-between">
+                                        <span className="text-[10px] text-slate-400">
+                                            {ss.width}×{ss.height} · {ss.timestamp.toLocaleTimeString()}
+                                        </span>
+                                        <button
+                                            onClick={e => { e.stopPropagation(); deleteScreenshot(ss.id); }}
+                                            className="p-0.5 hover:text-red-400 text-slate-500"
+                                        >
+                                            <Trash2 size={11} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Side panel */}
-            {panel && (
-                <div className="w-64 border-l border-white/5 bg-slate-800/50 flex flex-col overflow-hidden shrink-0">
-                    <div className="h-10 flex items-center justify-between px-3 border-b border-white/5">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            {panel === 'history' ? 'History' : 'Settings'}
-                        </span>
-                        <button onClick={() => setPanel(null)} className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white">
-                            <X size={12}/>
+            {/* Preview */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+                {selected ? (
+                    <>
+                        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/5 bg-slate-800/30">
+                            <div className="text-sm text-slate-300">
+                                {selected.width}×{selected.height} · {selected.mode} · {selected.timestamp.toLocaleString()}
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => copyToClipboard(selected)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm"
+                                >
+                                    {copied ? <><Check size={14} className="text-green-400" /> Copied!</> : <><Copy size={14} /> Copy</>}
+                                </button>
+                                <button
+                                    onClick={() => saveToFile(selected)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm"
+                                >
+                                    <Download size={14} /> Save
+                                </button>
+                                <button
+                                    onClick={() => deleteScreenshot(selected.id)}
+                                    className="p-1.5 hover:bg-red-500/20 rounded-lg text-red-400"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto flex items-center justify-center p-6 bg-slate-950/50">
+                            <img
+                                src={selected.dataUrl}
+                                alt="Screenshot"
+                                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-600 gap-4">
+                        <Camera size={56} className="opacity-20" />
+                        <div className="text-center">
+                            <div className="text-lg font-medium text-slate-400 mb-1">Blue Screenshot</div>
+                            <div className="text-sm">Choose a mode and click "Take Screenshot"</div>
+                        </div>
+                        <button
+                            onClick={capture}
+                            disabled={capturing}
+                            className="mt-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm text-white font-medium flex items-center gap-2"
+                        >
+                            <Camera size={16} /> Take Screenshot
                         </button>
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                        {panel === 'history'
-                            ? <HistoryPanel
-                                screenshots={screenshots}
-                                selected={selected}
-                                onSelect={setSelected}
-                                onDelete={handleDelete}
-                              />
-                            : <SettingsPanel settings={settings} onChange={saveSettings} />
-                        }
-                    </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 };
