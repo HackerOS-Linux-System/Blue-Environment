@@ -8,24 +8,18 @@ import {
 } from 'lucide-react';
 import { AppProps } from '../../../types';
 import { SystemBridge } from '../../../utils/systemBridge';
+import { useDialog } from '../../../contexts/DialogContext';
+// Type definitions and constants live in src/types.ts; the full state
+// management hook is in src/useFileManager.ts.
+import type { FileEntry, Tab, Notif, SortKey } from './src/types';
+import { BOOKMARKS } from './src/types';
 
-interface FileEntry {
-    name: string; path: string; is_dir: boolean;
-    size: string; mime_type: string; modified?: string;
-}
-interface Tab { id: string; path: string; history: string[]; historyIndex: number; }
-interface Notif { id: string; type: 'success'|'error'|'info'; message: string; }
-type SortKey = 'name'|'size'|'modified'|'type';
-
-const BOOKMARKS = [
-    { name: 'Home',      path: 'HOME',           icon: Home },
-{ name: 'Desktop',   path: 'HOME/Desktop',   icon: Folder },
-{ name: 'Documents', path: 'HOME/Documents', icon: FileText },
-{ name: 'Downloads', path: 'HOME/Downloads', icon: Download },
-{ name: 'Pictures',  path: 'HOME/Pictures',  icon: Image },
-{ name: 'Music',     path: 'HOME/Music',     icon: Music },
-{ name: 'Videos',    path: 'HOME/Videos',    icon: Video },
-];
+import type { LucideIcon } from 'lucide-react';
+// Lokalna mapa ikon dla BOOKMARKS — main.tsx nadal używa bm.icon
+const BM_ICONS: Record<string, LucideIcon> = {
+    Home, Folder, FileText, Download, Image, Music, Video,
+};
+const BOOKMARKS_WITH_ICONS = BOOKMARKS.map(bm => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder }));
 
 function getIcon(file: FileEntry, size = 40) {
     if (file.is_dir) return <Folder size={size} className="text-blue-400" />;
@@ -44,6 +38,7 @@ function getIcon(file: FileEntry, size = 40) {
 }
 
 const ExplorerApp: React.FC<AppProps> = () => {
+    const dialog = useDialog();
     const [tabs, setTabs] = useState<Tab[]>([{
         id: 'tab-1', path: 'HOME', history: ['HOME'], historyIndex: 0
     }]);
@@ -167,7 +162,12 @@ const ExplorerApp: React.FC<AppProps> = () => {
     };
 
     const createFolder = async () => {
-        const name = window.prompt('New folder name:');
+        const name = await dialog.prompt({
+            title: 'New Folder',
+            placeholder: 'Untitled Folder',
+            defaultValue: 'New Folder',
+            confirmLabel: 'Create',
+        });
         if (!name?.trim()) return;
         try {
             await SystemBridge.createFolder(activeTab.path, name.trim());
@@ -177,7 +177,12 @@ const ExplorerApp: React.FC<AppProps> = () => {
     };
 
     const createFile = async () => {
-        const name = window.prompt('New file name (e.g. note.txt):');
+        const name = await dialog.prompt({
+            title: 'New Text File',
+            placeholder: 'note.txt',
+            defaultValue: 'New Document.txt',
+            confirmLabel: 'Create',
+        });
         if (!name?.trim()) return;
         try {
             await SystemBridge.createTextFile(activeTab.path, name.trim(), '');
@@ -188,7 +193,13 @@ const ExplorerApp: React.FC<AppProps> = () => {
 
     const deleteSelected = async () => {
         if (selected.size === 0) return;
-        if (!window.confirm(`Delete ${selected.size} item(s)? This cannot be undone.`)) return;
+        const ok = await dialog.confirm({
+            title: 'Delete items',
+            message: `Delete ${selected.size} item(s)? This cannot be undone.`,
+            confirmLabel: 'Delete',
+            danger: true,
+        });
+        if (!ok) return;
         let errors = 0;
         for (const path of selected) {
             try { await SystemBridge.deleteFile(path); } catch { errors++; }
@@ -488,7 +499,7 @@ const ExplorerApp: React.FC<AppProps> = () => {
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Places</span>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        {BOOKMARKS.map(bm => (
+        {BOOKMARKS_WITH_ICONS.map(bm => (
             <button key={bm.path} onClick={() => navigateTo(bm.path)}
             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors
                 ${activeTab.path === bm.path ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}
