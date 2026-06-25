@@ -219,10 +219,11 @@ fn resolve_icon_for_pid(pid: u32) -> String {
         return String::new();
     }
 
-    // Check hackeros app dirs
+    // Check legendaryos app dirs first — a bundled icon shipped with the
+    // app itself always wins over a generic theme lookup.
     if let Some(home) = dirs::home_dir() {
         let app_dir = home
-            .join(".hackeros/Blue-Environment/apps")
+            .join(".legendaryos/Blue-Environment/apps")
             .join(&exe_name);
         for ext in &["icon.png", "icon.svg", "icon.jpg"] {
             let icon = app_dir.join(ext);
@@ -232,19 +233,13 @@ fn resolve_icon_for_pid(pid: u32) -> String {
         }
     }
 
-    // Check system icon paths
-    for path in &[
-        format!("/usr/share/icons/hicolor/48x48/apps/{}.png", exe_name),
-        format!("/usr/share/icons/hicolor/scalable/apps/{}.svg", exe_name),
-        format!("/usr/share/pixmaps/{}.png", exe_name),
-        format!("/usr/share/pixmaps/{}.xpm", exe_name),
-    ] {
-        if std::path::Path::new(path).exists() {
-            return format!("file://{}", path);
-        }
-    }
-
-    String::new()
+    // Fall back to the shared FreeDesktop icon theme resolver (linicon),
+    // which searches the user's actual icon theme, Papirus, and every
+    // theme's full Inherits= fallback chain — not just a couple of fixed
+    // hicolor/pixmaps paths like this used to. This is the most common
+    // path for tracked X11/external windows, since most of them don't
+    // live under the legendaryos apps dir at all.
+    crate::icon_resolver::resolve_icon(&exe_name)
 }
 
 fn get_uid() -> u32 {
