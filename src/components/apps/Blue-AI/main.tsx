@@ -2,15 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, Settings, X, Loader2, Trash2, Copy } from 'lucide-react';
 import { SystemBridge } from '../../../utils/systemBridge';
 import { AppProps, AIMessage, AIConfig } from '../../../types';
-
-const AI_SERVICES = [
-    { id: 'chatgpt',  name: 'ChatGPT',        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo'] },
-    { id: 'claude',   name: 'Claude',          models: ['claude-sonnet-4-6', 'claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'] },
-    { id: 'gemini',   name: 'Gemini',          models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp'] },
-    { id: 'deepseek', name: 'DeepSeek',        models: ['deepseek-chat', 'deepseek-reasoner'] },
-    { id: 'grok',     name: 'Grok (xAI)',      models: ['grok-2-latest', 'grok-beta'] },
-    { id: 'local',    name: 'Local (Ollama)',  models: ['llama3.2', 'mistral', 'codellama', 'phi3', 'qwen2.5'] },
-];
+import { AI_SERVICES } from './src/types';
 
 const BlueAI: React.FC<AppProps> = () => {
     const [messages, setMessages] = useState<AIMessage[]>([]);
