@@ -1,1 +1,36 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+#
+# Blue Environment — CLI wrapper.
+#
+# Installed to /usr/local/bin/blue (or /usr/bin/blue). Locates the real
+# launcher (main.rb + src/) and delegates to it. This two-file layout
+# keeps the user-facing binary tiny and stable — the actual logic lives
+# in the versioned package and is updated independently of the PATH entry.
+#
+# Resolution order for the launcher directory:
+#   1. /usr/share/Blue-Environment/lib/blue/  (system install)
+#   2. Same directory as this script           (dev workspace: launcher/)
+#   3. ~/.local/share/Blue-Environment/lib/blue/ (user install)
+
+SYSTEM_LAUNCHER  = "/usr/share/Blue-Environment/lib/blue/main.rb"
+LOCAL_LAUNCHER   = File.join(__dir__, "main.rb")
+USER_LAUNCHER    = File.join(
+    ENV.fetch("HOME", Dir.home),
+    ".local", "share", "Blue-Environment", "lib", "blue", "main.rb"
+)
+
+launcher = [SYSTEM_LAUNCHER, LOCAL_LAUNCHER, USER_LAUNCHER].find do |path|
+    File.exist?(path)
+end
+
+unless launcher
+    $stderr.puts "\e[31m✗\e[0m Blue Environment launcher not found."
+    $stderr.puts "  Expected: #{SYSTEM_LAUNCHER}"
+    $stderr.puts "  Install Blue Environment first, or run from the source tree:"
+    $stderr.puts "    ruby launcher/main.rb [command]"
+    exit 1
+end
+
+# Hand off completely — the real main.rb sees ARGV unchanged.
+load launcher
