@@ -4,6 +4,11 @@ mod cache;
 mod packages;
 mod session;
 mod window_tracker;
+mod icon_resolver;
+#[path = "MailApp/mod.rs"]
+mod mail_app;
+#[path = "BlueArchiveApp/mod.rs"]
+mod blue_archive_app;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -122,32 +127,28 @@ pub struct ThemeDefinition {
 // ── Package manager commands ──────────────────────────────────────────────────
 
 #[tauri::command]
-async fn get_apt_packages() -> Vec<ai::PackageInfo> {
-    tokio::task::spawn_blocking(packages::get_apt_packages).await.unwrap_or_default()
+async fn get_dnf_packages() -> Vec<ai::PackageInfo> {
+    tokio::task::spawn_blocking(packages::get_dnf_packages).await.unwrap_or_default()
 }
 #[tauri::command]
 async fn get_flatpak_packages() -> Vec<ai::PackageInfo> {
     tokio::task::spawn_blocking(packages::get_flatpak_packages).await.unwrap_or_default()
 }
 #[tauri::command]
-async fn get_snap_packages() -> Vec<ai::PackageInfo> {
-    tokio::task::spawn_blocking(packages::get_snap_packages).await.unwrap_or_default()
-}
-#[tauri::command]
 async fn get_appimage_packages() -> Vec<ai::PackageInfo> {
     tokio::task::spawn_blocking(packages::get_appimage_packages).await.unwrap_or_default()
 }
 #[tauri::command]
-async fn install_apt_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::install_apt(&pkg_id)).await.unwrap_or(false))
+async fn install_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::install_dnf(&pkg_id)).await.unwrap_or(false))
 }
 #[tauri::command]
-async fn remove_apt_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::remove_apt(&pkg_id)).await.unwrap_or(false))
+async fn remove_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::remove_dnf(&pkg_id)).await.unwrap_or(false))
 }
 #[tauri::command]
-async fn update_apt_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::update_apt(&pkg_id)).await.unwrap_or(false))
+async fn update_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::update_dnf(&pkg_id)).await.unwrap_or(false))
 }
 #[tauri::command]
 async fn install_flatpak_package(pkg_id: String) -> Result<bool, String> {
@@ -160,18 +161,6 @@ async fn remove_flatpak_package(pkg_id: String) -> Result<bool, String> {
 #[tauri::command]
 async fn update_flatpak_package(pkg_id: String) -> Result<bool, String> {
     Ok(tokio::task::spawn_blocking(move || packages::update_flatpak(&pkg_id)).await.unwrap_or(false))
-}
-#[tauri::command]
-async fn install_snap_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::install_snap(&pkg_id)).await.unwrap_or(false))
-}
-#[tauri::command]
-async fn remove_snap_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::remove_snap(&pkg_id)).await.unwrap_or(false))
-}
-#[tauri::command]
-async fn update_snap_package(pkg_id: String) -> Result<bool, String> {
-    Ok(tokio::task::spawn_blocking(move || packages::update_snap(&pkg_id)).await.unwrap_or(false))
 }
 #[tauri::command]
 async fn install_appimage(pkg_id: String) -> Result<bool, String> {
@@ -1325,11 +1314,13 @@ pub fn run() {
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_process::init())
     .invoke_handler(tauri::generate_handler![
+        mail_app::mail_get_accounts, mail_app::mail_save_account, mail_app::mail_delete_account,
+        mail_app::mail_fetch_inbox, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
+        blue_archive_app::archive_list, blue_archive_app::archive_extract, blue_archive_app::archive_create,
         // Packages
-        get_apt_packages, get_flatpak_packages, get_snap_packages, get_appimage_packages,
-        install_apt_package, remove_apt_package, update_apt_package,
+        get_dnf_packages, get_flatpak_packages, get_appimage_packages,
+        install_dnf_package, remove_dnf_package, update_dnf_package,
         install_flatpak_package, remove_flatpak_package, update_flatpak_package,
-        install_snap_package, remove_snap_package, update_snap_package,
         install_appimage, remove_appimage, update_appimage,
         // Apps — named to match systemBridge.ts exactly
         get_system_apps, launch_process, record_app_launch, get_recent_apps, invalidate_app_cache,
