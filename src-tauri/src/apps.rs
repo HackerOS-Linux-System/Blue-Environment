@@ -85,28 +85,12 @@ fn is_gui_app(content: &str) -> bool {
     has_gui_category || has_icon
 }
 
+// Icon lookup is now handled by the shared `icon_resolver` module (uses
+// the `linicon` crate — full FreeDesktop Icon Theme spec support,
+// including Papirus and any other installed theme, not just a fixed
+// hicolor/Adwaita path list). See src-tauri/src/icon_resolver.rs.
 fn find_icon_path(icon_name: &str) -> String {
-    if icon_name.starts_with('/') && std::path::Path::new(icon_name).exists() {
-        return icon_name.to_string();
-    }
-    let search_dirs = [
-        "/usr/share/icons/hicolor/128x128/apps",
-        "/usr/share/icons/hicolor/64x64/apps",
-        "/usr/share/icons/hicolor/48x48/apps",
-        "/usr/share/icons/hicolor/scalable/apps",
-        "/usr/share/icons/Adwaita/48x48/apps",
-        "/usr/share/pixmaps",
-    ];
-    let extensions = ["png", "svg", "xpm"];
-    for dir in &search_dirs {
-        for ext in &extensions {
-            let path = PathBuf::from(dir).join(format!("{}.{}", icon_name, ext));
-            if path.exists() {
-                return format!("file://{}", path.to_string_lossy());
-            }
-        }
-    }
-    icon_name.to_string()
+    crate::icon_resolver::resolve_icon(icon_name)
 }
 
 pub fn scan_desktop_apps(force_refresh: bool) -> Vec<CachedApp> {
