@@ -6,22 +6,37 @@ mod apps;
 mod window_tracker;
 mod ai;
 mod packages;
+mod icon_resolver;
+#[path = "CameraApp/mod.rs"]
+mod camera_app;
+#[path = "BlueWebApp/mod.rs"]
+mod blue_web_app;
+#[path = "BlueCodeApp/mod.rs"]
+mod blue_code_app;
+#[path = "TerminalApp/mod.rs"]
+mod terminal_app;
+use terminal_app::{spawn_terminal, write_to_terminal, pty_create, pty_write, pty_resize, pty_close};
+#[path = "ExplolerApp/mod.rs"]
+mod exploler_app;
+#[path = "BlueScreenshot/mod.rs"]
+mod blue_screenshot;
+#[path = "SystemMonitorApp/mod.rs"]
+mod system_monitor_app;
+#[path = "BlueArchiveApp/mod.rs"]
+mod blue_archive_app;
+#[path = "MailApp/mod.rs"]
+mod mail_app;
 
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::collections::HashMap;
-use std::io::Read;
-use std::sync::Mutex as StdMutex;
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use glob::glob;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use cache::CachedApp;
+use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
+use blue_web_app::{web_open_native, web_fetch_site_info};
+use blue_code_app::{start_language_server, stop_language_server};
 use tokio::process::{Command as TokioCommand};
-use tokio::io::{AsyncBufReadExt, BufReader, AsyncWriteExt};
-use tokio::sync::Mutex;
-use tauri::{Window, Emitter};
-use lazy_static::lazy_static;
 use serde::{Serialize, Deserialize};
 
 // ── Structs ────────────────────────────────────────────────────────────────
@@ -47,6 +62,10 @@ pub struct SystemStats {
     wifi_ssid: String,
     kernel: String,
     session_type: String,
+    net_rx_mb: f32,
+    net_tx_mb: f32,
+    disk_read_mb: f32,
+    disk_write_mb: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -125,15 +144,6 @@ struct Notification {
 struct Action {
     label: String,
     action: String,
-}
-
-struct TerminalProcess {
-    stdin: tokio::process::ChildStdin,
-}
-
-lazy_static! {
-    static ref TERMINALS: std::sync::Arc<Mutex<HashMap<String, TerminalProcess>>> =
-    std::sync::Arc::new(Mutex::new(HashMap::new()));
 }
 
 fn clipboard_history_path() -> PathBuf {
@@ -244,75 +254,11 @@ fn embed_external_window(win_id: String, _parent_id: String) -> bool {
 }
 
 // ── Files ──────────────────────────────────────────────────────────────────
-
-#[tauri::command]
-fn list_files(path: String) -> Vec<FileEntry> {
-    let target = if path == "HOME" {
-        dirs::home_dir().unwrap_or(PathBuf::from("/"))
-    } else {
-        PathBuf::from(&path)
-    };
-
-    let mut entries = Vec::new();
-    if let Ok(rd) = fs::read_dir(&target) {
-        for entry in rd.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let is_dir = meta.is_dir();
-                let size = if is_dir {
-                    "DIR".to_string()
-                } else {
-                    format!("{:.1} KB", meta.len() as f64 / 1024.0)
-                };
-                let mime_type = if is_dir {
-                    "inode/directory".to_string()
-                } else {
-                    let ext = entry.path().extension()
-                    .map(|e| e.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                    match ext.as_str() {
-                        "png"|"jpg"|"jpeg"|"gif"|"webp"|"svg" => "image",
-                        "mp4"|"mkv"|"webm"|"avi"|"mov"        => "video",
-                        "mp3"|"wav"|"ogg"|"flac"|"aac"         => "audio",
-                        "pdf"                                    => "application/pdf",
-                        "txt"|"md"|"rs"|"ts"|"js"|"py"|"toml"  => "text",
-                        _                                        => "application/octet-stream",
-                    }.to_string()
-                };
-                let modified = meta.modified().ok().map(|t| {
-                    chrono::DateTime::<chrono::Local>::from(t)
-                    .format("%Y-%m-%d %H:%M")
-                    .to_string()
-                });
-                entries.push(FileEntry { name, path: entry.path().to_string_lossy().to_string(), is_dir, size, mime_type, modified });
-            }
-        }
-    }
-    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-    entries
-}
-
-#[tauri::command]
-fn read_text_file(path: String) -> String {
-    fs::read_to_string(path).unwrap_or_else(|e| format!("Error: {}", e))
-}
-
-#[tauri::command]
-fn write_text_file(path: String, content: String) -> Result<(), String> {
-    fs::write(path, content).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn git_status(path: String) -> Vec<String> {
-    Command::new("git")
-    .args(["-C", &path, "status", "--short"])
-    .output()
-    .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect())
-    .unwrap_or_default()
+// resolve_path is the canonical implementation in ExplolerApp/mod.rs.
+// This local alias lets any remaining code in main.rs that calls
+// resolve_path() still compile without modification.
+fn resolve_path(path: &str) -> PathBuf {
+    exploler_app::resolve_path(path)
 }
 
 // ── System stats ───────────────────────────────────────────────────────────
@@ -342,6 +288,7 @@ fn get_system_stats() -> SystemStats {
     .unwrap_or("Unknown".to_string());
 
     let (battery, is_charging) = get_battery_info();
+    let (net_rx_mb, net_tx_mb, disk_read_mb, disk_write_mb) = get_network_disk_rates();
 
     SystemStats {
         cpu: sys.global_cpu_info().cpu_usage(),  // FIX: was global_cpu_usage()
@@ -353,7 +300,83 @@ fn get_system_stats() -> SystemStats {
         wifi_ssid,
         kernel,
         session_type: session::session_info(),
+        net_rx_mb,
+        net_tx_mb,
+        disk_read_mb,
+        disk_write_mb,
     }
+}
+
+/// Measures real network throughput (via the `sysinfo` crate's Networks
+/// API) and disk I/O throughput (via /proc/diskstats) over a short
+/// sampling window, returned in MB/s.
+///
+/// This replaces what used to be a `Math.random()` placeholder on the
+/// frontend side (System Monitor's "Network" and "Disk I/O" cards showed
+/// fabricated random numbers whenever the backend didn't supply
+/// netRx/diskRead, which it never did — those fields didn't even exist
+/// on this struct before). Both measurements need two samples to compute
+/// a rate, hence the short blocking sleep here; at a 2s frontend polling
+/// interval this adds negligible overhead.
+fn get_network_disk_rates() -> (f32, f32, f32, f32) {
+    use sysinfo::Networks;
+
+    let mut networks = Networks::new_with_refreshed_list();
+    let disk_before = read_proc_diskstats();
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    networks.refresh();
+    let disk_after = read_proc_diskstats();
+
+    let mut rx_bytes: u64 = 0;
+    let mut tx_bytes: u64 = 0;
+    for (_name, data) in &networks {
+        rx_bytes += data.received();
+        tx_bytes += data.transmitted();
+    }
+
+    let (read_sectors, write_sectors) = match (disk_before, disk_after) {
+        (Some((rb, wb)), Some((ra, wa))) => (ra.saturating_sub(rb), wa.saturating_sub(wb)),
+        _ => (0, 0),
+    };
+
+    let elapsed_secs = 0.2_f32;
+    let net_rx_mb    = (rx_bytes as f32 / 1_048_576.0) / elapsed_secs;
+    let net_tx_mb    = (tx_bytes as f32 / 1_048_576.0) / elapsed_secs;
+    // Sectors are always 512 bytes per the kernel's block layer ABI,
+    // regardless of the device's actual physical sector size.
+    let disk_read_mb  = (read_sectors as f32 * 512.0 / 1_048_576.0) / elapsed_secs;
+    let disk_write_mb = (write_sectors as f32 * 512.0 / 1_048_576.0) / elapsed_secs;
+
+    (net_rx_mb, net_tx_mb, disk_read_mb, disk_write_mb)
+}
+
+/// Reads cumulative (read_sectors, written_sectors) totals across all
+/// whole block devices from /proc/diskstats. Only devices that have a
+/// corresponding /sys/block entry are counted — that's the standard way
+/// (used by tools like iostat) to count each physical disk's I/O exactly
+/// once instead of double-counting it once for the disk and again for
+/// each of its partitions, which all report overlapping cumulative
+/// totals in /proc/diskstats.
+fn read_proc_diskstats() -> Option<(u64, u64)> {
+    let content = fs::read_to_string("/proc/diskstats").ok()?;
+    let mut total_read = 0u64;
+    let mut total_write = 0u64;
+
+    for line in content.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 10 { continue; }
+        let dev_name = fields[2];
+        if dev_name.starts_with("loop") || dev_name.starts_with("ram") { continue; }
+        if !PathBuf::from("/sys/block").join(dev_name).exists() { continue; }
+
+        let sectors_read: u64    = fields.get(5).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let sectors_written: u64 = fields.get(9).and_then(|s| s.parse().ok()).unwrap_or(0);
+        total_read  += sectors_read;
+        total_write += sectors_written;
+    }
+    Some((total_read, total_write))
 }
 
 fn get_battery_info() -> (f32, bool) {
@@ -454,6 +477,33 @@ fn set_volume(level: i32) {
 
 // ── Wi-Fi ─────────────────────────────────────────────────────────────────
 
+/// Splits an `nmcli -t` (terse) output line into fields.
+///
+/// nmcli's terse mode escapes literal `:` and `\` characters inside field
+/// values with a leading backslash (this matters a lot for BSSID, which is
+/// a colon-separated MAC address). A naive `line.split(':')` treats those
+/// escaped colons as field separators too, shifting every field after the
+/// BSSID — which is exactly why SSIDs were showing up as mangled
+/// fragments like `95\` with the signal always reading 0%.
+fn split_nmcli_terse(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(escaped) = chars.next() {
+                current.push(escaped);
+            }
+        } else if c == ':' {
+            fields.push(std::mem::take(&mut current));
+        } else {
+            current.push(c);
+        }
+    }
+    fields.push(current);
+    fields
+}
+
 #[tauri::command]
 fn get_wifi_networks_real() -> Vec<WifiNetwork> {
     let mut networks = Vec::new();
@@ -462,7 +512,7 @@ fn get_wifi_networks_real() -> Vec<WifiNetwork> {
         let text = String::from_utf8_lossy(&o.stdout);
         let mut seen = std::collections::HashSet::new();
         for line in text.lines() {
-            let parts: Vec<&str> = line.splitn(10, ':').collect();
+            let parts = split_nmcli_terse(line);
             if parts.len() < 9 { continue; }
             let ssid = parts[2].to_string();
             if ssid.is_empty() || seen.contains(&ssid) { continue; }
@@ -595,36 +645,8 @@ fn set_brightness(level: i32) {
 }
 
 // ── System ─────────────────────────────────────────────────────────────────
-
-#[tauri::command]
-fn get_processes() -> Vec<ProcessEntry> {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_processes();  // FIX: was refresh_processes(ProcessesToUpdate::All, true)
-    let mut procs: Vec<ProcessEntry> = sys.processes().iter().map(|(pid, p)| ProcessEntry {
-        pid: pid.to_string(),
-                                                                  name: p.name().to_string(),  // FIX: was to_string_lossy().to_string()
-    cpu: p.cpu_usage(),
-                                                                  memory: p.memory(),
-    }).collect();
-    procs.sort_by(|a, b| b.memory.cmp(&a.memory));
-    procs.truncate(50);
-    procs
-}
-
-#[tauri::command]
-fn take_screenshot() {
-    let home = dirs::home_dir().unwrap_or(PathBuf::from("/"));
-    let pics = home.join("Pictures");
-    let _ = fs::create_dir_all(&pics);
-    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let path = pics.join(format!("screenshot-{}.png", ts)).to_string_lossy().to_string();
-    let cmd = format!(
-        "flameshot gui -p '{p}' 2>/dev/null || scrot '{p}' 2>/dev/null || gnome-screenshot -f '{p}' 2>/dev/null || spectacle -b -o '{p}' 2>/dev/null",
-        p = path
-    );
-    let _ = Command::new("sh").arg("-c").arg(cmd).spawn();
-}
+// take_screenshot delegated to blue_screenshot::take_screenshot via generate_handler!
+// get_processes delegated to system_monitor_app::get_processes via generate_handler!
 
 // ── Wallpapers ─────────────────────────────────────────────────────────────
 
@@ -681,9 +703,9 @@ fn get_wallpaper_preview(path: String) -> Result<String, String> {
 #[tauri::command]
 fn load_distro_info() -> std::collections::HashMap<String, String> {
     let mut info = std::collections::HashMap::new();
-    info.insert("Name".to_string(), "HackerOS".to_string());
-    info.insert("Version".to_string(), "0.2.0-alpha".to_string());
-    info.insert("Copyright".to_string(), "© 2026 HackerOS Team".to_string());
+    info.insert("Name".to_string(), "LegendaryOS".to_string());
+    info.insert("Version".to_string(), "0.6".to_string());
+    info.insert("Copyright".to_string(), "© 2026 LegendaryOS Team".to_string());
     for p in &["/etc/xdg/kcm-about-distrorc", "/etc/os-release"] {
         if let Ok(content) = fs::read_to_string(p) {
             for line in content.lines() {
@@ -733,44 +755,10 @@ fn load_window_state() -> Vec<cache::WindowCache> {
     cache::load_window_state()
 }
 
-// ── File operations ────────────────────────────────────────────────────────
-
-#[tauri::command]
-fn read_file_as_data_url(path: String) -> Result<String, String> {
-    let path = PathBuf::from(path);
-    if !path.exists() { return Err("File not found".to_string()); }
-    let data = fs::read(&path).map_err(|e| e.to_string())?;
-    let mime = match path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("svg") => "image/svg+xml",
-        _ => "application/octet-stream",
-    };
-    Ok(format!("data:{};base64,{}", mime, BASE64.encode(data)))
-}
-
-#[tauri::command]
-fn create_folder(path: String, name: String) -> Result<(), String> {
-    fs::create_dir_all(PathBuf::from(path).join(name)).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_file(path: String) -> Result<(), String> {
-    let path = PathBuf::from(path);
-    if path.is_dir() { fs::remove_dir_all(path).map_err(|e| e.to_string()) }
-    else { fs::remove_file(path).map_err(|e| e.to_string()) }
-}
-
-#[tauri::command]
-fn copy_file(src: String, dest: String) -> Result<(), String> {
-    fs::copy(src, dest).map(|_| ()).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn move_file(src: String, dest: String) -> Result<(), String> {
-    fs::rename(src, dest).map_err(|e| e.to_string())
-}
+// ── File operations (delegated to ExplolerApp/mod.rs) ─────────────────────
+// All file commands (#[tauri::command]) live exclusively in ExplolerApp/mod.rs
+// and are registered via exploler_app:: prefix in generate_handler!.
+// Having them here too caused E0255/E0659 duplicate macro errors.
 
 // ── Terminal ───────────────────────────────────────────────────────────────
 
@@ -781,75 +769,6 @@ async fn execute_command(command: String) -> Result<CommandOutput, String> {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
-}
-
-#[tauri::command]
-async fn spawn_terminal(window: Window, window_id: String) -> Result<bool, String> {
-    let mut child = TokioCommand::new("bash")
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped())
-    .spawn()
-    .map_err(|e| e.to_string())?;
-
-    let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
-    let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
-    let stderr = child.stderr.take().ok_or("Failed to open stderr")?;
-
-    let window_clone = window.clone();
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = window_clone.emit("terminal-output", serde_json::json!({"type":"stdout","data":line+"\r\n"}));
-        }
-    });
-
-    let window_clone = window.clone();
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = window_clone.emit("terminal-output", serde_json::json!({"type":"stderr","data":line+"\r\n"}));
-        }
-    });
-
-    TERMINALS.lock().await.insert(window_id, TerminalProcess { stdin });
-    Ok(true)
-}
-
-#[tauri::command]
-async fn write_to_terminal(window_id: String, command: String) -> Result<(), String> {
-    let mut terminals = TERMINALS.lock().await;
-    if let Some(term) = terminals.get_mut(&window_id) {
-        let cmd = command + "\n";
-        term.stdin.write_all(cmd.as_bytes()).await.map_err(|e| e.to_string())?;
-        term.stdin.flush().await.map_err(|e| e.to_string())?;
-        Ok(())
-    } else {
-        Err("Terminal not found".to_string())
-    }
-}
-
-// ── Desktop path ───────────────────────────────────────────────────────────
-
-#[tauri::command]
-fn get_default_desktop_path() -> String {
-    if let Ok(output) = Command::new("xdg-user-dir").arg("DESKTOP").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() { return path; }
-        }
-    }
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    for dir_name in &["Desktop", "Pulpit"] {
-        let dir = home.join(dir_name);
-        if dir.exists() { return dir.to_string_lossy().to_string(); }
-    }
-    "HOME/Desktop".to_string()
-}
-
-#[tauri::command]
-fn create_text_file(path: String, name: String, content: String) -> Result<(), String> {
-    fs::write(PathBuf::from(path).join(name), content).map_err(|e| e.to_string())
 }
 
 // ── Clipboard history ─────────────────────────────────────────────────────
@@ -965,131 +884,75 @@ async fn save_ai_config(config: ai::AIConfig) -> Result<(), String> {
 
 // ── Package managers ───────────────────────────────────────────────────────
 
+// ── Package managers ───────────────────────────────────────────────────────
+//
+// These used to be hardcoded stubs (`vec![]` / `Ok(false)`) in this file
+// while the *real* implementation in packages.rs was only ever wired up
+// from lib.rs (the mobile entry point) — meaning Blue Software on desktop,
+// which runs this binary, always showed an empty package list and every
+// install/remove/update silently "succeeded" at doing nothing. Wired up
+// for real now, matching what lib.rs already did correctly.
+//
+// Also: this targets Fedora-based LegendaryOS, which has no `apt` at
+// all — the previous apt-based implementation could never have worked
+// here. Package management now goes through `dnf`/`rpm` instead, and the
+// `snap` source has been dropped entirely (Fedora doesn't ship snapd by
+// default and it isn't part of the supported package stack).
+
 #[tauri::command]
-async fn get_apt_packages() -> Vec<ai::PackageInfo> { vec![] }
+async fn get_dnf_packages() -> Vec<ai::PackageInfo> {
+    tokio::task::spawn_blocking(packages::get_dnf_packages).await.unwrap_or_default()
+}
 #[tauri::command]
-async fn get_flatpak_packages() -> Vec<ai::PackageInfo> { vec![] }
+async fn get_flatpak_packages() -> Vec<ai::PackageInfo> {
+    tokio::task::spawn_blocking(packages::get_flatpak_packages).await.unwrap_or_default()
+}
 #[tauri::command]
-async fn get_snap_packages() -> Vec<ai::PackageInfo> { vec![] }
+async fn get_appimage_packages() -> Vec<ai::PackageInfo> {
+    tokio::task::spawn_blocking(packages::get_appimage_packages).await.unwrap_or_default()
+}
 #[tauri::command]
-async fn get_appimage_packages() -> Vec<ai::PackageInfo> { vec![] }
+async fn install_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::install_dnf(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn install_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn remove_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::remove_dnf(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn remove_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn update_dnf_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::update_dnf(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn update_apt_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn install_flatpak_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::install_flatpak(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn install_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn remove_flatpak_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::remove_flatpak(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn remove_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn update_flatpak_package(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::update_flatpak(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn update_flatpak_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn install_appimage(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::install_appimage(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn install_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn remove_appimage(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::remove_appimage(&pkg_id)).await.unwrap_or(false))
+}
 #[tauri::command]
-async fn remove_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-#[tauri::command]
-async fn update_snap_package(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-#[tauri::command]
-async fn install_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-#[tauri::command]
-async fn remove_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
-#[tauri::command]
-async fn update_appimage(_pkg_id: String) -> Result<bool, String> { Ok(false) }
+async fn update_appimage(pkg_id: String) -> Result<bool, String> {
+    Ok(tokio::task::spawn_blocking(move || packages::update_appimage(&pkg_id)).await.unwrap_or(false))
+}
 
 // ── Panel ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn set_panel_enabled(enabled: bool) -> Result<(), String> {
     println!("Panel enabled: {}", enabled);
-    Ok(())
-}
-
-// ── PTY ───────────────────────────────────────────────────────────────────
-
-struct PtySession {
-    writer: Box<dyn std::io::Write + Send>,
-    pid: u32,
-}
-type PtySessions = std::sync::Arc<StdMutex<HashMap<String, PtySession>>>;
-
-#[tauri::command]
-fn pty_create(
-    id: String,
-    shell: Option<String>,
-    cols: Option<u16>,
-    rows: Option<u16>,
-    window: tauri::Window,
-    sessions: tauri::State<PtySessions>,
-) -> Result<(), String> {
-    let pty_system = native_pty_system();
-    let pair = pty_system.openpty(PtySize {
-        rows: rows.unwrap_or(24),
-                                  cols: cols.unwrap_or(80),
-                                  pixel_width: 0,
-                                  pixel_height: 0,
-    }).map_err(|e| e.to_string())?;
-
-    let shell_path = shell.unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()));
-    let mut cmd = CommandBuilder::new(&shell_path);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    if let Ok(home) = std::env::var("HOME") { cmd.env("HOME", &home); }
-    if let Ok(user) = std::env::var("USER") { cmd.env("USER", &user); }
-    cmd.cwd(std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
-
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-
-    let id_clone = id.clone();
-    let win = window.clone();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => {
-                    let _ = win.emit(&format!("pty-exit-{}", id_clone), ());
-                    break;
-                }
-                Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = win.emit(&format!("pty-data-{}", id_clone), data);
-                }
-            }
-        }
-    });
-
-    let mut map = sessions.lock().map_err(|e| e.to_string())?;
-    let pid = child.process_id().unwrap_or(0);
-    map.insert(id, PtySession { writer: Box::new(writer), pid });
-    Ok(())
-}
-
-#[tauri::command]
-fn pty_write(id: String, data: String, sessions: tauri::State<PtySessions>) -> Result<(), String> {
-    let mut map = sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(session) = map.get_mut(&id) {
-        session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-        session.writer.flush().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn pty_resize(_id: String, _cols: u16, _rows: u16, _sessions: tauri::State<PtySessions>) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-fn pty_close(id: String, sessions: tauri::State<PtySessions>) -> Result<(), String> {
-    let mut map = sessions.lock().map_err(|e| e.to_string())?;
-    if let Some(session) = map.remove(&id) {
-        if session.pid > 0 {
-            unsafe { libc::kill(session.pid as i32, libc::SIGTERM); }
-        }
-    }
     Ok(())
 }
 
@@ -1140,35 +1003,40 @@ fn main() {
     }
 
     tauri::Builder::default()
-    .manage(std::sync::Arc::new(StdMutex::new(HashMap::<String, PtySession>::new())))
+    .manage(terminal_app::new_pty_sessions())
     .invoke_handler(tauri::generate_handler![
         get_session_type,
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
-        list_files, read_text_file, write_text_file, git_status,
-        get_system_stats, get_processes,
+        exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
+        get_system_stats, system_monitor_app::get_processes,
         read_config_file, write_config_file, read_cache_file, write_cache_file,
-        take_screenshot, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
+        blue_screenshot::take_screenshot, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
         get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
         get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi,
         get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair,
         get_power_profiles, set_power_profile,
         set_brightness,
         save_config, load_config, save_window_state, load_window_state,
-        read_file_as_data_url, create_folder, delete_file, copy_file, move_file,
+        exploler_app::read_file_as_data_url, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
         execute_command, pty_create, pty_write, pty_resize, pty_close, spawn_terminal, write_to_terminal,
-        get_default_desktop_path, create_text_file,
+        exploler_app::get_default_desktop_path, exploler_app::create_text_file, exploler_app::get_username, exploler_app::get_hostname, exploler_app::get_home_path,
         get_clipboard_history, add_to_clipboard_history, clear_clipboard_history,
         set_night_light_enabled, set_night_light_temperature,
         get_notification_history, save_notification_history,
         get_custom_themes, save_custom_theme, delete_custom_theme,
         ai_call, get_ai_config, save_ai_config,
-        get_apt_packages, get_flatpak_packages, get_snap_packages, get_appimage_packages,
-        install_apt_package, remove_apt_package, update_apt_package,
+        get_dnf_packages, get_flatpak_packages, get_appimage_packages,
+        install_dnf_package, remove_dnf_package, update_dnf_package,
         install_flatpak_package, remove_flatpak_package, update_flatpak_package,
-        install_snap_package, remove_snap_package, update_snap_package,
         install_appimage, remove_appimage, update_appimage,
         set_panel_enabled,
+        camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video,
+        web_open_native, web_fetch_site_info,
+        start_language_server, stop_language_server,
+        blue_archive_app::archive_list, blue_archive_app::archive_extract, blue_archive_app::archive_create,
+        mail_app::mail_get_accounts, mail_app::mail_save_account, mail_app::mail_delete_account,
+        mail_app::mail_fetch_inbox, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Blue Environment");
