@@ -12,6 +12,7 @@ type DelayOption = 0 | 3 | 5 | 10;
 interface Screenshot {
     id: string;
     dataUrl: string;
+    savedPath: string | null;
     timestamp: Date;
     mode: CaptureMode;
     width: number;
@@ -42,26 +43,34 @@ const BlueScreenshot: React.FC<AppProps> = () => {
 
         try {
             let dataUrl = '';
+            let savedPath = '';
 
             if (SystemBridge.isTauri()) {
-                // Use backend screenshot command
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const outPath   = `/tmp/blue-screenshot-${timestamp}.png`;
+                if (mode === 'region') {
+                    // Region selection via slurp (Wayland geometry picker)
+                    const geomResult = await SystemBridge.executeCommand('slurp 2>/dev/null');
+                    const geomRaw = typeof geomResult === 'string' ? geomResult : (geomResult as any)?.stdout ?? '';
+                    const geom = (geomRaw as string).trim();
+                    if (!geom) throw new Error('Selection cancelled');
 
-                const cmd =
-                    mode === 'fullscreen' ? `grim "${outPath}"` :
-                    mode === 'window'     ? `grim -g "$(swaymsg -t get_tree | jq -j '.. | select(.focused?) | .rect | "\\(.x),\\(.y) \\(.width)x\\(.height)"')" "${outPath}"` :
-                    /* region */           `grim -g "$(slurp)" "${outPath}"`;
-
-                const result = await SystemBridge.executeCommand(cmd);
-
-                // Fixed: use result.code instead of result.returnCode
-                if (result.stderr?.includes('error') || (result.code !== undefined && result.code !== 0)) {
-                    throw new Error(result.stderr || 'Screenshot failed');
+                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                    const outPath = `${(window as any).__TAURI_HOME__ || `${await SystemBridge.getHomePath()}`}/Pictures/Screenshots/screenshot-${ts}.png`;
+                    await SystemBridge.executeCommand(`mkdir -p "$(dirname '${outPath}')" && grim -g "${geom}" "${outPath}" 2>/dev/null || import -geometry "${geom}" "${outPath}" 2>/dev/null`);
+                    dataUrl = await SystemBridge.readFileAsDataURL(outPath);
+                    savedPath = outPath;
+                } else if (mode === 'window') {
+                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                    const outPath = `${(window as any).__TAURI_HOME__ || `${await SystemBridge.getHomePath()}`}/Pictures/Screenshots/screenshot-${ts}.png`;
+                    await SystemBridge.executeCommand(`mkdir -p "$(dirname '${outPath}')" && grim -g "$(swaymsg -t get_tree 2>/dev/null | python3 -c "import json,sys; t=json.load(sys.stdin); [print(f\\"{n['rect']['x']},{n['rect']['y']} {n['rect']['width']}x{n['rect']['height']}\\") for n in [t] if n.get('focused')]" 2>/dev/null || slurp)" "${outPath}" 2>/dev/null || import -window root "${outPath}" 2>/dev/null`);
+                    dataUrl = await SystemBridge.readFileAsDataURL(outPath);
+                    savedPath = outPath;
+                } else {
+                    // Fullscreen - use the backend take_screenshot command which
+                    // auto-detects grim/scrot/spectacle and saves to ~/Pictures/Screenshots
+                    savedPath = await SystemBridge.takeScreenshot() || '';
+                    if (!savedPath) throw new Error('No screenshot tool found (grim, scrot, or spectacle required)');
+                    dataUrl = await SystemBridge.readFileAsDataURL(savedPath);
                 }
-
-                dataUrl = await SystemBridge.readFileAsDataURL(outPath);
-                await SystemBridge.executeCommand(`rm -f "${outPath}"`);
             } else {
                 // Browser fallback using getDisplayMedia
                 const stream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true });
@@ -78,13 +87,14 @@ const BlueScreenshot: React.FC<AppProps> = () => {
 
             if (!dataUrl) throw new Error('Empty screenshot data');
 
-            const img   = new Image();
-            img.src     = dataUrl;
+            const img = new Image();
+            img.src = dataUrl;
             await new Promise(r => { img.onload = r; });
 
             const ss: Screenshot = {
                 id:        Date.now().toString(),
                 dataUrl,
+                savedPath: savedPath || null,
                 timestamp: new Date(),
                 mode,
                 width:  img.naturalWidth,
