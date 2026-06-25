@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SystemBridge } from '../utils/systemBridge';
+import { useDialog } from '../contexts/DialogContext';
 import { Monitor, RefreshCw, Plus, Trash2, User, Users, Printer, Check, X } from 'lucide-react';
 
 // ── Monitors ─────────────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ export function MonitorsSection() {
 interface PrinterInfo { name: string; status: string; isDefault: boolean; location?: string; }
 
 export function PrintersSection() {
+    const dialog = useDialog();
     const [printers, setPrinters] = useState<PrinterInfo[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -169,7 +171,13 @@ export function PrintersSection() {
     };
 
     const removePrinter = async (name: string) => {
-        if (!window.confirm(`Remove printer "${name}"?`)) return;
+        const ok = await dialog.confirm({
+            title: 'Remove printer',
+            message: `Remove printer "${name}"? You can add it again later.`,
+            confirmLabel: 'Remove',
+            danger: true,
+        });
+        if (!ok) return;
         await SystemBridge.executeCommand(`lpadmin -x "${name}"`).catch(() => {});
         load();
     };
@@ -234,8 +242,8 @@ export function UsersSection() {
         setLoading(true);
         try {
             const result = await SystemBridge.executeCommand(
-                "awk -F: '$3 >= 1000 && $3 < 65534 {print $1\":\"$3\":\"$6\":\"$7}' /proc/1/root/etc/passwd 2>/dev/null || " +
-                "awk -F: '$3 >= 1000 && $3 < 65534 {print $1\":\"$3\":\"$6\":\"$7}' /etc/passwd"
+                "awk -F: '$3 >= 1000 && $3 < 65534 && $7 !~ /nologin|false|sync|halt|shutdown/ && $6 != \"/var/empty\" && $6 != \"/nonexistent\" {print $1\":\"$3\":\"$6\":\"$7}' /proc/1/root/etc/passwd 2>/dev/null || " +
+                "awk -F: '$3 >= 1000 && $3 < 65534 && $7 !~ /nologin|false|sync|halt|shutdown/ && $6 != \"/var/empty\" && $6 != \"/nonexistent\" {print $1\":\"$3\":\"$6\":\"$7}' /etc/passwd"
             );
             const out = typeof result === 'string' ? result : result?.stdout || '';
             const us: UserInfo[] = [];
