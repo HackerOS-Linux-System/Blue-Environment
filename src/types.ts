@@ -18,6 +18,7 @@ export enum AppId {
     BLUE_VIDEOS    = 'blue_videos',
     BLUE_MUSIC     = 'blue_music',
     BLUE_SCREEN    = 'blue_screen',
+    BLUE_ARCHIVE   = 'blue_archive',
     CAMERA         = 'camera',
     EXTERNAL       = 'external',
 }
@@ -116,7 +117,11 @@ export interface ThemeDefinition {
     // 'type' kept optional so systemBridge (which lacks it) stays assignable.
     type?: 'builtin' | 'custom';
     css?: string;
-    colors?: Record<string, string>;
+    // Kept required (matches utils/systemBridge.ThemeDefinition) so that
+    // UserConfig patches stay structurally assignable between the two
+    // parallel type definitions — see configStore.ts, which is typed
+    // against the systemBridge variant.
+    colors: Record<string, string>;
 }
 
 export interface PowerProfile {
@@ -147,17 +152,12 @@ export interface Notification {
     actions?: { label: string; action: string }[];
 }
 
-export interface PackageInfo {
-    id: string;
-    name: string;
-    description: string;
-    version: string;
-    source: 'apt' | 'flatpak' | 'snap' | 'appimage';
-    installed: boolean;
-    updateAvailable?: boolean;
-    icon?: string;
-    size?: string;
-}
+// PackageInfo lives in utils/systemBridge.ts (the single source of truth
+// for the shape of data coming back from Tauri commands) and is
+// re-exported from Blue-Software-App/src/types.ts for that app's
+// internal use. A second, stale copy used to live here too — unused
+// anywhere, but a duplicate definition exactly like the kind that caused
+// the panelPosition/UserConfig drift bugs elsewhere in this codebase.
 
 export interface SystemStats {
     cpu: number;
