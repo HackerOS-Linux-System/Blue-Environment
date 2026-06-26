@@ -7,7 +7,7 @@
     "dev": "vite --config src/vite.config.ts",
     "build": "tsc -p src/tsconfig.json --noEmit && vite build --config src/vite.config.ts",
     "build:tauri": "tauri build",
-    "build:compositor": "cargo build --release --manifest-path src-tauri/lib/blue-compositor/Cargo.toml && mkdir -p ~/.hackeros/Blue-Environment/libs/ && cp src-tauri/lib/blue-compositor/target/release/blue-compositor ~/.hackeros/Blue-Environment/libs/",
+    "build:compositor": "cargo build --release --manifest-path compositor/Cargo.toml && mkdir -p ~/.legendaryos/Blue-Environment/libs/ && cp compositor/target/release/blue-compositor ~/.legendaryos/Blue-Environment/libs/",
     "build:all": "npm run build:compositor && npm run build:tauri && echo 'Full build OK'",
     "preview": "vite preview --config src/vite.config.ts",
     "tauri": "tauri",
