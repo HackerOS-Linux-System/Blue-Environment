@@ -32,7 +32,6 @@ const NotepadApp: React.FC<AppProps> = () => {
     const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const autosaveRef = useRef<ReturnType<typeof setInterval>>();
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const activeTab = tabs.find(t => t.id === activeId) ?? null;
 
@@ -103,16 +102,21 @@ const NotepadApp: React.FC<AppProps> = () => {
         });
     };
 
-    const openFile = () => fileInputRef.current?.click();
-
-    const handleFileOpen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const text = await file.text();
-        const id = `note-${Date.now()}`;
-        setTabs(prev => [...prev, { id, title: file.name, content: text, path: file.name, modified: false }]);
-        setActiveId(id);
-        e.target.value = '';
+    const openFile = async () => {
+        const path = await SystemBridge.pickFile([
+            { name: 'Text Files', extensions: ['txt','md','json','csv','log','toml','yaml','yml','sh','py','js','ts','css','html','xml','ini','conf'] },
+            { name: 'All Files', extensions: ['*'] },
+        ], 'Open File');
+        if (!path) return;
+        try {
+            const text = await SystemBridge.readFile(path);
+            const name = path.split('/').pop() || path;
+            const id = `note-${Date.now()}`;
+            setTabs(prev => [...prev, { id, title: name, content: text || '', path, modified: false }]);
+            setActiveId(id);
+        } catch (e: any) {
+            console.error('Failed to open file:', e);
+        }
     };
 
     const saveFile = async () => {
@@ -178,7 +182,6 @@ const NotepadApp: React.FC<AppProps> = () => {
 
     return (
         <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
-            <input ref={fileInputRef} type="file" accept=".txt,.md,.json,.csv,.log,.hk,.yaml,.yml,.sh,.py,.js,.ts,.css,.html" className="hidden" onChange={handleFileOpen} />
 
             {/* Toolbar */}
             <div className="shrink-0 flex items-center gap-1 px-3 py-2 bg-slate-800 border-b border-white/5">
