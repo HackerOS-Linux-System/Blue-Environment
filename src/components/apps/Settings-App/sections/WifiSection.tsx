@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { RefreshCw, Lock, Unlock, Loader2, Wifi } from 'lucide-react';
 import { SystemBridge } from '../../../../utils/systemBridge';
+import { useDialog } from '../../../../contexts/DialogContext';
 
 interface WifiNetwork { ssid: string; signal: number; secure: boolean; in_use: boolean; }
 
 const WifiSection: React.FC = () => {
+    const dialog = useDialog();
     const [networks, setNetworks] = useState<WifiNetwork[]>([]);
     const [scanning, setScanning] = useState(false);
     const [enabled, setEnabled] = useState(true);
@@ -19,7 +21,7 @@ const WifiSection: React.FC = () => {
     const connect = async (ssid: string) => {
         setConnecting(ssid);
         try { await SystemBridge.connectWifi(ssid, ''); await scan(); }
-        catch { alert('Connection failed'); }
+        catch { await dialog.alert({ title: 'Connection failed', message: `Could not connect to "${ssid}". Check the password and try again.` }); }
         finally { setConnecting(null); }
     };
     const toggle = async () => {
