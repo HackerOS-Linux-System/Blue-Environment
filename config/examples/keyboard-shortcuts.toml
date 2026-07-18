@@ -1,0 +1,54 @@
+# Blue Environment — keyboard shortcuts
+# Place this at: ~/.config/blue-environment/shortcuts.toml
+
+[global]
+# Toggle start menu
+start_menu = "Super"
+
+# Launch terminal
+terminal = "Super+Return"
+
+# Launch file manager
+file_manager = "Super+E"
+
+# Launch Blue Code
+code_editor = "Super+C"
+
+# Screenshot (full screen)
+screenshot_full = "Print"
+
+# Screenshot (region)
+screenshot_region = "Shift+Print"
+
+# Lock screen
+lock_screen = "Super+L"
+
+[window]
+# Close focused window
+close = "Alt+F4"
+
+# Toggle maximize
+maximize = "Super+Up"
+
+# Tile left
+tile_left = "Super+Left"
+
+# Tile right
+tile_right = "Super+Right"
+
+# Toggle fullscreen
+fullscreen = "F11"
+
+# Move to next workspace
+move_next_workspace = "Super+Shift+Right"
+
+# Move to previous workspace
+move_prev_workspace = "Super+Shift+Left"
+
+[workspace]
+# Switch to workspace N (Super+1 through Super+9)
+switch_1 = "Super+1"
+switch_2 = "Super+2"
+switch_3 = "Super+3"
+switch_4 = "Super+4"
+switch_5 = "Super+5"
