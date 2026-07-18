@@ -1,0 +1,7 @@
+# /etc/pam.d/bedm — PAM configuration for BEDM
+# Install at: /etc/pam.d/bedm
+
+auth      include   system-auth
+account   include   system-auth
+password  include   system-auth
+session   include   system-auth
