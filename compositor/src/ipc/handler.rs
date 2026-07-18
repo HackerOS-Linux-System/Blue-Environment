@@ -127,8 +127,15 @@ pub fn handle_shell_message(state: &mut BlueState, msg: ShellMessage) {
         }
 
         ShellMessage::LockScreen => {
+            // The compositor now natively implements ext-session-lock-v1
+            // (see protocols/session_lock.rs) — a real lock client just
+            // needs to speak that protocol and it will get a compositor-
+            // enforced lock (all outputs blanked, confirmed only once every
+            // output has a lock surface). `blue-lock` is that client, once
+            // it ships; until then we fall back to whatever third-party
+            // lock binary is installed, same as before.
             std::process::Command::new("sh")
-                .arg("-c").arg("swaylock 2>/dev/null || gtklock 2>/dev/null || i3lock 2>/dev/null &")
+                .arg("-c").arg("blue-lock 2>/dev/null || swaylock 2>/dev/null || gtklock 2>/dev/null || i3lock 2>/dev/null &")
                 .spawn().ok();
         }
 
