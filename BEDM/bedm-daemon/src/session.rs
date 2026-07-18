@@ -176,6 +176,7 @@ pub async fn launch_session(
     let exec_clone = exec.clone();
     let uuid_clone = session_uuid.clone();
     let state_clone = state.clone();
+    let username_for_cleanup = username.to_string();
 
     tokio::spawn(async move {
         let mut cmd = tokio::process::Command::new("sh");
@@ -206,6 +207,12 @@ pub async fn launch_session(
         let mut st = state_clone.lock().await;
         if st.active_session.as_ref().map(|s| s.id == uuid_clone).unwrap_or(false) {
             st.active_session = None;
+        }
+
+        // Clean up temporary guest account if this was a guest session
+        if username_for_cleanup == "guest" {
+            info!("Guest session ended — cleaning up temporary account");
+            crate::users::cleanup_guest_account().await;
         }
     });
 
