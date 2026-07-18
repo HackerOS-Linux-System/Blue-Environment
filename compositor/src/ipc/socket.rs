@@ -139,3 +139,6 @@ pub fn broadcast_window_closed(clients: &Clients, id: u64) {
 pub fn broadcast_idle_changed(clients: &Clients, idle: bool) {
     broadcast(clients, &CompositorMessage::IdleChanged { idle });
 }
+pub fn broadcast_screen_locked(clients: &Clients, locked: bool) {
+    broadcast(clients, &CompositorMessage::ScreenLocked { locked });
+}
