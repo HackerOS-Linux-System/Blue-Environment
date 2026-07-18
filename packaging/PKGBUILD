@@ -1,0 +1,19 @@
+# Maintainer: LegendaryOS Team <legendaryos.linux.system@gmail.com>
+pkgname=blue-environment
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Blue Environment Wayland desktop shell (Smithay + Tauri + Svelte)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/HackerOS-Linux-System/Blue-Environment"
+license=('GPL3')
+depends=('ruby')
+optdepends=('bedm: login manager for Blue Environment')
+options=('!strip')
+
+package() {
+  install -Dm755 "${srcdir}/blue-environment" "${pkgdir}/usr/share/Blue-Environment/blue-environment"
+  install -Dm755 "${srcdir}/blue-compositor" "${pkgdir}/usr/share/Blue-Environment/lib/blue-compositor"
+  install -Dm755 "${srcdir}/blue" "${pkgdir}/usr/local/bin/blue"
+  install -Dm644 "${srcdir}/blue-environment.desktop" "${pkgdir}/usr/share/applications/blue-environment.desktop"
+  install -Dm644 "${srcdir}/blue-environment-session.desktop" "${pkgdir}/usr/share/wayland-sessions/blue-environment.desktop"
+}
