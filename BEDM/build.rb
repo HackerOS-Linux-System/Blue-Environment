@@ -7,7 +7,7 @@ VARDIR      = ENV['VARDIR'] || '/var'
 RUNDIR      = ENV['RUNDIR'] || '/run'
 SYSTEMDDIR  = ENV['SYSTEMDDIR'] || '/usr/lib/systemd/system'
 DESTDIR     = ENV['DESTDIR'] || ''
-VERSION     = ENV['VERSION'] || '0.1.0'
+VERSION     = ENV['VERSION'] || '0.6.0'
 
 BINDIR      = File.join(PREFIX, 'bin')
 SHAREDIR    = File.join(PREFIX, 'share/bedm')
@@ -193,6 +193,68 @@ task :dist => :build do
   log(GREEN, "✓ bedm-#{VERSION}.tar.gz")
 end
 
+## ── Package (installer formats) ───────────────────────────────────────────
+
+desc 'Build a .rpm installer package (needs rpmbuild)'
+task :rpm => :build do
+  log(CYAN, '→ Building BEDM .rpm...')
+  unless system('which rpmbuild > /dev/null 2>&1')
+    log(YELLOW, '! rpmbuild not found — install the "rpm-build" package')
+    exit 1
+  end
+
+  topdir = File.expand_path('rpmbuild')
+  %w[BUILD RPMS SOURCES SPECS SRPMS].each { |d| FileUtils.mkdir_p("#{topdir}/#{d}") }
+
+  FileUtils.cp('bedm-daemon/target/release/bedm', "#{topdir}/SOURCES/bedm")
+  FileUtils.cp('bedm-greeter/target/release/bedm-greeter', "#{topdir}/SOURCES/bedm-greeter")
+
+  spec_out = "#{topdir}/SPECS/bedm.spec"
+  sh "sed 's/@VERSION@/#{VERSION}/g' ../packaging/BEDM/bedm.spec > #{spec_out}" rescue \
+    FileUtils.cp('../packaging/BEDM/bedm.spec', spec_out)
+
+  sh "rpmbuild -bb #{spec_out} --define \"_topdir #{topdir}\""
+  log(GREEN, "✓ BEDM RPM → #{topdir}/RPMS/")
+end
+
+desc 'Build a .deb installer package (needs dpkg-deb)'
+task :deb => :build do
+  log(CYAN, '→ Building BEDM .deb...')
+  unless system('which dpkg-deb > /dev/null 2>&1')
+    log(YELLOW, '! dpkg-deb not found — install the "dpkg-dev" package')
+    exit 1
+  end
+
+  root = 'build/deb/bedm'
+  FileUtils.rm_rf(root)
+  FileUtils.mkdir_p("#{root}/DEBIAN")
+  FileUtils.mkdir_p("#{root}#{BINDIR}")
+  FileUtils.mkdir_p("#{root}/usr/lib/systemd/system")
+  FileUtils.mkdir_p("#{root}#{PAMDIR}")
+  FileUtils.mkdir_p("#{root}#{SYSCONFDIR}/bedm")
+
+  install_file('bedm-daemon/target/release/bedm', "#{root}#{BINDIR}/bedm", 0755)
+  install_file('bedm-greeter/target/release/bedm-greeter', "#{root}#{BINDIR}/bedm-greeter", 0755)
+  install_file('systemd/bedm.service', "#{root}/usr/lib/systemd/system/bedm.service", 0644)
+  install_file('config/pam-bedm', "#{root}#{PAMDIR}/bedm", 0644)
+  install_file('config/bedm.toml', "#{root}#{SYSCONFDIR}/bedm/bedm.toml", 0644)
+
+  control_src = File.read('../packaging/BEDM/control')
+  pkg_stanza = control_src.split(/\n\n/).last
+  File.write("#{root}/DEBIAN/control", "#{pkg_stanza}\nVersion: #{VERSION}\n")
+
+  FileUtils.mkdir_p('dist')
+  out = "dist/bedm_#{VERSION}_amd64.deb"
+  sh "dpkg-deb --root-owner-group --build #{root} #{out}"
+  log(GREEN, "✓ BEDM DEB → #{out}")
+end
+
+desc 'Build every installer format available on this machine (.rpm + .deb)'
+task :packages => :build do
+  Rake::Task[:rpm].invoke if system('which rpmbuild > /dev/null 2>&1')
+  Rake::Task[:deb].invoke if system('which dpkg-deb > /dev/null 2>&1')
+end
+
 ## ── Help ───────────────────────────────────────────────────────────────────
 
 # Rake automatycznie generuje pomoc dla zadań opisanych przez `desc` za pomocą komendy `rake -T`.
@@ -212,6 +274,12 @@ task :help do
   log(YELLOW, 'Install (run as root):')
   puts '  rake install        — Full install'
   puts '  rake uninstall      — Remove BEDM'
+  puts ''
+  log(YELLOW, 'Packaging:')
+  puts '  rake rpm            — Build a .rpm installer (needs rpmbuild)'
+  puts '  rake deb            — Build a .deb installer (needs dpkg-deb)'
+  puts '  rake packages       — Build every installer format available here'
+  puts '  rake dist           — Build a plain .tar.gz distribution archive'
   puts ''
   log(YELLOW, 'Environment:')
   puts "  PREFIX=#{PREFIX}  SYSCONFDIR=#{SYSCONFDIR}"
