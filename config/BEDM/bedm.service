@@ -1,0 +1,29 @@
+# systemd service for BEDM daemon
+# Install at: /etc/systemd/system/bedm.service
+
+[Unit]
+Description=Blue Environment Display Manager Daemon
+Documentation=https://github.com/legendaryos/blue-environment
+After=systemd-udev-settle.service
+After=local-fs.target
+After=acpid.service dbus.service
+Conflicts=getty@tty1.service
+
+[Service]
+ExecStart=/usr/bin/bedm
+KillMode=process
+Restart=always
+StandardError=journal
+StandardOutput=journal
+
+# Run as root (needed to start user sessions via PAM)
+User=root
+Group=root
+
+# Security hardening
+NoNewPrivileges=false
+ProtectHome=no
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target
