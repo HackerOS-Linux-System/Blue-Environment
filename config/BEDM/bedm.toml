@@ -1,27 +1,60 @@
-# /etc/bedm/bedm.hk — BEDM Display Manager Configuration
-# Blue Environment Display Manager v1.0.0
-# Format: TOML
-# Docs: hackeros-linux-system.github.io/HackerOS-Website/tools-docs/hk.html
+# BEDM — Blue Environment Display Manager configuration
+# Install at: /etc/bedm/bedm.toml
+# Run as: systemd service bedm.service (root)
 
 [general]
-greeter_path = "/usr/bin/bedm-greeter"
-vt = 1
-theme = "blue"
-show_user_list = true
-allow_root = false
-minimum_uid = 1000
-maximum_uid = 65533
-clock_format = "%H:%M"
-sessions_dir = ["/usr/share/wayland-sessions", "/usr/share/xsessions", "/usr/local/share/wayland-sessions"]
+# Path to the wallpaper shown in the greeter
+background = "/usr/share/Blue-Environment/wallpapers/default.png"
 
-# Uncomment to enable autologin:
-# [autologin]
-# user = "username"
-# session = "blue-environment"
-# delay = 0
+# Clock format (strftime)
+clock_format = "%H:%M"
+
+# Theme: "blue" | "dark" | "light"
+theme = "blue"
+
+# Show user list on greeter (false = always show username input)
+show_user_list = true
+
+# Default session to pre-select (must match a .desktop file in sessions_dir)
+default_session = "blue-environment"
+
+# Allow guest login (creates a temporary guest account)
+allow_guest = false
+
+[auth]
+# Maximum failed login attempts before lockout
+max_attempts = 5
+
+# Lockout duration in seconds after max_attempts exceeded
+lockout_duration = 30
+
+# Enable PAM fingerprint authentication (requires fprintd)
+fingerprint = false
+
+# PAM service name
+pam_service = "bedm"
+
+[session]
+# Directory containing .desktop session files
+sessions_dir = "/usr/share/wayland-sessions"
+
+# Extra session directories (space-separated)
+extra_sessions_dirs = "/usr/share/xsessions"
+
+# Command run before starting a session (e.g. to set up environment)
+pre_session_command = ""
 
 [power]
-shutdown = "shutdown -h now"
-reboot = "reboot"
-suspend = "systemctl suspend"
+# Commands for power actions (run as root via PAM/polkit)
+shutdown  = "systemctl poweroff"
+reboot    = "systemctl reboot"
+suspend   = "systemctl suspend"
 hibernate = "systemctl hibernate"
+
+[socket]
+# Unix domain socket path for daemon<->greeter IPC
+path = "/run/bedm/bedm.sock"
+
+[log]
+# Log level: "error" | "warn" | "info" | "debug"
+level = "info"
