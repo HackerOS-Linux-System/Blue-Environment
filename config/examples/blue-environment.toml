@@ -1,0 +1,67 @@
+# Blue Environment — example user configuration
+# Place this at: ~/.config/blue-environment/config.toml
+
+[general]
+# Language code: en, pl, de, fr, es, ru, uk, cs
+language = "en"
+
+# Colour theme: "blue-dark" | "blue-light" | "blue-ocean" | custom CSS name
+theme = "blue-dark"
+
+# Accent colour (CSS hex)
+accent_color = "#3b82f6"
+
+[display]
+# Fractional scaling factor (1.0, 1.25, 1.5, 2.0)
+scale = 1.0
+
+# Night-light colour temperature in Kelvin (1000-6500)
+night_light_temperature = 3500
+
+# Night-light schedule: "manual" | "sunset"
+night_light_schedule = "manual"
+
+# Manual night-light window (24-h)
+night_light_start = 20.0
+night_light_end   = 7.0
+
+[panel]
+# Position: "top" | "bottom" | "left" | "right"
+position = "top"
+
+# Height/width in pixels
+size = 38
+
+# Opacity 0.0-1.0
+opacity = 0.92
+
+# Auto-hide the panel when a window is maximised
+auto_hide = false
+
+show_clock     = true
+show_tray      = true
+show_workspace = true
+
+[workspaces]
+# Number of virtual workspaces (1-10)
+count = 4
+
+[compositor]
+# DPMS screen-blank timeout in seconds (0 = never)
+dpms_timeout = 300
+
+# Cursor theme name and size
+cursor_theme = "Adwaita"
+cursor_size  = 24
+
+[wallpaper]
+# Absolute path to the wallpaper image
+# path = "/usr/share/Blue-Environment/wallpapers/default.png"
+path = ""
+
+[apps]
+# Map app roles to preferred application IDs.
+# Use AppId values from the shell (notepad, blue_code, blue_docs, etc.)
+text_editor = "blue_docs"
+terminal    = "terminal"
+file_manager = "exploler"
