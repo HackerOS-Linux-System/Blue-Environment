@@ -3,7 +3,7 @@ name = "bedm-greeter"
 version = "1.0.0"
 edition = "2021"
 description = "BEDM greeter — display manager UI (Tauri v2 + React)"
-authors = ["HackerOS Team <hackeros068@gmail.com>"]
+authors = ["LegendaryOS Team"]
 
 [[bin]]
 name = "bedm-greeter"
@@ -24,4 +24,6 @@ tracing-subscriber = "0.3"
 dirs        = "5.0"
 chrono      = "0.4"
 base64      = "0.21"
-hk-parser   = "0.3.0"
+toml        = "0.8"
+# Inherit workspace pin (time =0.3.36) — cookie 0.18 needs the 1-arg parse API
+time        = { workspace = true }
