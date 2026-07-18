@@ -1,40 +1,39 @@
 {
   "name": "blue-environment",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --config src/vite.config.ts",
-    "build": "tsc -p src/tsconfig.json --noEmit && vite build --config src/vite.config.ts",
+    "dev": "vite",
+    "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "build:tauri": "tauri build",
     "build:compositor": "cargo build --release --manifest-path compositor/Cargo.toml && mkdir -p ~/.legendaryos/Blue-Environment/libs/ && cp compositor/target/release/blue-compositor ~/.legendaryos/Blue-Environment/libs/",
     "build:all": "npm run build:compositor && npm run build:tauri && echo 'Full build OK'",
-    "preview": "vite preview --config src/vite.config.ts",
+    "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "tsc -p src/tsconfig.json --noEmit"
+    "lint": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@google/genai": "^1.17.0",
-    "@monaco-editor/react": "^4.6.0",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "lucide-react": "^0.563.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "lucide-svelte": "^0.460.0",
+    "monaco-editor": "^0.52.0",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "xterm-addon-web-links": "^0.9.0"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.1",
     "@tauri-apps/cli": "^2.5.0",
+    "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^20.11.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.5.0",
     "postcss": "^8.4.35",
+    "svelte": "^4.2.18",
+    "svelte-check": "^3.8.0",
     "tailwindcss": "^3.4.19",
+    "tslib": "^2.6.3",
     "typescript": "^5.5.3",
     "vite": "^5.3.1"
   }
