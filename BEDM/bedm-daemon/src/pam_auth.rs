@@ -1,9 +1,49 @@
-use tracing::warn;
+use sha2::{Sha256, Digest};
 
 /// Authenticate user against /etc/shadow using crypt(3).
 pub fn authenticate(username: &str, password: &str) -> Result<(), String> {
     check_account_status_ok(username)?;
     verify_shadow_password(username, password)
+}
+
+/// Pattern-lock authentication (Android-style 3x3 dot grid, encoded as the
+/// sequence of visited cell indices 0-8).
+///
+/// PAM has no native concept of a pattern, so — like fingerprint below —
+/// this is a BEDM-specific second factor: the pattern is hashed (SHA-256,
+/// salted with the username) and compared against
+/// `{home}/.config/Blue-Environment/pattern.hash`, which the user creates
+/// via Settings → Security in Blue Environment (not part of this daemon).
+/// If no pattern has been set up for that user, authentication fails closed
+/// (never silently falls back to "no pattern required").
+pub fn authenticate_pattern(username: &str, home: &str, pattern: &[u8]) -> Result<(), String> {
+    check_account_status_ok(username)?;
+
+    let hash_path = format!("{}/.config/Blue-Environment/pattern.hash", home);
+    let stored = std::fs::read_to_string(&hash_path)
+        .map_err(|_| "No pattern configured for this user — set one up in Settings → Security".to_string())?;
+    let stored = stored.trim();
+
+    if pattern.len() < 4 {
+        return Err("Pattern too short".to_string());
+    }
+
+    let computed = hash_pattern(username, pattern);
+    if computed == stored {
+        Ok(())
+    } else {
+        Err("Pattern not recognised".to_string())
+    }
+}
+
+/// Used by both BEDM (to verify) and Blue Environment Settings (to store,
+/// via the same algorithm) — keep in sync if this ever changes.
+pub fn hash_pattern(username: &str, pattern: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(username.as_bytes());
+    hasher.update(b":");
+    hasher.update(pattern);
+    format!("{:x}", hasher.finalize())
 }
 
 fn verify_shadow_password(username: &str, password: &str) -> Result<(), String> {
