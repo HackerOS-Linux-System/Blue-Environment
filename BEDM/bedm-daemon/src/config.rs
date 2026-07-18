@@ -1,4 +1,4 @@
-use hk_parser::{load_hk_file, parse_hk, resolve_interpolations, HkConfig};
+use serde::Deserialize;
 use std::fs;
 use tracing::warn;
 
@@ -15,6 +15,7 @@ pub struct BedmConfig {
     pub clock_format: Option<String>,
     pub show_user_list: Option<bool>,
     pub allow_root: Option<bool>,
+    pub allow_guest: Option<bool>,
     pub minimum_uid: Option<u32>,
     pub maximum_uid: Option<u32>,
     pub sessions_dir: Option<Vec<String>>,
@@ -43,6 +44,7 @@ impl Default for BedmConfig {
             clock_format: Some("%H:%M".to_string()),
             show_user_list: Some(true),
             allow_root: Some(false),
+            allow_guest: Some(false),
             minimum_uid: Some(1000),
             maximum_uid: Some(65533),
             sessions_dir: Some(vec![
@@ -65,144 +67,115 @@ impl Default for PowerConfig {
     }
 }
 
-// ── Helper: get string from HkConfig section ──────────────────────────────
+// ── Raw TOML shape ──────────────────────────────────────────────────────
+//
+// These structs mirror the on-disk TOML layout 1:1 (see
+// `default_config_content` below / config/BEDM/bedm.toml). Every field is
+// optional so that a partial config file is valid — anything left unset
+// falls back to `BedmConfig::default()` in `from_raw`.
 
-fn get_str(cfg: &HkConfig, section: &str, key: &str) -> Option<String> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    val.as_string().ok()
+#[derive(Debug, Default, Deserialize)]
+struct RawConfig {
+    #[serde(default)]
+    general: RawGeneral,
+    autologin: Option<RawAutologin>,
+    power: Option<RawPower>,
 }
 
-fn get_bool(cfg: &HkConfig, section: &str, key: &str) -> Option<bool> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    val.as_bool().ok()
+#[derive(Debug, Default, Deserialize)]
+struct RawGeneral {
+    greeter_path: Option<String>,
+    vt: Option<u8>,
+    session_timeout: Option<u64>,
+    theme: Option<String>,
+    background: Option<String>,
+    clock_format: Option<String>,
+    show_user_list: Option<bool>,
+    allow_root: Option<bool>,
+    allow_guest: Option<bool>,
+    maximum_uid: Option<u32>,
+    minimum_uid: Option<u32>,
+    sessions_dir: Option<Vec<String>>,
 }
 
-fn get_u8(cfg: &HkConfig, section: &str, key: &str) -> Option<u8> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    let n = val.as_number().ok()?;
-    Some(n as u8)
+#[derive(Debug, Default, Deserialize)]
+struct RawAutologin {
+    user: Option<String>,
+    session: Option<String>,
+    delay: Option<u64>,
 }
 
-fn get_u32(cfg: &HkConfig, section: &str, key: &str) -> Option<u32> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    let n = val.as_number().ok()?;
-    Some(n as u32)
+#[derive(Debug, Default, Deserialize)]
+struct RawPower {
+    shutdown: Option<String>,
+    reboot: Option<String>,
+    suspend: Option<String>,
+    hibernate: Option<String>,
 }
 
-fn get_u64(cfg: &HkConfig, section: &str, key: &str) -> Option<u64> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    let n = val.as_number().ok()?;
-    Some(n as u64)
-}
+fn from_raw(raw: RawConfig) -> BedmConfig {
+    let defaults = BedmConfig::default();
 
-fn get_str_array(cfg: &HkConfig, section: &str, key: &str) -> Option<Vec<String>> {
-    let sec = cfg.get(section)?;
-    let map = sec.as_map().ok()?;
-    let val = map.get(key)?;
-    let arr = val.as_array().ok()?;
-    let result: Vec<String> = arr.iter()
-        .filter_map(|v| v.as_string().ok())
-        .collect();
-    if result.is_empty() { None } else { Some(result) }
+    BedmConfig {
+        greeter_path: raw.general.greeter_path.or(defaults.greeter_path),
+        vt: raw.general.vt.or(defaults.vt),
+        autologin_user: raw.autologin.as_ref().and_then(|a| a.user.clone()),
+        autologin_session: raw.autologin.as_ref().and_then(|a| a.session.clone()),
+        autologin_delay: raw
+            .autologin
+            .as_ref()
+            .and_then(|a| a.delay)
+            .or(defaults.autologin_delay),
+        session_timeout: raw.general.session_timeout.or(defaults.session_timeout),
+        theme: raw.general.theme.or(defaults.theme),
+        background: raw.general.background,
+        clock_format: raw.general.clock_format.or(defaults.clock_format),
+        show_user_list: raw.general.show_user_list.or(defaults.show_user_list),
+        allow_root: raw.general.allow_root.or(defaults.allow_root),
+        allow_guest: raw.general.allow_guest.or(defaults.allow_guest),
+        minimum_uid: raw.general.minimum_uid.or(defaults.minimum_uid),
+        maximum_uid: raw.general.maximum_uid.or(defaults.maximum_uid),
+        sessions_dir: raw.general.sessions_dir.or(defaults.sessions_dir),
+        power: Some(PowerConfig {
+            shutdown: raw
+                .power
+                .as_ref()
+                .and_then(|p| p.shutdown.clone())
+                .or_else(|| defaults.power.as_ref().and_then(|p| p.shutdown.clone())),
+            reboot: raw
+                .power
+                .as_ref()
+                .and_then(|p| p.reboot.clone())
+                .or_else(|| defaults.power.as_ref().and_then(|p| p.reboot.clone())),
+            suspend: raw
+                .power
+                .as_ref()
+                .and_then(|p| p.suspend.clone())
+                .or_else(|| defaults.power.as_ref().and_then(|p| p.suspend.clone())),
+            hibernate: raw
+                .power
+                .as_ref()
+                .and_then(|p| p.hibernate.clone())
+                .or_else(|| defaults.power.as_ref().and_then(|p| p.hibernate.clone())),
+        }),
+    }
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
 pub fn load_config(path: &str) -> Result<BedmConfig, String> {
-    let mut cfg = load_hk_file(path)
-        .map_err(|e| format!("Cannot load {}: {}", path, e))?;
-
-    // Resolve ${...} interpolations including ${env:VAR}
-    resolve_interpolations(&mut cfg)
-        .map_err(|e| format!("Interpolation error in {}: {}", path, e))?;
-
-    Ok(hk_to_config(&cfg))
+    let content = fs::read_to_string(path).map_err(|e| format!("Cannot load {}: {}", path, e))?;
+    load_config_str(&content)
 }
 
 pub fn load_config_str(content: &str) -> Result<BedmConfig, String> {
-    let mut cfg = parse_hk(content)
-        .map_err(|e| format!("Parse error: {}", e))?;
-    resolve_interpolations(&mut cfg)
-        .map_err(|e| format!("Interpolation error: {}", e))?;
-    Ok(hk_to_config(&cfg))
-}
-
-fn hk_to_config(cfg: &HkConfig) -> BedmConfig {
-    let defaults = BedmConfig::default();
-
-    // [general] section
-    let greeter_path = get_str(cfg, "general", "greeter_path")
-        .or(defaults.greeter_path);
-    let vt = get_u8(cfg, "general", "vt")
-        .or(defaults.vt);
-    let session_timeout = get_u64(cfg, "general", "session_timeout")
-        .or(defaults.session_timeout);
-    let theme = get_str(cfg, "general", "theme")
-        .or(defaults.theme);
-    let background = get_str(cfg, "general", "background");
-    let clock_format = get_str(cfg, "general", "clock_format")
-        .or(defaults.clock_format);
-    let show_user_list = get_bool(cfg, "general", "show_user_list")
-        .or(defaults.show_user_list);
-    let allow_root = get_bool(cfg, "general", "allow_root")
-        .or(defaults.allow_root);
-    let minimum_uid = get_u32(cfg, "general", "minimum_uid")
-        .or(defaults.minimum_uid);
-    let maximum_uid = get_u32(cfg, "general", "maximum_uid")
-        .or(defaults.maximum_uid);
-    let sessions_dir = get_str_array(cfg, "general", "sessions_dir")
-        .or(defaults.sessions_dir);
-
-    // [autologin] section
-    let autologin_user = get_str(cfg, "autologin", "user");
-    let autologin_session = get_str(cfg, "autologin", "session");
-    let autologin_delay = get_u64(cfg, "autologin", "delay")
-        .or(defaults.autologin_delay);
-
-    // [power] section
-    let power = Some(PowerConfig {
-        shutdown: get_str(cfg, "power", "shutdown")
-            .or_else(|| defaults.power.as_ref().and_then(|p| p.shutdown.clone())),
-        reboot: get_str(cfg, "power", "reboot")
-            .or_else(|| defaults.power.as_ref().and_then(|p| p.reboot.clone())),
-        suspend: get_str(cfg, "power", "suspend")
-            .or_else(|| defaults.power.as_ref().and_then(|p| p.suspend.clone())),
-        hibernate: get_str(cfg, "power", "hibernate")
-            .or_else(|| defaults.power.as_ref().and_then(|p| p.hibernate.clone())),
-    });
-
-    BedmConfig {
-        greeter_path,
-        vt,
-        autologin_user,
-        autologin_session,
-        autologin_delay,
-        session_timeout,
-        theme,
-        background,
-        clock_format,
-        show_user_list,
-        allow_root,
-        minimum_uid,
-        maximum_uid,
-        sessions_dir,
-        power,
-    }
+    let raw: RawConfig = toml::from_str(content).map_err(|e| format!("TOML parse error: {}", e))?;
+    Ok(from_raw(raw))
 }
 
 pub fn ensure_default_config() {
     let config_dir = "/etc/bedm";
-    let config_path = "/etc/bedm/bedm.hk";
+    let config_path = "/etc/bedm/bedm.toml";
 
     if std::path::Path::new(config_path).exists() {
         return;
@@ -216,31 +189,32 @@ pub fn ensure_default_config() {
 }
 
 pub fn default_config_content() -> &'static str {
-    r#"! /etc/bedm/bedm.hk — BEDM Display Manager Configuration
-! Blue Environment Display Manager v1.0.0
-! Format: HackerOS .hk (github.com/HackerOS-Linux-System)
+    r#"# /etc/bedm/bedm.toml — BEDM Display Manager Configuration
+# Blue Environment Display Manager v1.0.0
+# Format: TOML
 
 [general]
--> greeter_path  => /usr/bin/bedm-greeter
--> vt            => 1
--> theme         => blue
--> show_user_list => true
--> allow_root    => false
--> minimum_uid   => 1000
--> maximum_uid   => 65533
--> clock_format  => %H:%M
--> sessions_dir  => ["/usr/share/wayland-sessions", "/usr/share/xsessions", "/usr/local/share/wayland-sessions"]
+greeter_path = "/usr/bin/bedm-greeter"
+vt = 1
+theme = "blue"
+show_user_list = true
+allow_root = false
+allow_guest = false
+minimum_uid = 1000
+maximum_uid = 65533
+clock_format = "%H:%M"
+sessions_dir = ["/usr/share/wayland-sessions", "/usr/share/xsessions", "/usr/local/share/wayland-sessions"]
 
-! Uncomment and set to enable autologin:
-! [autologin]
-! -> user    => username
-! -> session => blue-environment
-! -> delay   => 0
+# Uncomment and set to enable autologin:
+# [autologin]
+# user = "username"
+# session = "blue-environment"
+# delay = 0
 
 [power]
--> shutdown  => shutdown -h now
--> reboot    => reboot
--> suspend   => systemctl suspend
--> hibernate => systemctl hibernate
+shutdown = "shutdown -h now"
+reboot = "reboot"
+suspend = "systemctl suspend"
+hibernate = "systemctl hibernate"
 "#
 }
