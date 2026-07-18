@@ -12,6 +12,7 @@ pub use socket::{
     ipc_socket_path, Clients,
     broadcast_workspace_switch, broadcast_start_menu_toggle,
     broadcast_window_opened, broadcast_window_closed, broadcast_idle_changed,
+    broadcast_screen_locked,
 };
 #[allow(unused_imports)]
 pub use handler::handle_shell_message;
