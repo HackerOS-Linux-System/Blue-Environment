@@ -1,0 +1,53 @@
+# Blue Compositor — example configuration
+# Place this at: ~/.config/blue-environment/compositor.toml
+
+[input]
+# Keyboard layout (xkb)
+keyboard_layout  = "us"
+keyboard_variant = ""
+
+# Key repeat (ms)
+repeat_rate  = 30
+repeat_delay = 400
+
+# Pointer acceleration (libinput): "flat" | "adaptive"
+pointer_accel_profile = "adaptive"
+pointer_accel_speed   = 0.0
+
+# Natural scroll for touchpad
+natural_scroll = true
+
+# Tap-to-click
+tap_to_click = true
+
+[output]
+# Output-specific config — name must match connector name (xrandr/wlr-randr)
+# [[output.monitor]]
+# name         = "eDP-1"
+# width        = 1920
+# height       = 1080
+# refresh_rate = 60.0
+# scale        = 1.5
+# x            = 0
+# y            = 0
+
+[render]
+# Blur radius for transparent surfaces (0 = disabled)
+blur_radius = 8
+
+# Window corner radius in pixels
+corner_radius = 12
+
+# Shadow opacity 0.0-1.0
+shadow_opacity = 0.35
+
+[animations]
+# Enable window open/close/move animations
+enabled = true
+
+# Duration multiplier (1.0 = default, 0.5 = faster, 2.0 = slower)
+speed = 1.0
+
+[xwayland]
+# Enable XWayland for legacy X11 application support
+enabled = true
