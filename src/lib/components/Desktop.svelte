@@ -5,8 +5,8 @@
   import { dialogPrompt, dialogConfirm } from '../stores/dialog';
   import { openApp } from '../stores/windowManager';
   import { AppId } from '../types';
-  import FileIcon from './apps/explorer/FileIcon.svelte';
-  import type { FileEntry, Notif } from './apps/explorer/types';
+  import FileIcon from './apps/Explorer-App/FileIcon.svelte';
+  import type { FileEntry, Notif } from './apps/Explorer-App/types';
 
   export let desktopPath = 'HOME/Desktop';
 
