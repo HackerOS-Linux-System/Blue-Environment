@@ -1,14 +1,23 @@
 import { writable, get } from 'svelte/store';
 import { SystemBridge } from '../../../utils/systemBridge';
 import { clearLiveMode } from '../../../utils/liveMode';
-import type { InstallStep, InstallConfig, DiskInfo } from './types';
+import type { InstallStep, InstallConfig, DiskInfo, PartitionPlanEntry } from './types';
 
 function out(r: any): string { return typeof r === 'string' ? r : (r?.stdout ?? '') + (r?.stderr ?? ''); }
+
+/** Default two-partition layout, mirrored from blue-installer-apply.rb's hardcoded "erase" path. */
+export function defaultPartitionPlan(): PartitionPlanEntry[] {
+  return [
+    { id: 'p-esp', role: 'esp', filesystem: 'fat32', mountpoint: '/boot/efi', sizeMiB: 512 },
+    { id: 'p-root', role: 'root', filesystem: 'ext4', mountpoint: '/', sizeMiB: null },
+  ];
+}
 
 export function createInstallState() {
   const step = writable<InstallStep>('welcome');
   const config = writable<InstallConfig>({
     locale: 'en_US.UTF-8', keyboardLayout: 'us', disk: null, diskMode: 'erase',
+    partitions: defaultPartitionPlan(),
     hostname: 'blue-pc', username: '', fullName: '', password: '', autoLogin: false,
   });
 
@@ -47,6 +56,16 @@ export function createInstallState() {
     if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
     if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(0)} GB`;
     return `${(bytes / 1e6).toFixed(0)} MB`;
+  }
+
+  /** Basic sanity checks before allowing "Next": an ESP, a root mount, and only one "rest of disk" entry. */
+  function validatePartitionPlan(plan: PartitionPlanEntry[]): string | null {
+    if (!plan.some((p) => p.role === 'esp')) return 'A manual layout needs an EFI System Partition (ESP).';
+    if (!plan.some((p) => p.mountpoint === '/')) return 'A manual layout needs a partition mounted at /.';
+    const openEnded = plan.filter((p) => p.sizeMiB === null);
+    if (openEnded.length > 1) return 'Only one partition can use "remaining space".';
+    if (plan.some((p) => p.sizeMiB !== null && p.sizeMiB < 32)) return 'Partitions must be at least 32 MiB.';
+    return null;
   }
 
   function next() {
@@ -91,6 +110,12 @@ export function createInstallState() {
       `--username ${JSON.stringify(cfg.username)}`,
       `--fullname ${JSON.stringify(cfg.fullName || cfg.username)}`,
       cfg.autoLogin ? '--autologin' : '',
+      // Manual partitioning: hand the whole plan to the privileged backend as JSON.
+      // The default "erase" mode omits this and blue-installer-apply.rb falls back
+      // to its built-in two-partition (ESP + root) layout.
+      cfg.diskMode === 'manual' && cfg.partitions.length
+        ? `--partitions ${JSON.stringify(JSON.stringify(cfg.partitions))}`
+        : '',
     ].filter(Boolean).join(' ');
 
     try {
@@ -119,7 +144,7 @@ export function createInstallState() {
 
   return {
     step, config, disks, disksLoading, progressPct, progressLabel, installLog, installError,
-    loadDisks, next, back, startInstall, finishAndReboot,
+    loadDisks, next, back, startInstall, finishAndReboot, validatePartitionPlan,
   };
 }
 
