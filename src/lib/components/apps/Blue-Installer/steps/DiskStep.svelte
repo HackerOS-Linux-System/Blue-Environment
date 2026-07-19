@@ -2,11 +2,31 @@
   import { onMount } from 'svelte';
   import { HardDrive, AlertTriangle, Loader2, RefreshCw } from 'lucide-svelte';
   import type { InstallState } from '../installState';
+  import { defaultPartitionPlan } from '../installState';
+  import type { PartitionPlanEntry } from '../types';
+  import PartitionEditor from './PartitionEditor.svelte';
 
   export let state: InstallState;
-  const { config, disks, disksLoading } = state;
+  const { config, disks, disksLoading, validatePartitionPlan } = state;
 
   onMount(() => state.loadDisks());
+
+  function selectMode(mode: 'erase' | 'manual') {
+    config.update((c) => ({
+      ...c,
+      diskMode: mode,
+      partitions: mode === 'manual' && c.partitions.length === 0 ? defaultPartitionPlan() : c.partitions,
+    }));
+  }
+
+  // Named function instead of an inline typed arrow function in markup —
+  // Svelte parses template expressions as plain JS (acorn), so a parameter
+  // type annotation here (`(plan: PartitionPlanEntry[]) => ...`) is a parse
+  // error even inside a `<script lang="ts">` component. Same root cause as
+  // the `as` casts fixed earlier in PartitionEditor.svelte.
+  function handlePartitionsChange(plan: PartitionPlanEntry[]) {
+    config.update((c) => ({ ...c, partitions: plan }));
+  }
 </script>
 
 <div class="flex-1 flex flex-col px-10 py-8 overflow-y-auto">
@@ -42,17 +62,28 @@
     </div>
   {/if}
 
-  <div class="mt-6 max-w-xl">
+  <div class="mt-6 max-w-2xl">
     <div class="text-xs text-slate-500 mb-2">Partitioning mode</div>
     <div class="flex gap-2">
-      <button on:click={() => config.update((c) => ({ ...c, diskMode: 'erase' }))}
+      <button on:click={() => selectMode('erase')}
         class="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors {$config.diskMode === 'erase' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
         Erase disk (recommended)
       </button>
-      <button on:click={() => config.update((c) => ({ ...c, diskMode: 'manual' }))} disabled
-        class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 text-slate-600 cursor-not-allowed" title="Manual partition editor not yet implemented — see STATUS.md">
-        Manual partitioning (coming soon)
+      <button on:click={() => selectMode('manual')}
+        class="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors {$config.diskMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+        Manual partitioning
       </button>
     </div>
+
+    {#if $config.diskMode === 'manual' && $config.disk}
+      <PartitionEditor
+        partitions={$config.partitions}
+        diskSizeBytes={$config.disk.sizeBytes}
+        validate={validatePartitionPlan}
+        onChange={handlePartitionsChange}
+      />
+    {:else if $config.diskMode === 'manual'}
+      <p class="text-xs text-slate-500 mt-3">Select a disk above to edit its partition layout.</p>
+    {/if}
   </div>
 </div>
