@@ -1,6 +1,6 @@
 [package]
 name = "blue-environment"
-version = "0.6.0"
+version = "0.7.0"
 description = "Blue Environment Desktop Shell"
 authors = ["LegendaryOS Team <legendaryos.linux.system@gmail.com>"]
 edition = "2021"
@@ -30,7 +30,7 @@ tokio                          = { version = "1", features = ["full"] }
 tracing                        = "0.1"
 tracing-subscriber             = { version = "0.3", features = ["env-filter"] }
 dirs                           = "5.0"
-sha2                           = "0.10"
+blue-auth                      = { path = "../auth" }
 chrono                         = { version = "0.4", features = ["serde"] }
 urlencoding                    = "2"
 # Inherit workspace pin (time =0.3.36) — cookie 0.18 needs the 1-arg parse API
