@@ -1,0 +1,8 @@
+[package]
+name = "blue-auth"
+version = "0.7.0"
+edition = "2021"
+description = "Shared authentication primitives for Blue Environment: pattern-lock hashing and fingerprint (fprintd) status, used by both BEDM (bedm-daemon / bedm-greeter) and the main desktop session (src-tauri) so the on-disk format and hashing algorithm can never drift apart."
+
+[dependencies]
+sha2 = "0.10"
