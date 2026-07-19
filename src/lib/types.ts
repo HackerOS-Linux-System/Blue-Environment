@@ -109,6 +109,8 @@ export interface UserConfig {
   appsEnabled?: Record<string, boolean>;
   aiConfig?: AIConfig;
   accounts?: Record<string, any>;
+  /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
+  customBookmarks?: string[];
 }
 
 export interface ThemeDefinition {
