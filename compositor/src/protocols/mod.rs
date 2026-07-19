@@ -1,4 +1,5 @@
 pub mod idle;
+pub mod idle_inhibit;
 pub mod hotplug;
 pub mod decoration;
 pub mod cursor_shape;
