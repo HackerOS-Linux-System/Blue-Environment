@@ -20,23 +20,13 @@ use tracing::{error, info, warn};
 use crate::state::BlueState;
 
 // ── XWaylandShellHandler ──────────────────────────────────────────────────
-// BlueState doesn't have an xw_shell_state field; use xdg_shell_state as
-// backing (the XWayland shell piggybacks on the same Wayland state object).
-// In a production compositor you'd add `xwayland_shell_state: XWaylandShellState`
-// to BlueState; for now we do a no-op handler so the delegate macro compiles.
+// XWaylandShellState now lives directly on BlueState (see state/mod.rs) —
+// this used to reach for an unsafe transmute of `self` as a stopgap because
+// BlueState had nowhere to store it. That workaround is gone.
 
 impl XWaylandShellHandler for BlueState {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
-        // Safety: This is a workaround — in the real build you'd store
-        // XWaylandShellState inside BlueState. The transmute avoids that
-        // refactor while keeping the code compilable.
-        //
-        // TODO: add `pub xwayland_shell_state: XWaylandShellState` to BlueState
-        //       and remove this transmute.
-        #[allow(invalid_reference_casting)]
-        unsafe {
-            &mut *(self as *mut BlueState as *mut XWaylandShellState)
-        }
+        &mut self.xwayland_shell_state
     }
 }
 smithay::delegate_xwayland_shell!(BlueState);
@@ -58,15 +48,10 @@ pub fn init_xwayland(
         |_| {},
     )?;
 
-    // Store the X11 client temporarily until the Ready event arrives.
-    // BlueState doesn't yet have an x11_client field, so we park it in a
-    // thread-local until it's consumed inside the Ready handler below.
-    // TODO: add `pub x11_client: Option<wayland_server::Client>` to BlueState.
-    use std::cell::RefCell;
-    thread_local! {
-        static PENDING_X11_CLIENT: RefCell<Option<wayland_server::Client>> = RefCell::new(None);
-    }
-    PENDING_X11_CLIENT.with(|c| *c.borrow_mut() = Some(x11_client));
+    // Stash the X11 client on BlueState until XWaylandEvent::Ready arrives —
+    // previously parked in a thread_local! because BlueState had nowhere to
+    // put it; now it's a real field (see state/mod.rs).
+    state.x11_client = Some(x11_client);
 
     loop_handle.insert_source(xwayland, move |event, _, state| {
         match event {
@@ -75,8 +60,7 @@ pub fn init_xwayland(
                 state.x11_display = Some(display_number as u32);
                 std::env::set_var("DISPLAY", format!(":{}", display_number));
 
-                let client = PENDING_X11_CLIENT.with(|c| c.borrow_mut().take());
-                if let Some(client) = client {
+                if let Some(client) = state.x11_client.take() {
                     let dh = state.display_handle.clone();
                     match X11Wm::start_wm(state.loop_handle.clone(), &dh, x11_socket, client) {
                         Ok(xwm) => { state.xwm = Some(xwm); info!("X11 WM started"); }
@@ -88,6 +72,7 @@ pub fn init_xwayland(
                 warn!("XWayland exited");
                 state.xwm = None;
                 state.x11_display = None;
+                state.x11_client = None;
             }
         }
     }).map_err(|e| format!("insert XWayland source: {:?}", e))?;
