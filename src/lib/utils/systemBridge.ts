@@ -29,6 +29,8 @@ export interface UserConfig {
     accounts: Record<string, any>;
     aiConfig?: AIConfig;
     customThemes?: ThemeDefinition[];
+    /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
+    customBookmarks?: string[];
 }
 
 export interface PowerProfile {
