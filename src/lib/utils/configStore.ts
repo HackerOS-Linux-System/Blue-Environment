@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: UserConfig = {
         about: true,
     },
     accounts: {},
+    customBookmarks: [],
 };
 
 type Listener = (cfg: UserConfig) => void;
