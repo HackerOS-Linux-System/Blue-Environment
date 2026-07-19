@@ -12,8 +12,7 @@
 
   import DisplaySection from './sections/DisplaySection.svelte';
   import PersonalizationSection from './sections/PersonalizationSection.svelte';
-  import WifiSection from './sections/WifiSection.svelte';
-  import BluetoothSection from './sections/BluetoothSection.svelte';
+  import NetworkSection from './sections/NetworkSection.svelte';
   import PowerSection from './sections/PowerSection.svelte';
   import PanelSection from './sections/PanelSection.svelte';
   import LanguageSection from './sections/LanguageSection.svelte';
@@ -35,8 +34,7 @@
     { id: 'nightLight', label: 'Night Light', icon: Moon, group: 'Appearance' },
     { id: 'panel', label: 'Panel', icon: PanelTop, group: 'Appearance' },
     { id: 'language', label: 'Language', icon: Globe, group: 'Appearance' },
-    { id: 'wifi', label: 'Wi-Fi', icon: Wifi, group: 'Network' },
-    { id: 'bluetooth', label: 'Bluetooth', icon: Bluetooth, group: 'Network' },
+    { id: 'network', label: 'Network', icon: Wifi, group: 'Network' },
     { id: 'monitors', label: 'Monitors', icon: Monitor, group: 'Hardware' },
     { id: 'printers', label: 'Printers', icon: Printer, group: 'Hardware' },
     { id: 'power', label: 'Power', icon: BatteryCharging, group: 'Hardware' },
@@ -132,8 +130,7 @@
       {:else if activeTab === 'nightLight'}<NightLightSection {config} {onSave} />
       {:else if activeTab === 'panel'}<PanelSection {config} {onSave} />
       {:else if activeTab === 'language'}<LanguageSection />
-      {:else if activeTab === 'wifi'}<WifiSection />
-      {:else if activeTab === 'bluetooth'}<BluetoothSection />
+      {:else if activeTab === 'network'}<NetworkSection />
       {:else if activeTab === 'monitors'}<MonitorsSection />
       {:else if activeTab === 'printers'}<PrintersSection />
       {:else if activeTab === 'power'}<PowerSection />
