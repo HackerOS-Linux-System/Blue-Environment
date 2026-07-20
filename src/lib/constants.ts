@@ -1,6 +1,6 @@
 import {
   Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity,
-  FileText, FileCode, Package, Mail, Camera, Image, Video, Archive, ScanLine, Languages,
+  FileText, FileCode, Package, Mail, Camera, Image, Video, Archive, ScanLine, Languages, HardDrive,
 } from 'lucide-svelte';
 import type { AppDefinition } from './types';
 import { AppId } from './types';
@@ -24,6 +24,7 @@ import SettingsApp from './components/apps/Settings-App/SettingsApp.svelte';
 import BlueDocsApp from './components/apps/Blue-Docs-App/BlueDocsApp.svelte';
 import BlueCodeApp from './components/apps/Blue-Code-App/BlueCodeApp.svelte';
 import BlueTranslateApp from './components/apps/Blue-Translate/BlueTranslateApp.svelte';
+import BluePartitionManager from './components/apps/Blue-Partition-Manager/BluePartitionManager.svelte';
 
 export const WALLPAPER_URL = 'file:///usr/share/Blue-Environment/wallpapers/default.png';
 
@@ -58,4 +59,5 @@ export const APPS: Record<AppId, AppDefinition> = {
   [AppId.BLUE_ARCHIVE]: { id: AppId.BLUE_ARCHIVE, title: 'Blue Archive', icon: Archive, component: BlueArchiveApp, defaultWidth: 760, defaultHeight: 560 },
   [AppId.BLUE_TRANSLATE]: { id: AppId.BLUE_TRANSLATE, title: 'Translate', icon: Languages, component: BlueTranslateApp, defaultWidth: 760, defaultHeight: 520 },
   [AppId.BLUE_INSTALLER]: { id: AppId.BLUE_INSTALLER, title: 'Install Blue Environment', icon: Box, isExternal: true },
+  [AppId.BLUE_PARTITION_MANAGER]: { id: AppId.BLUE_PARTITION_MANAGER, title: 'Blue Partition Manager', icon: HardDrive, component: BluePartitionManager, defaultWidth: 820, defaultHeight: 600 },
 };
