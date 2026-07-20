@@ -6,6 +6,7 @@
   import WelcomeStep from './steps/WelcomeStep.svelte';
   import LanguageStep from './steps/LanguageStep.svelte';
   import KeyboardStep from './steps/KeyboardStep.svelte';
+  import TimezoneStep from './steps/TimezoneStep.svelte';
   import DiskStep from './steps/DiskStep.svelte';
   import AccountStep from './steps/AccountStep.svelte';
   import SummaryStep from './steps/SummaryStep.svelte';
@@ -16,9 +17,9 @@
   const state = createInstallState();
   const { step, config } = state;
 
-  const STEP_ORDER: InstallStep[] = ['welcome', 'language', 'keyboard', 'disk', 'account', 'summary'];
+  const STEP_ORDER: InstallStep[] = ['welcome', 'language', 'keyboard', 'timezone', 'disk', 'account', 'summary'];
   const STEP_LABELS: Record<string, string> = {
-    welcome: 'Welcome', language: 'Language', keyboard: 'Keyboard', disk: 'Disk', account: 'Account', summary: 'Summary',
+    welcome: 'Welcome', language: 'Language', keyboard: 'Keyboard', timezone: 'Timezone', disk: 'Disk', account: 'Account', summary: 'Summary',
   };
 
   $: currentIdx = STEP_ORDER.indexOf($step);
@@ -27,6 +28,7 @@
     $step === 'welcome' ? true :
     $step === 'language' ? true :
     $step === 'keyboard' ? true :
+    $step === 'timezone' ? true :
     $step === 'disk' ? !!$config.disk && ($config.diskMode === 'erase' || !state.validatePartitionPlan($config.partitions)) :
     $step === 'account' ? !!$config.username && !!$config.password : false;
 </script>
@@ -58,6 +60,7 @@
     {#if $step === 'welcome'}<WelcomeStep on:next={state.next} />
     {:else if $step === 'language'}<LanguageStep {state} />
     {:else if $step === 'keyboard'}<KeyboardStep {state} />
+    {:else if $step === 'timezone'}<TimezoneStep {state} />
     {:else if $step === 'disk'}<DiskStep {state} />
     {:else if $step === 'account'}<AccountStep {state} />
     {:else if $step === 'summary'}<SummaryStep {state} />
