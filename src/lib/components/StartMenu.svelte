@@ -42,6 +42,7 @@
     [AppId.BLUE_MUSIC]: ['Multimedia'], [AppId.BLUE_SCREEN]: ['System'],
     [AppId.BLUE_ARCHIVE]: ['Utility'], [AppId.MAIL]: ['Internet'],
     [AppId.BLUE_SOFTWARE]: ['System'], [AppId.CAMERA]: ['Graphics'],
+    [AppId.BLUE_PARTITION_MANAGER]: ['System'],
   };
 
   function getCategory(app: AnyApp): string {
