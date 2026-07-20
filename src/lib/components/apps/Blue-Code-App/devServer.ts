@@ -1,6 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { SystemBridge } from '../../../utils/systemBridge';
-import { tauriListen } from '../terminal/tauriBridge';
+import { tauriListen } from '../Terminal-App/tauriBridge';
 
 interface DevServerState {
   running: boolean; starting: boolean; command: string; port: number | null; log: string[]; url: string | null;
