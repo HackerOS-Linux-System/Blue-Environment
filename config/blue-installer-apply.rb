@@ -10,6 +10,7 @@
 require 'optparse'
 require 'fileutils'
 require 'io/console'
+require 'json'
 
 # Domyślne wartości
 options = {
@@ -17,10 +18,12 @@ options = {
   confirm_erase: nil,
   locale: 'en_US.UTF-8',
   keyboard: 'us',
+  timezone: 'UTC',
   hostname: 'blue-pc',
   username: nil,
   fullname: '',
-  autologin: false
+  autologin: false,
+  userdirs: nil
 }
 
 # Parsowanie argumentów CLI
@@ -29,10 +32,14 @@ OptionParser.new do |opts|
   opts.on('--confirm-erase DISK') { |v| options[:confirm_erase] = v }
   opts.on('--locale LOCALE') { |v| options[:locale] = v }
   opts.on('--keyboard KEYBOARD') { |v| options[:keyboard] = v }
+  opts.on('--timezone TIMEZONE') { |v| options[:timezone] = v }
   opts.on('--hostname HOSTNAME') { |v| options[:hostname] = v }
   opts.on('--username USERNAME') { |v| options[:username] = v }
   opts.on('--fullname FULLNAME') { |v| options[:fullname] = v }
   opts.on('--autologin') { options[:autologin] = true }
+  # JSON object of { desktop:, documents:, downloads:, music:, pictures:, videos:, templates:, public: }
+  # with localized folder names for the chosen language, e.g. Polish -> "Pobrane".
+  opts.on('--userdirs USERDIRS_JSON') { |v| options[:userdirs] = v }
 end.parse!
 
 def progress(percent, message)
@@ -170,8 +177,66 @@ unless run_cmd_silent("chroot \"#{target}\" localectl set-keymap \"#{options[:ke
   File.write("#{target}/etc/vconsole.conf", "KEYMAP=#{options[:keyboard]}\n")
 end
 
+progress(75, "Setting timezone")
+tz = options[:timezone]
+tz = 'UTC' if tz.nil? || tz.empty?
+unless run_cmd_silent("chroot \"#{target}\" timedatectl set-timezone \"#{tz}\"")
+  zoneinfo = "/usr/share/zoneinfo/#{tz}"
+  if File.exist?("#{target}#{zoneinfo}")
+    FileUtils.rm_f("#{target}/etc/localtime")
+    FileUtils.ln_s(zoneinfo, "#{target}/etc/localtime")
+    File.write("#{target}/etc/timezone", "#{tz}\n")
+  else
+    warn "Unknown timezone #{tz}, leaving system default"
+  end
+end
+
 progress(78, "Creating user account")
 run_cmd("chroot \"#{target}\" useradd -m -c \"#{options[:fullname]}\" -G wheel,audio,video,input \"#{options[:username]}\"")
+
+progress(79, "Creating personal folders")
+begin
+  userdirs = options[:userdirs] ? JSON.parse(options[:userdirs]) : nil
+rescue JSON::ParserError
+  userdirs = nil
+end
+# Fallback to English names if the frontend didn't send a translation for
+# this locale (or wasn't updated) — better a Downloads folder than none.
+userdirs ||= {
+  'desktop' => 'Desktop', 'documents' => 'Documents', 'downloads' => 'Downloads',
+  'music' => 'Music', 'pictures' => 'Pictures', 'videos' => 'Videos',
+  'templates' => 'Templates', 'public' => 'Public'
+}
+
+home_dir = "#{target}/home/#{options[:username]}"
+if Dir.exist?(home_dir)
+  dir_keys = %w[desktop documents downloads music pictures videos templates public]
+  dir_keys.each do |key|
+    name = userdirs[key]
+    next if name.nil? || name.empty?
+    FileUtils.mkdir_p(File.join(home_dir, name))
+  end
+
+  config_dir = File.join(home_dir, '.config')
+  FileUtils.mkdir_p(config_dir)
+  xdg_var = { 'desktop' => 'DESKTOP', 'documents' => 'DOCUMENTS', 'downloads' => 'DOWNLOAD',
+              'music' => 'MUSIC', 'pictures' => 'PICTURES', 'videos' => 'VIDEOS',
+              'templates' => 'TEMPLATES', 'public' => 'PUBLICSHARE' }
+  dirs_content = +"# This file is written by Blue Installer; xdg-user-dirs-update may overwrite it later.\n"
+  dir_keys.each do |key|
+    name = userdirs[key]
+    next if name.nil? || name.empty?
+    dirs_content << "XDG_#{xdg_var[key]}_DIR=\"$HOME/#{name}\"\n"
+  end
+  File.write(File.join(config_dir, 'user-dirs.dirs'), dirs_content)
+  File.write(File.join(config_dir, 'user-dirs.locale'), "#{options[:locale].split('.').first}\n")
+
+  # Everything just created is still owned by root (we're chrooted as root) —
+  # hand it all back to the new user so their desktop isn't read-only.
+  run_cmd_silent("chroot \"#{target}\" chown -R \"#{options[:username]}:#{options[:username]}\" \"/home/#{options[:username]}\"")
+else
+  warn "Home directory #{home_dir} was not created by useradd; skipping personal folders"
+end
 
 # Bezpieczne przekazanie hasła do chpasswd przez IO.popen
 IO.popen("chroot \"#{target}\" chpasswd", "w") do |io|
