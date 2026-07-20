@@ -17,13 +17,35 @@ pub struct FileEntry {
 
 fn mime_for_ext(ext: &str) -> &'static str {
     match ext {
-        "png"|"jpg"|"jpeg"|"gif"|"webp"|"svg"|"avif"|"bmp" => "image",
-        "mp4"|"mkv"|"webm"|"avi"|"mov"|"flv"|"wmv"         => "video",
-        "mp3"|"wav"|"ogg"|"flac"|"aac"|"opus"              => "audio",
+        "png"                                             => "image/png",
+        "jpg"|"jpeg"                                       => "image/jpeg",
+        "gif"                                               => "image/gif",
+        "webp"                                              => "image/webp",
+        "svg"                                               => "image/svg+xml",
+        "avif"                                              => "image/avif",
+        "bmp"                                               => "image/bmp",
+        "mp4"|"m4v"                                         => "video/mp4",
+        "mkv"                                               => "video/x-matroska",
+        "webm"                                              => "video/webm",
+        "avi"                                               => "video/x-msvideo",
+        "mov"                                               => "video/quicktime",
+        "flv"                                               => "video/x-flv",
+        "wmv"                                               => "video/x-ms-wmv",
+        "mp3"                                               => "audio/mpeg",
+        "wav"                                               => "audio/wav",
+        "ogg"                                               => "audio/ogg",
+        "flac"                                              => "audio/flac",
+        "aac"                                               => "audio/aac",
+        "opus"                                              => "audio/opus",
         "pdf"                                               => "application/pdf",
+        "json"                                              => "application/json",
+        "xml"                                               => "application/xml",
+        "zip"                                               => "application/zip",
+        "tar"                                               => "application/x-tar",
+        "gz"|"tgz"                                          => "application/gzip",
         "txt"|"md"|"rs"|"ts"|"js"|"tsx"|"jsx"|"py"|"rb"|
-        "go"|"toml"|"yaml"|"yml"|"json"|"xml"|"sh"|"css"|
-        "html"|"ini"|"conf"|"log"                           => "text",
+        "go"|"toml"|"yaml"|"yml"|"sh"|"css"|
+        "html"|"ini"|"conf"|"log"                           => "text/plain",
         _                                                   => "application/octet-stream",
     }
 }
@@ -50,38 +72,56 @@ pub fn resolve_path(path: &str) -> PathBuf {
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_files(path: String) -> Vec<FileEntry> {
+pub fn list_files(path: String) -> Result<Vec<FileEntry>, String> {
     let target = resolve_path(&path);
-    let mut entries = Vec::new();
-    if let Ok(rd) = fs::read_dir(&target) {
-        for entry in rd.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let is_dir = meta.is_dir();
-                let size = if is_dir { "DIR".to_string() } else {
-                    format!("{:.1} KB", meta.len() as f64 / 1024.0)
-                };
-                let ext = entry.path().extension()
-                    .map(|e| e.to_string_lossy().to_lowercase())
-                    .unwrap_or_default();
-                let mime_type = if is_dir { "inode/directory".to_string() } else { mime_for_ext(&ext).to_string() };
-                let modified = meta.modified().ok().map(|t| {
-                    chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d %H:%M").to_string()
-                });
-                entries.push(FileEntry {
-                    name,
-                    path: entry.path().to_string_lossy().to_string(),
-                    is_dir, size, mime_type, modified,
-                });
-            }
-        }
+
+    // Distinguish "genuinely empty folder" from "couldn't be read" — a bare
+    // empty Vec looked identical to a real error in the UI, which made the
+    // whole Explorer main pane appear permanently blank (only the static
+    // Places sidebar was ever visible) whenever a folder didn't exist yet
+    // or wasn't readable.
+    if !target.exists() {
+        return Err(format!("Path does not exist: {}", target.display()));
     }
+    if !target.is_dir() {
+        return Err(format!("Not a directory: {}", target.display()));
+    }
+
+    let rd = fs::read_dir(&target)
+        .map_err(|e| format!("Cannot read {}: {}", target.display(), e))?;
+
+    let mut entries = Vec::new();
+    for res in rd {
+        // Skip individual entries that fail to stat (e.g. broken symlinks)
+        // instead of dropping the whole listing.
+        let entry = match res { Ok(e) => e, Err(_) => continue };
+        let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = meta.is_dir();
+        let size = if is_dir { "DIR".to_string() } else {
+            format!("{:.1} KB", meta.len() as f64 / 1024.0)
+        };
+        let ext = entry.path().extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let mime_type = if is_dir { "inode/directory".to_string() } else { mime_for_ext(&ext).to_string() };
+        let modified = meta.modified().ok().map(|t| {
+            chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d %H:%M").to_string()
+        });
+        entries.push(FileEntry {
+            name,
+            path: entry.path().to_string_lossy().to_string(),
+            is_dir, size, mime_type, modified,
+        });
+    }
+
     entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
         _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
-    entries
+    Ok(entries)
 }
 
 #[tauri::command]
