@@ -20,6 +20,7 @@ export enum AppId {
   BLUE_ARCHIVE = 'blue_archive',
   BLUE_TRANSLATE = 'blue_translate',
   BLUE_INSTALLER = 'blue_installer',
+  BLUE_PARTITION_MANAGER = 'blue_partition_manager',
   CAMERA = 'camera',
   EXTERNAL = 'external',
 }
@@ -111,6 +112,11 @@ export interface UserConfig {
   accounts?: Record<string, any>;
   /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
   customBookmarks?: string[];
+  weatherEnabled?: boolean;
+  weatherCity?: string;
+  weatherUnit?: 'celsius' | 'fahrenheit';
+  clipboardHoverPreviewEnabled?: boolean;
+  networkHoverInfoEnabled?: boolean;
 }
 
 export interface ThemeDefinition {
