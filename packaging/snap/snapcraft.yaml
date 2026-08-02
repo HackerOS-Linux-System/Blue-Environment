@@ -1,0 +1,39 @@
+name: blue-environment
+version: '@VERSION@'
+summary: Blue Environment Wayland desktop shell
+description: |
+  Blue Environment — production Wayland desktop shell built with Smithay,
+  Tauri and Svelte.
+
+  Packaged as a snap for distros without a native package (deb/rpm/pkg)
+  target, or for users who prefer snap's confinement/update model. Given
+  this ships a full compositor (needs DRM/KMS/input device access) rather
+  than a sandboxed desktop app, it is only realistically usable with
+  `confinement: classic` — strict confinement would need a dedicated
+  wayland-compositor snap interface with DRM/seat plugs that isn't fully
+  mainlined for this class of app yet. Classic confinement snaps require
+  manual review/allow-listing by the Snap Store, so this manifest is a
+  starting point for that submission rather than a drop-in "snapcraft
+  pack && publish" today.
+base: core22
+confinement: classic
+grade: stable
+
+apps:
+  blue-environment:
+    command: usr/share/Blue-Environment/blue-environment
+  blue-compositor:
+    command: usr/share/Blue-Environment/lib/blue-compositor
+
+parts:
+  blue-environment:
+    plugin: dump
+    source: .
+    organize:
+      blue-environment: usr/share/Blue-Environment/blue-environment
+      blue-compositor: usr/share/Blue-Environment/lib/blue-compositor
+      blue: usr/bin/blue
+    stage-packages:
+      - libseat1
+      - libwayland-egl1
+      - xwayland
