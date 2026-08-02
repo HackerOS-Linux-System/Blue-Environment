@@ -1,0 +1,134 @@
+name: Test
+
+# Runs on every push/PR. This is deliberately the *fast* workflow: type
+# checking, linting, `cargo check`/`clippy`, and unit tests only — no full
+# release builds and no packaging. See build.yml for the exhaustive
+# per-target build/package matrix, which is much slower and only makes
+# sense to run less aggressively (see its own triggers).
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep CI reasonably fast/cheap; bump if a job needs more.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  frontend:
+    name: Frontend — typecheck & lint (Svelte/TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: npm ci
+        run: npm ci
+
+      - name: svelte-check (typecheck)
+        run: npm run lint
+
+      - name: vite build (frontend only, no Tauri binary)
+        run: npm run build -- --mode production
+        env:
+          # vite build without the Tauri backend doesn't need real
+          # secrets/config; this just verifies the bundle compiles.
+          VITE_CI: '1'
+
+  compositor-check:
+    name: Compositor — cargo check + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev libudev-dev libinput-dev \
+            libgbm-dev libdrm-dev libseat-dev libegl1-mesa-dev \
+            libgles2-mesa-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compositor -> target
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path compositor/Cargo.toml -- --check
+        continue-on-error: true # style-only, shouldn't block CI on its own
+
+      - name: cargo check
+        run: cargo check --manifest-path compositor/Cargo.toml --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path compositor/Cargo.toml --all-targets -- -D warnings
+        continue-on-error: true # tighten to blocking once the existing warning backlog is cleared
+
+      - name: cargo test
+        run: cargo test --manifest-path compositor/Cargo.toml
+
+  shell-backend-check:
+    name: Shell backend (src-tauri) — cargo check + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Tauri v2 Linux build deps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config libudev-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  blue-lock-check:
+    name: blue-lock — cargo check (if present)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether blue-lock exists yet
+        id: probe
+        run: |
+          if [ -f "blue-lock/Cargo.toml" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libpam0g-dev
+
+      - name: Install Rust toolchain
+        if: steps.probe.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo check
+        if: steps.probe.outputs.present == 'true'
+        run: cargo check --manifest-path blue-lock/Cargo.toml --all-targets
