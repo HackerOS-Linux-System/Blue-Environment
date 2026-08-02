@@ -1,0 +1,34 @@
+# Template file for 'blue-environment' — Void Linux (xbps-src)
+#
+# Like the Gentoo ebuild in this directory, this is a binary-package
+# template: it stages prebuilt release artifacts rather than building
+# from source inside void-packages' bootstrapped xbps-src masterdir,
+# since vendoring the full smithay/tauri/npm dependency graph for an
+# offline, from-scratch xbps-src build is a larger effort tracked
+# separately (see ROADMAP.md).
+pkgname=blue-environment
+version=@VERSION@
+revision=1
+archs="x86_64 aarch64"
+build_style=meta
+short_desc="Blue Environment Wayland desktop shell (Smithay + Tauri + Svelte)"
+maintainer="LegendaryOS Team <legendaryos.linux.system@gmail.com>"
+license="GPL-3.0-only"
+homepage="https://github.com/HackerOS-Linux-System/Blue-Environment"
+distfiles="https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v${version}/blue-environment-${version}-${XBPS_TARGET_MACHINE}.tar.gz"
+checksum=REPLACE_WITH_SHA256_OF_RELEASE_TARBALL
+
+depends="ruby MesaLib libseat wayland xwayland"
+
+do_install() {
+	vmkdir usr/share/Blue-Environment/lib
+	vinstall blue-environment 755 usr/share/Blue-Environment
+	vinstall blue-compositor 755 usr/share/Blue-Environment/lib
+	vbin blue
+	vmkdir usr/share/wayland-sessions
+	vmkdir usr/share/applications
+	echo -e "[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/lib/blue-compositor\nType=Application\nDesktopNames=Blue" \
+		> ${DESTDIR}/usr/share/wayland-sessions/blue-environment.desktop
+	echo -e "[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/blue-environment\nIcon=/usr/share/Blue-Environment/icon.png\nType=Application\nCategories=System;" \
+		> ${DESTDIR}/usr/share/applications/blue-environment.desktop
+}
