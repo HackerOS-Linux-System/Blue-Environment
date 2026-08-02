@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: LegendaryOS Team <legendaryos.linux.system@gmail.com>
 Build-Depends: debhelper-compat (= 13), cargo, nodejs (>= 18), npm
 Standards-Version: 4.6.2
-Homepage: https://github.com/HackerOS-Linux-System/Blue-Environment
+Homepage: https://github.com/LegendaryOS-Linux-System/Blue-Environment
 
 Package: blue-environment
 Architecture: amd64 arm64
