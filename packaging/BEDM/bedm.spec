@@ -51,5 +51,5 @@ make install DESTDIR=%{buildroot}
 %dir %{_localstatedir}/log/bedm
 
 %changelog
-* 2026 HackerOS Team <hackeros068@gmail.com> - 1.0.0-1
+* 2026 LegendaryOS Team <legendaryos.linux.system@gmail.com> - 1.0.0-1
 - Initial release
