@@ -1,0 +1,304 @@
+name: Build (all targets)
+
+# Full release/packaging matrix. This is intentionally heavier than
+# test.yml (it builds the compositor + Tauri shell in release mode,
+# multiple times, across architectures and distro package formats) so it
+# only runs on demand, on tags, and nightly — not on every push/PR.
+#
+# Coverage:
+#   - Architectures: x86_64 and aarch64 (native runners for both — GitHub
+#     now provides `ubuntu-24.04-arm`, so this avoids the correctness
+#     risk of cross-compiling Tauri's webkit2gtk dependency).
+#   - Package formats: .deb (Debian/Ubuntu), .rpm (Fedora + LegendaryOS +
+#     openSUSE specs), Arch .pkg.tar.zst, Alpine .apk, a generic portable
+#     tarball (works on anything with the right shared libs — this is
+#     what the Gentoo ebuild / Void template / Nix flake in packaging/
+#     currently consume as their SRC_URI), and a Nix flake build.
+#   - Best-effort/manual-step formats (Flatpak, Snap, Gentoo ebuild, Void
+#     xbps-src) are NOT fully automated here — see the `community-formats`
+#     job for why, and ROADMAP.md for what full automation would need.
+on:
+  push:
+    tags: ['v*']
+  schedule:
+    - cron: '17 3 * * *' # nightly
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to build (branch/tag/sha)'
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Shared release binaries — built once per architecture, reused by every
+  # packaging job below via upload-artifact/download-artifact so we don't
+  # rebuild the same cargo/npm output N times for N package formats.
+  # ──────────────────────────────────────────────────────────────────────
+  build-binaries:
+    name: Build binaries (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev libudev-dev libinput-dev \
+            libgbm-dev libdrm-dev libseat-dev libegl1-mesa-dev libgles2-mesa-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config ruby rpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            compositor -> target
+            src-tauri -> target
+          key: ${{ matrix.arch }}
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Build everything (frontend + shell + compositor)
+        run: ruby build.rb all
+
+      - name: Stage a generic portable tarball
+        run: |
+          set -e
+          stage=dist/blue-environment-${{ matrix.arch }}
+          mkdir -p "$stage/lib"
+          cp target/release/blue-environment "$stage/"
+          cp compositor/target/release/blue-compositor "$stage/lib/"
+          cp blue "$stage/"
+          cp images/icon.png "$stage/icon.png" 2>/dev/null || true
+          tar -C dist -czf "dist/blue-environment-${{ matrix.arch }}.tar.gz" "blue-environment-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: |
+            target/release/blue-environment
+            compositor/target/release/blue-compositor
+            blue
+            dist/blue-environment-${{ matrix.arch }}.tar.gz
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────
+  # .deb — Debian / Ubuntu
+  # ──────────────────────────────────────────────────────────────────────
+  package-deb:
+    name: Package .deb (${{ matrix.arch }})
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: binaries-${{ matrix.arch }} }
+      - run: chmod +x blue-environment compositor/target/release/blue-compositor blue || true
+      - name: Restore binary layout expected by build.rb
+        run: |
+          mkdir -p target/release compositor/target/release
+          mv blue-environment target/release/ 2>/dev/null || true
+          mv blue-compositor compositor/target/release/ 2>/dev/null || true
+      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev ruby
+      - run: ruby build.rb packages deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: dist/*.deb
+
+  # ──────────────────────────────────────────────────────────────────────
+  # .rpm — Fedora + LegendaryOS
+  # ──────────────────────────────────────────────────────────────────────
+  package-rpm-fedora:
+    name: Package .rpm (Fedora, ${{ matrix.arch }})
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: fedora:latest
+    steps:
+      - run: dnf install -y git ruby rpm-build tar which
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: binaries-${{ matrix.arch }} }
+      - run: |
+          mkdir -p target/release compositor/target/release
+          mv blue-environment target/release/ 2>/dev/null || true
+          mv blue-compositor compositor/target/release/ 2>/dev/null || true
+          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
+      - run: ruby build.rb packages rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-fedora-${{ matrix.arch }}
+          path: rpmbuild/**/RPMS/**/*.rpm
+
+  package-rpm-opensuse:
+    name: Package .rpm (openSUSE, ${{ matrix.arch }})
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: opensuse/tumbleweed:latest
+    steps:
+      - run: zypper --non-interactive install git ruby rpm-build tar
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: binaries-${{ matrix.arch }} }
+      - run: |
+          mkdir -p target/release compositor/target/release
+          mv blue-environment target/release/ 2>/dev/null || true
+          mv blue-compositor compositor/target/release/ 2>/dev/null || true
+          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
+      - run: ruby build.rb packages opensuse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-opensuse-${{ matrix.arch }}
+          path: rpmbuild/opensuse/RPMS/**/*.rpm
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Arch Linux .pkg.tar.zst
+  # ──────────────────────────────────────────────────────────────────────
+  package-arch:
+    name: Package Arch (${{ matrix.arch }})
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: archlinux:latest
+    steps:
+      - run: pacman -Syu --noconfirm git ruby base-devel
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: binaries-${{ matrix.arch }} }
+      - run: |
+          mkdir -p target/release compositor/target/release
+          mv blue-environment target/release/ 2>/dev/null || true
+          mv blue-compositor compositor/target/release/ 2>/dev/null || true
+          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
+          # makepkg refuses to run as root — Arch containers default to root.
+          useradd -m builder && chown -R builder:builder .
+      - run: su builder -c "ruby build.rb packages arch"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-${{ matrix.arch }}
+          path: build/arch/*.pkg.tar.zst
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Alpine .apk
+  # ──────────────────────────────────────────────────────────────────────
+  package-alpine:
+    name: Package Alpine .apk (${{ matrix.arch }})
+    needs: build-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: alpine:latest
+    steps:
+      - run: apk add --no-cache git ruby alpine-sdk sudo
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: binaries-${{ matrix.arch }} }
+      - run: |
+          mkdir -p target/release compositor/target/release
+          mv blue-environment target/release/ 2>/dev/null || true
+          mv blue-compositor compositor/target/release/ 2>/dev/null || true
+          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
+          adduser -D builder && addgroup builder abuild
+          chown -R builder:builder .
+      - run: su builder -c "abuild-keygen -a -i -n && ruby build.rb packages apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alpine-${{ matrix.arch }}
+          path: /home/builder/packages/**/*.apk
+        continue-on-error: true # abuild's output path can vary by abuild.conf; best-effort upload
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Nix flake — build-checks the derivation (not a full binary build,
+  # since that needs a real release tarball + correct sha256 pin; see the
+  # comment in packaging/nix/flake.nix).
+  # ──────────────────────────────────────────────────────────────────────
+  check-nix-flake:
+    name: Check Nix flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: nix flake check (syntax/eval only)
+        run: nix flake check packaging/nix --no-build
+        continue-on-error: true # the fetchurl sha256 is a placeholder until a real release exists
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Formats that aren't (yet) fully wired into CI — listed explicitly so
+  # "which targets are covered" is answerable by reading this file, per
+  # ROADMAP.md. These are template-only: Flatpak needs Flathub/Flatpak
+  # Builder submission review, Snap classic-confinement needs Snap Store
+  # manual review, and Gentoo/Void both expect submission to their
+  # respective community package trees (ebuild/xbps-src PRs) rather than
+  # a self-hosted CI artifact.
+  # ──────────────────────────────────────────────────────────────────────
+  community-formats:
+    name: Community-submitted formats (info only)
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Not built in CI — require manual submission to community package trees / store review:"
+          echo "  - Flatpak:      packaging/flatpak/io.blueenvironment.Shell.yaml (submit to Flathub)"
+          echo "  - Snap:         packaging/snap/snapcraft.yaml (classic confinement needs Snap Store review)"
+          echo "  - Gentoo:       packaging/gentoo/blue-environment-9999.ebuild (submit to a GURU/overlay PR)"
+          echo "  - Void Linux:   packaging/void/template (submit to void-packages PR)"
+          echo "See ROADMAP.md for what full automation of these would require."
+
+  release:
+    name: Attach artifacts to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-binaries, package-deb, package-rpm-fedora, package-rpm-opensuse, package-arch, package-alpine]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name '*.apk' -o -name '*.tar.gz' \) \
+            -exec cp {} out/ \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
