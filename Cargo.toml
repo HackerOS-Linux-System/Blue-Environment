@@ -2,10 +2,7 @@
 resolver = "2"
 members = [
     "src-tauri",
-    "compositor",
     "auth",
-    "BEDM/bedm-daemon",
-    "BEDM/bedm-greeter",
 ]
 
 # ── Dependency overrides ────────────────────────────────────────────────────
