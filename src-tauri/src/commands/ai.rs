@@ -1,10 +1,6 @@
-use crate::types::*;
-use crate::{apps, cache, ai, packages, window_tracker};
+use crate::{ai};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
-use tokio::process::Command as TokioCommand;
-use serde::{Serialize, Deserialize};
 
 #[tauri::command]
 pub async fn ai_call(request: ai::AICallRequest) -> Result<String, String> {
@@ -21,4 +17,14 @@ pub async fn get_ai_config() -> Result<Option<ai::AIConfig>, String> {
 pub async fn save_ai_config(config: ai::AIConfig) -> Result<(), String> {
     let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/ai_config.json");
     fs::write(path, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn check_ollama_status() -> ai::OllamaStatus {
+    ai::check_ollama_status().await
+}
+
+#[tauri::command]
+pub async fn install_ollama(app: tauri::AppHandle) {
+    ai::install_ollama(app).await
 }
