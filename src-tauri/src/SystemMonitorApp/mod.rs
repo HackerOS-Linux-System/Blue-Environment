@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
@@ -240,7 +240,6 @@ pub fn get_mem_info() -> MemInfo {
 
 pub fn get_disks() -> Vec<DiskEntry> {
     let df_out = sh("df -B1 --output=source,fstype,size,used,avail,target 2>/dev/null | tail -n +2");
-    let mounts_text = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
 
     df_out.lines()
         .filter(|l| {
