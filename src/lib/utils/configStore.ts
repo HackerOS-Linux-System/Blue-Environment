@@ -9,7 +9,7 @@ const DEFAULT_CONFIG: UserConfig = {
     displayScale: 1,
     desktopPath: 'HOME/Desktop',
     panelEnabled: true,
-    panelPosition: 'bottom',
+    panelPosition: 'top',
     panelSize: 40,
     panelOpacity: 0.9,
     language: 'en',
