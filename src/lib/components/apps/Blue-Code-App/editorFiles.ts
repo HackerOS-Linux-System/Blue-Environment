@@ -119,13 +119,36 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
   );
   const errors = derived(fileDiagnostics, ($d) => $d.filter((d) => d.severity === 'error').length);
   const warnings = derived(fileDiagnostics, ($d) => $d.filter((d) => d.severity === 'warning').length);
+  // Workspace-wide totals (every linted-and-still-open file, not just the
+  // active tab) — feeds the new Problems panel and its sidebar-tab badge.
+  // `errors`/`warnings` above stay active-file-only since that's what the
+  // status bar has always shown and other code already depends on that.
+  const totalErrors = derived(diagnostics, ($d) => $d.filter((d) => d.severity === 'error').length);
+  const totalWarnings = derived(diagnostics, ($d) => $d.filter((d) => d.severity === 'warning').length);
+
+  /** Line to scroll the editor to once the target file becomes active —
+   * set by openFileAtLine, consumed by BlueCodeApp.svelte's `{#key
+   * $activeIdx}` block via monacoEditorRef.revealLineInCenter(). A plain
+   * store rather than a function-with-callback because the editor
+   * instance for the target file doesn't exist yet at the moment
+   * openFileAtLine runs (Monaco mounts async, after the {#key} block
+   * re-renders) — the consumer has to be able to pick this up slightly
+   * later, not synchronously. */
+  const revealLine = writable<number | null>(null);
+
+  /** Used by the Problems panel: open the file the diagnostic is in (if
+   * not already open) and scroll to its line. */
+  async function openFileAtLine(path: string, line: number) {
+    await openFile(path);
+    revealLine.set(line);
+  }
 
   return {
     openFiles, activeIdx, activeFile,
-    diagnostics, fileDiagnostics, errors, warnings,
+    diagnostics, fileDiagnostics, errors, warnings, totalErrors, totalWarnings, revealLine,
     lspStatus, editorTheme, fontSize, cursorPos,
     setMonacoRefs, setCursorPos: (p: { line: number; col: number }) => cursorPos.set(p),
-    openFile, closeFile, saveFile, saveAll, runLint, renameOpenFile, handleEditorChange,
+    openFile, openFileAtLine, closeFile, saveFile, saveAll, runLint, renameOpenFile, handleEditorChange,
   };
 }
 
