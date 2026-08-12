@@ -1,10 +1,4 @@
-use crate::types::*;
-use crate::{apps, cache, ai, packages, window_tracker};
-use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
-use tokio::process::Command as TokioCommand;
-use serde::{Serialize, Deserialize};
+use crate::{ai, packages};
 
 #[tauri::command]
 pub async fn get_dnf_packages() -> Vec<ai::PackageInfo> {
@@ -123,4 +117,9 @@ pub async fn bootc_upgrade() -> bool {
 #[tauri::command]
 pub async fn bootc_switch_image(image: String) -> bool {
     tokio::task::spawn_blocking(move || packages::bootc_switch(&image)).await.unwrap_or(false)
+}
+
+#[tauri::command]
+pub async fn rpm_ostree_upgrade() -> bool {
+    tokio::task::spawn_blocking(packages::rpm_ostree_upgrade).await.unwrap_or(false)
 }
