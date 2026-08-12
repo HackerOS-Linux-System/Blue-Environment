@@ -14,7 +14,17 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri                          = { version = "2", features = ["protocol-asset", "image-png", "devtools"] }
+tauri                          = { version = "2", features = [
+    "protocol-asset", "image-png", "devtools",
+    # Needed for Window::add_child (embedding a real child webview inside
+    # the shell's single window) — see BlueWebApp/mod.rs's module doc for
+    # why: Blue Web used to only ever spawn a separate top-level OS
+    # window per URL, never actually render pages inline. `unstable` is
+    # tauri's own name for this feature (checked its Cargo.toml directly:
+    # `unstable = ["tauri-runtime-wry?/unstable"]`), not a comment on how
+    # finished the API itself is.
+    "unstable",
+] }
 tauri-plugin-fs                = "2"
 tauri-plugin-shell             = "2"
 tauri-plugin-dialog            = "2"
@@ -29,7 +39,15 @@ serde_json                     = "1"
 tokio                          = { version = "1", features = ["full"] }
 tracing                        = "0.1"
 tracing-subscriber             = { version = "0.3", features = ["env-filter"] }
+# Added alongside the new src/logging.rs — `tracing`/`tracing-subscriber`
+# were already dependencies (used in a couple of places, e.g.
+# BlueDocs/mod.rs's `tracing::info!`) but no subscriber was ever
+# installed anywhere, so every one of those calls was silently going
+# nowhere. `tracing-appender` gives the non-blocking file writer, same
+# crate the compositor already uses for its own logging.
+tracing-appender               = "0.2"
 dirs                           = "5.0"
+sha2                           = "0.10"
 blue-auth                      = { path = "../auth" }
 chrono                         = { version = "0.4", features = ["serde"] }
 urlencoding                    = "2"
