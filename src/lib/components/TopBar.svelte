@@ -4,10 +4,12 @@
   import { APPS } from '../constants';
   import {
     Search, Wifi, Bell, Command, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
-    Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X,
+    Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
+  import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
+  import { t } from '../stores/language';
   import { createEventDispatcher } from 'svelte';
 
   export let openWindows: { id: string; appId: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
@@ -15,6 +17,8 @@
   export let workspaceCount = 4;
   export let isStartMenuOpen = false;
   export let isClipboardOpen = false;
+  export let enabled = true;
+  export let position: 'top' | 'bottom' = 'top';
 
   const dispatch = createEventDispatcher<{
     openApp: string;
@@ -26,6 +30,16 @@
     switchWorkspace: number;
     toggleClipboard: void;
   }>();
+
+  // --- IME candidate window indicator --------------------------------------
+  // See CompositorBridge.onImeCandidateWindow / protocols/input_method.rs on
+  // the compositor side. Purely a status dot — the candidate list itself is
+  // always the IME's own composited surface, never drawn here.
+  let imeActive = false;
+  // `onImeCandidateWindow` resolves via Tauri's async event API, so the
+  // real unlisten fn only exists once that promise settles — same pattern
+  // as MonitorsSection.svelte's onHdrStateChanged.
+  let unsubImePromise: Promise<() => void> | undefined;
 
   // --- Weather ------------------------------------------------------------
   interface WeatherData {
@@ -60,54 +74,30 @@
     return `${Math.round(v)}°${unit === 'fahrenheit' ? 'F' : 'C'}`;
   }
 
+  let weatherLastError: string | null = null;
+
   async function fetchWeather(): Promise<WeatherData | null> {
     try {
-      let latitude: number | undefined;
-      let longitude: number | undefined;
-      let city = 'Unknown';
-
-      if (weatherCityOverride) {
-        // Manual city override — geocode it first.
-        const geoRes = await fetch(
-          `https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(weatherCityOverride)}`,
-          { signal: AbortSignal.timeout(4000) },
-        );
-        const geo = await geoRes.json();
-        const hit = geo?.results?.[0];
-        if (!hit) return null;
-        latitude = hit.latitude; longitude = hit.longitude; city = hit.name;
-      } else {
-        const geoRes = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) });
-        const geo = await geoRes.json();
-        latitude = geo.latitude; longitude = geo.longitude; city = geo.city ?? 'Unknown';
-      }
-      if (!latitude || !longitude) return null;
-
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-        `&current_weather=true&hourly=relativehumidity_2m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
-      const wxRes = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      const wx = await wxRes.json();
-      if (!wx.current_weather) return null;
-
-      const nowHour = new Date().getHours();
-      const humidity: number | null = Array.isArray(wx?.hourly?.relativehumidity_2m)
-        ? wx.hourly.relativehumidity_2m[nowHour] ?? null : null;
-      const high = wx?.daily?.temperature_2m_max?.[0];
-      const low = wx?.daily?.temperature_2m_min?.[0];
-
-      const tempRaw = wx.current_weather.temperature;
+      const r = await SystemBridge.getWeather(weatherCityOverride || undefined);
+      weatherLastError = null;
       return {
-        temp: fmtTemp(tempRaw, weatherUnit),
-        tempRaw,
-        feelsLike: fmtTemp(tempRaw, weatherUnit), // open-meteo current_weather has no apparent temp on the free tier
-        code: wx.current_weather.weathercode,
-        city,
-        humidity,
-        windKph: wx.current_weather.windspeed ?? null,
-        high: typeof high === 'number' ? fmtTemp(high, weatherUnit) : '—',
-        low: typeof low === 'number' ? fmtTemp(low, weatherUnit) : '—',
+        temp: fmtTemp(r.tempC, weatherUnit),
+        tempRaw: r.tempC,
+        feelsLike: fmtTemp(r.feelsLikeC, weatherUnit),
+        code: r.code,
+        city: r.city,
+        humidity: r.humidity,
+        windKph: r.windKph,
+        high: typeof r.highC === 'number' ? fmtTemp(r.highC, weatherUnit) : '—',
+        low: typeof r.lowC === 'number' ? fmtTemp(r.lowC, weatherUnit) : '—',
       };
-    } catch {
+    } catch (e) {
+      // Surface the failure (dev console) instead of failing silently like
+      // the old direct-fetch implementation did — makes it obvious *why*
+      // the widget isn't showing (e.g. no network, all geolocation
+      // providers down) instead of it just quietly never appearing.
+      weatherLastError = e instanceof Error ? e.message : String(e);
+      console.warn('[weather] fetch failed:', weatherLastError);
       return null;
     }
   }
@@ -224,7 +214,7 @@
     clipboardTimer = setInterval(checkClipboard, 4000);
 
     unsubConfig = configStore.subscribe((cfg) => {
-      const pinned = (cfg as any).pinnedApps as AppId[] | undefined;
+      const pinned = cfg.pinnedApps as AppId[] | undefined;
       if (pinned && Array.isArray(pinned) && pinned.length > 0) pinnedApps = pinned;
       if (typeof cfg.panelOpacity === 'number') panelOpacity = cfg.panelOpacity;
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelHeight = cfg.panelSize;
@@ -243,6 +233,10 @@
         loadWeather();
       }
     });
+
+    unsubImePromise = CompositorBridge.onImeCandidateWindow((visible) => {
+      imeActive = visible;
+    });
   });
 
   onDestroy(() => {
@@ -252,6 +246,7 @@
     clearTimeout(clipboardHoverTimer);
     clearTimeout(clockHoverTimer);
     unsubConfig?.();
+    unsubImePromise?.then((fn) => fn());
   });
 
   function handleStartClick(e: MouseEvent) {
@@ -266,9 +261,10 @@
   }
 </script>
 
+{#if enabled}
 <div
-  class="absolute top-0 left-0 right-0 backdrop-blur-sm border-b border-white/5 flex items-center justify-between px-3 z-50 select-none"
-  style="height:{panelHeight}px; background-color:rgba(15, 23, 42, {panelOpacity});"
+  class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} border-white/5"
+  style="height:{panelHeight}px; background-color:rgba(15, 23, 42, {panelOpacity}); z-index:50;"
 >
   <!-- Left: Start + search -->
   <div class="flex items-center gap-3 w-1/3">
@@ -333,6 +329,13 @@
       {/each}
     </div>
 
+    {#if imeActive}
+      <div class="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/20 text-blue-300"
+           title={$t('ime.active')}>
+        <Languages size={13} />
+      </div>
+    {/if}
+
     {#if weather}
       {@const wi = weatherIconFor(weather.code)}
       <div class="hidden lg:block relative">
@@ -347,7 +350,7 @@
 
         {#if showWeatherPopover}
           <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} />
-          <div class="absolute right-0 top-full mt-2 w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
+          <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
             <div class="flex items-center justify-between mb-3">
               <div>
                 <div class="text-sm font-semibold text-white">{weather.city}</div>
@@ -382,7 +385,7 @@
       </button>
 
       {#if showClipboardPreview && clipboardHoverPreviewEnabled}
-        <div class="absolute right-0 top-full mt-2 w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50">
+        <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50">
           <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Latest clipboard item</div>
           {#if latestClipboardItem}
             <div class="text-xs text-slate-200 break-words line-clamp-4 bg-slate-800/60 rounded-lg p-2 mb-2">{latestClipboardItem.content}</div>
@@ -406,7 +409,7 @@
       </button>
 
       {#if showClockPopover && networkHoverInfoEnabled}
-        <div class="absolute right-0 top-full mt-2 w-56 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50 text-xs">
+        <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-56 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50 text-xs">
           <div class="flex items-center gap-2 mb-2 text-slate-300">
             <Globe2 size={13} class="text-blue-400 shrink-0" />
             <div class="min-w-0">
@@ -438,3 +441,4 @@
     </button>
   </div>
 </div>
+{/if}
