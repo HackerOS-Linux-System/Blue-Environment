@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use tauri::AppHandle;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -720,13 +719,14 @@ fn find_avatar(username: &str, home: &str) -> Option<String> {
 #[tauri::command]
 pub fn settings_change_password(current: String, new_password: String) -> SettingsResult {
     // Use chpasswd via stdin - safer than passing on command line
-    let username = sh("whoami").unwrap_or_default();
-    let username = username.trim();
-    // Verify current password first
-    let check = Command::new("su")
-        .args(["-c", "true", username])
-        .stdin(std::process::Stdio::piped())
-        .output();
+    // NOTE: current-password verification happens via `passwd`'s own
+    // interactive prompts below (current/new/confirm) — a wrong current
+    // password makes `passwd` itself exit non-zero, which is already
+    // handled in the match below. (A separate `su -c true` "pre-check"
+    // used to sit here, but its result was never actually used, and
+    // `su` doesn't verify a password fed through a plain piped stdin
+    // like that anyway — it was dead code that looked like a security
+    // check without being one.)
     // Best-effort via passwd
     let input = format!("{}\n{}\n{}\n", current, new_password, new_password);
     let result = Command::new("passwd")
