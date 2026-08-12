@@ -85,7 +85,7 @@
         {/if}
       </div>
       <div class="shrink-0 flex items-center justify-between px-4 py-2 border-t border-white/5">
-        <span class="text-xs text-slate-600">{toName}{#if $backend === 'ai'}<span class="ml-1.5 text-slate-700">· via AI</span>{/if}</span>
+        <span class="text-xs text-slate-600">{toName}{#if $backend === 'ai'}<span class="ml-1.5 text-slate-700">· via AI</span>{:else if $backend === 'mymemory'}<span class="ml-1.5 text-slate-700">· via MyMemory</span>{:else if $backend === 'native'}<span class="ml-1.5 text-slate-700">· via translate-shell</span>{/if}</span>
         <div class="flex gap-1">
           <button on:click={() => speak($translatedText, $toLang)} disabled={!$translatedText} class="p-1.5 hover:bg-white/10 rounded-full text-slate-500 disabled:opacity-30"><Volume2 size={14} /></button>
           <button on:click={copyResult} disabled={!$translatedText} class="p-1.5 hover:bg-white/10 rounded-full text-slate-500 disabled:opacity-30">
