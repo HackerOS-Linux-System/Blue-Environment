@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Camera, Download, Copy, Trash2, Timer, Monitor, Crop, RefreshCw, Check, Square } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
+  import { takeScreenshotUnified } from '../../../utils/compositorBridge';
 
   type CaptureMode = 'fullscreen' | 'window' | 'region';
   type DelayOption = 0 | 3 | 5 | 10;
@@ -48,15 +49,18 @@
           dataUrl = await SystemBridge.readFileAsDataURL(outPath);
           savedPath = outPath;
         } else if (mode === 'window') {
-          const ts = new Date().toISOString().replace(/[:.]/g, '-');
-          const outPath = `${await SystemBridge.getHomePath()}/Pictures/Screenshots/screenshot-${ts}.png`;
-          await SystemBridge.executeCommand(
-            `mkdir -p "$(dirname '${outPath}')" && grim -g "$(swaymsg -t get_tree 2>/dev/null | python3 -c "import json,sys; t=json.load(sys.stdin); [print(f\\"{n['rect']['x']},{n['rect']['y']} {n['rect']['width']}x{n['rect']['height']}\\") for n in [t] if n.get('focused')]" 2>/dev/null || slurp)" "${outPath}" 2>/dev/null || import -window root "${outPath}" 2>/dev/null`
-          );
-          dataUrl = await SystemBridge.readFileAsDataURL(outPath);
-          savedPath = outPath;
+          // Previously built a shell one-liner that tried `swaymsg -t
+          // get_tree` (piped through an inline python3 script!) to find
+          // the focused window's rectangle - sway's own IPC, which Blue
+          // Compositor doesn't implement. takeScreenshotUnified('focused')
+          // asks the compositor for the focused window's geometry
+          // natively instead (see compositor/src/ipc/handler.rs's
+          // TakeScreenshot handler).
+          savedPath = (await takeScreenshotUnified('focused')) || '';
+          if (!savedPath) throw new Error('Screenshot failed - no window focused, or compositor unavailable');
+          dataUrl = await SystemBridge.readFileAsDataURL(savedPath);
         } else {
-          savedPath = (await SystemBridge.takeScreenshot()) || '';
+          savedPath = (await takeScreenshotUnified('full')) || '';
           if (!savedPath) throw new Error('No screenshot tool found (grim, scrot, or spectacle required)');
           dataUrl = await SystemBridge.readFileAsDataURL(savedPath);
         }
