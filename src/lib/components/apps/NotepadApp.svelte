@@ -7,6 +7,10 @@
   } from 'lucide-svelte';
   import SaveAsDialog from './SaveAsDialog.svelte';
 
+  /** Set when launched from Explorer with "open this file" — see
+   * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
+  export let openPath: string | undefined = undefined;
+
   interface NoteTab { id: string; title: string; content: string; path?: string; modified: boolean; }
   interface FindState { query: string; replace: string; show: boolean; matchCase: boolean; count: number; }
 
@@ -44,6 +48,8 @@
         else if (tab.modified && tab.path) writeToPath(tab);
       });
     }, 30000);
+
+    if (openPath) openFileByPath(openPath);
   });
   onDestroy(() => clearInterval(autosaveTimer));
 
@@ -87,6 +93,21 @@
     tabs = next;
   }
 
+  async function openFileByPath(path: string) {
+    try {
+      const text = await SystemBridge.readFile(path);
+      const name = path.split('/').pop() || path;
+      const id = `note-${Date.now()}`;
+      // If mount created a lone empty "Untitled" tab and this is the
+      // first real file being opened, replace it instead of leaving a
+      // stray blank tab sitting there.
+      const onlyEmptyUntitled = tabs.length === 1 && !tabs[0].modified && !tabs[0].path && tabs[0].content === '';
+      const newTab = { id, title: name, content: text || '', path, modified: false };
+      tabs = onlyEmptyUntitled ? [newTab] : [...tabs, newTab];
+      activeId = id;
+    } catch (e) { console.error('Failed to open file:', e); }
+  }
+
   async function openFile() {
     const path = await SystemBridge.pickFile(
       [
@@ -96,13 +117,7 @@
       'Open File'
     );
     if (!path) return;
-    try {
-      const text = await SystemBridge.readFile(path);
-      const name = path.split('/').pop() || path;
-      const id = `note-${Date.now()}`;
-      tabs = [...tabs, { id, title: name, content: text || '', path, modified: false }];
-      activeId = id;
-    } catch (e) { console.error('Failed to open file:', e); }
+    await openFileByPath(path);
   }
 
   async function saveFile(tab?: NoteTab) {
