@@ -2,11 +2,22 @@
   import { onMount } from 'svelte';
   import { SystemBridge } from '../../utils/systemBridge';
   import { Monitor, RefreshCw } from 'lucide-svelte';
+  import { t } from '../../stores/language';
+  import { CompositorBridge } from '../../utils/compositorBridge';
 
   interface MonitorInfo { name: string; resolution: string; rate: string; scale: string; primary: boolean; connected: boolean; x: number; y: number; }
 
   let monitors: MonitorInfo[] = [];
   let loading = true;
+  // HDR toggle state per output name. Reflects only what the compositor
+  // acknowledges via `HdrStateChanged` — see compositorBridge.ts and
+  // protocols/color_management.rs on the compositor side for why this
+  // stays `false` today even right after enabling: the negotiation path
+  // is real, the render-side tone-mapping isn't wired up yet, so the
+  // compositor honestly reports back "not actually active" rather than
+  // claiming a visual change that hasn't happened.
+  let hdrEnabled: Record<string, boolean> = {};
+  let hdrActive: Record<string, boolean> = {};
 
   async function load() {
     loading = true;
@@ -40,7 +51,19 @@
     loading = false;
   }
 
-  onMount(load);
+  onMount(() => {
+    load();
+    const unlistenPromise = CompositorBridge.onHdrStateChanged((output, active) => {
+      hdrActive = { ...hdrActive, [output]: active };
+    });
+    return () => { unlistenPromise.then((fn) => fn()); };
+  });
+
+  async function toggleHdr(mon: MonitorInfo) {
+    const next = !hdrEnabled[mon.name];
+    hdrEnabled = { ...hdrEnabled, [mon.name]: next };
+    await CompositorBridge.setHdrEnabled(mon.name, next);
+  }
 
   async function applyScale(mon: MonitorInfo, scale: string) {
     await SystemBridge.executeCommand(`xrandr --output "${mon.name}" --scale ${scale}x${scale}`).catch(() => {});
@@ -113,6 +136,19 @@
               <option value="left">Left (270°)</option>
             </select>
           </div>
+        </div>
+        <div class="flex items-center justify-between bg-slate-900/50 rounded-lg p-3">
+          <div>
+            <div class="text-sm font-medium text-white">{$t('monitors.hdr')}</div>
+            <div class="text-xs text-slate-500 max-w-xs">{$t('monitors.hdr_desc')}</div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={hdrEnabled[mon.name] ?? false}
+            on:click={() => toggleHdr(mon)}
+            class="w-10 h-6 rounded-full transition-colors relative shrink-0 {hdrEnabled[mon.name] ? 'bg-blue-600' : 'bg-slate-700'}">
+            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform {hdrEnabled[mon.name] ? 'translate-x-4' : ''}"></span>
+          </button>
         </div>
       </div>
     {/each}
