@@ -7,6 +7,7 @@
     openApp, closeWindow, focusWindow, minimizeWindow, maximizeWindow, togglePiP,
     moveWindow, resizeWindow, toggleWindowFromTaskbar, switchWorkspace,
     startExternalWindowPolling, stopExternalWindowPolling,
+    startParentalControlsUsageTracking, stopParentalControlsUsageTracking,
   } from './lib/stores/windowManager';
   import { initKeyboardShortcuts } from './lib/stores/keyboardShortcuts';
   import { APPS } from './lib/constants';
@@ -33,6 +34,17 @@
   let desktopPath = 'HOME/Desktop';
   let appsEnabled: Record<string, boolean> = {};
 
+  // Panel (top bar) settings — previously `panelEnabled`/`panelPosition`
+  // existed in the config type/defaults but nothing actually read them;
+  // toggling them in Settings did nothing. Now wired through so windows
+  // reserve space on the correct edge (or none, if the panel is
+  // disabled — safe to do since the Super-key shortcut still opens the
+  // start menu with no panel visible at all, see keyboardShortcuts.ts).
+  let panelEnabled = true;
+  let panelPosition: 'top' | 'bottom' = 'top';
+  let panelSize = 48;
+  $: barHeight = panelEnabled ? panelSize : 0;
+
   function getAppDef(appId: string) {
     return APPS[appId as AppId];
   }
@@ -53,18 +65,25 @@
     checkLiveMode();
     initLanguage();
     startExternalWindowPolling();
+    startParentalControlsUsageTracking();
 
     configStore.init().then((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
       if (cfg.theme) theme = cfg.theme;
       if (cfg.appsEnabled) appsEnabled = cfg.appsEnabled;
       if (cfg.desktopPath) desktopPath = cfg.desktopPath;
+      if (typeof cfg.panelEnabled === 'boolean') panelEnabled = cfg.panelEnabled;
+      if (cfg.panelPosition === 'top' || cfg.panelPosition === 'bottom') panelPosition = cfg.panelPosition;
+      if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
     });
     const unsubConfig = configStore.subscribe((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
       if (cfg.theme) theme = cfg.theme;
       if (cfg.appsEnabled) appsEnabled = cfg.appsEnabled;
       if (cfg.desktopPath) desktopPath = cfg.desktopPath;
+      if (typeof cfg.panelEnabled === 'boolean') panelEnabled = cfg.panelEnabled;
+      if (cfg.panelPosition === 'top' || cfg.panelPosition === 'bottom') panelPosition = cfg.panelPosition;
+      if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
     });
 
     cleanupKeyboard = initKeyboardShortcuts({
@@ -94,6 +113,7 @@
 
   onDestroy(() => {
     stopExternalWindowPolling();
+    stopParentalControlsUsageTracking();
     cleanupKeyboard?.();
   });
 
@@ -111,6 +131,18 @@
   }));
 
   $: windowCounts = Array.from({ length: $workspaceCount }, (_, i) => $windows.filter((w) => w.workspace === i).length);
+
+  // StartMenu (both the popup dropdown and the fullscreen app drawer) is
+  // meant to always sit above every window, including a maximized/
+  // fullscreen/PiP one — that's the whole point of it being a modal
+  // overlay you explicitly opened. A hardcoded z-index (it used to be
+  // Tailwind's z-40/z-50) breaks the moment the session's window
+  // zIndex counter — which only ever increments, on every open/focus/
+  // restore — climbs past that fixed number, which happens after
+  // perfectly ordinary usage (well under 40 focus events). This instead
+  // always stays a fixed margin above whatever the highest window
+  // zIndex currently is, so it can never be silently overtaken again.
+  $: startMenuZIndex = Math.max(50, ...$windows.map((w) => w.zIndex)) + 100;
 </script>
 
 {#if $liveModeChecked && $isLiveMode}
@@ -130,6 +162,8 @@
     workspaceCount={$workspaceCount}
     {isStartMenuOpen}
     {isClipboardOpen}
+    enabled={panelEnabled}
+    position={panelPosition}
     on:openApp={(e) => openApp(e.detail)}
     on:toggleWindow={(e) => toggleWindowFromTaskbar(e.detail)}
     on:startClick={() => (isStartMenuOpen = !isStartMenuOpen)}
@@ -144,6 +178,9 @@
     isOpen={isStartMenuOpen}
     isFullScreen={isStartMenuFullScreen}
     {appsEnabled}
+    zIndex={startMenuZIndex}
+    {panelPosition}
+    panelSize={barHeight}
     on:openApp={(e) => openApp(e.detail.appId, e.detail.isExternal, e.detail.exec)}
     on:close={() => { isStartMenuOpen = false; isStartMenuFullScreen = false; }}
     on:toggleFullScreen={() => (isStartMenuFullScreen = !isStartMenuFullScreen)}
@@ -154,6 +191,8 @@
     <WindowComponent
       {win}
       isActive={win.id === $activeWindowId}
+      {barHeight}
+      {panelPosition}
       on:close={(e) => closeWindow(e.detail)}
       on:minimize={(e) => minimizeWindow(e.detail)}
       on:maximize={(e) => maximizeWindow(e.detail)}
@@ -163,7 +202,7 @@
       on:resize={(e) => resizeWindow(e.detail.id, e.detail.width, e.detail.height)}
     >
       {#if appDef?.component}
-        <ErrorBoundary component={appDef.component} appTitle={win.title} props={{ windowId: win.id }} />
+        <ErrorBoundary component={appDef.component} appTitle={win.title} props={{ windowId: win.id, ...win.launchArgs }} />
       {:else}
         <div class="flex items-center justify-center h-full theme-bg-primary theme-text-secondary text-sm">
           External app — managed by the compositor
