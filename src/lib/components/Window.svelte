@@ -5,6 +5,12 @@
 
   export let win: WindowState;
   export let isActive: boolean;
+  // Actual reserved space for the panel — 0 if the user disabled it,
+  // otherwise their configured panelSize (not a hardcoded 48px like
+  // before, which silently drifted out of sync with the Panel settings
+  // slider). `panelPosition` decides which screen edge is reserved.
+  export let barHeight = 48;
+  export let panelPosition: 'top' | 'bottom' = 'top';
 
   const dispatch = createEventDispatcher<{
     close: string; minimize: string; maximize: string; focus: string; pip: string;
@@ -12,10 +18,14 @@
     resize: { id: string; width: number; height: number };
   }>();
 
-  const TOPBAR_HEIGHT = 48;
   const MIN_WIDTH = 280;
   const MIN_HEIGHT = 180;
   const SNAP_ZONE = 20;
+
+  // Where windows are allowed to start/snap to, given the panel's
+  // current edge — 0 at the panel-free edge, `barHeight` at the edge the
+  // panel actually occupies.
+  $: topReserved = panelPosition === 'top' ? barHeight : 0;
 
   type SnapRegion = 'none' | 'left' | 'right' | 'top' | 'top-left' | 'top-right';
   interface SnapPreview { x: number; y: number; w: number; h: number; }
@@ -24,7 +34,7 @@
     const W = window.innerWidth;
     const nearLeft = x <= SNAP_ZONE;
     const nearRight = x >= W - SNAP_ZONE;
-    const nearTop = y <= TOPBAR_HEIGHT + SNAP_ZONE;
+    const nearTop = y <= topReserved + SNAP_ZONE;
     if (nearTop && nearLeft) return 'top-left';
     if (nearTop && nearRight) return 'top-right';
     if (nearTop) return 'top';
@@ -35,13 +45,13 @@
 
   function snapGeometry(region: SnapRegion): SnapPreview {
     const W = window.innerWidth;
-    const H = window.innerHeight - TOPBAR_HEIGHT;
+    const H = window.innerHeight - barHeight;
     switch (region) {
-      case 'left': return { x: 0, y: TOPBAR_HEIGHT, w: W / 2, h: H };
-      case 'right': return { x: W / 2, y: TOPBAR_HEIGHT, w: W / 2, h: H };
-      case 'top': return { x: 0, y: TOPBAR_HEIGHT, w: W, h: H };
-      case 'top-left': return { x: 0, y: TOPBAR_HEIGHT, w: W / 2, h: H / 2 };
-      case 'top-right': return { x: W / 2, y: TOPBAR_HEIGHT, w: W / 2, h: H / 2 };
+      case 'left': return { x: 0, y: topReserved, w: W / 2, h: H };
+      case 'right': return { x: W / 2, y: topReserved, w: W / 2, h: H };
+      case 'top': return { x: 0, y: topReserved, w: W, h: H };
+      case 'top-left': return { x: 0, y: topReserved, w: W / 2, h: H / 2 };
+      case 'top-right': return { x: W / 2, y: topReserved, w: W / 2, h: H / 2 };
       default: return { x: 0, y: 0, w: 0, h: 0 };
     }
   }
@@ -78,7 +88,7 @@
   function handleMouseMove(e: MouseEvent) {
     if (isDragging) {
       const newX = e.clientX - dragOffset.x;
-      const newY = Math.max(TOPBAR_HEIGHT, e.clientY - dragOffset.y);
+      const newY = Math.max(topReserved, e.clientY - dragOffset.y);
       dispatch('move', { id: win.id, x: newX, y: newY });
 
       const region = getSnapRegion(e.clientX, e.clientY);
@@ -116,7 +126,7 @@
   });
 
   $: style = win.isMaximized
-    ? `left:0; top:${TOPBAR_HEIGHT}px; width:100vw; height:calc(100vh - ${TOPBAR_HEIGHT}px); border-radius:0; border:none; z-index:${win.zIndex};`
+    ? `left:0; top:${topReserved}px; width:100vw; height:calc(100vh - ${barHeight}px); border-radius:0; border:none; z-index:${win.zIndex};`
     : win.isPiP
     ? `left:${win.x}px; top:${win.y}px; width:${win.width}px; height:${win.height}px; z-index:9998;`
     : `left:${win.x}px; top:${win.y}px; width:${win.width}px; height:${win.height}px; z-index:${win.zIndex};`;
