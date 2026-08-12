@@ -23,7 +23,7 @@ export interface Diagnostic {
     severity: 'error' | 'warning' | 'info';
 }
 
-export type SidebarTab = 'files' | 'search' | 'git' | 'dev';
+export type SidebarTab = 'files' | 'search' | 'git' | 'problems' | 'dev';
 
 export interface CommandEntry {
     id: string;
