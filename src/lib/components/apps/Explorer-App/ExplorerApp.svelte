@@ -11,6 +11,8 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm } from '../../../stores/dialog';
   import { configStore } from '../../../utils/configStore';
+  import { openApp } from '../../../stores/windowManager';
+  import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
   import { BOOKMARKS } from './types';
   import FileIcon from './FileIcon.svelte';
@@ -174,8 +176,17 @@
 
   function handleOpen(file: FileEntry) {
     if (file.is_dir) { navigateTo(file.path); return; }
-    if (file.mime_type.startsWith('image/') || file.mime_type.startsWith('text/')) openPreview(file);
-    else SystemBridge.launchApp(`xdg-open "${file.path}"`);
+    if (file.mime_type.startsWith('image/')) { openPreview(file); return; }
+    if (file.mime_type.startsWith('text/')) {
+      // Previously this also fell into `openPreview` — a read-only pane
+      // inside Explorer itself, not a real editor. Now opens the file
+      // in whichever app the user picked in Settings → Applications
+      // (defaults to Notepad).
+      const editorApp = (configStore.get().defaultTextEditor ?? 'notepad') === 'blue_code' ? AppId.BLUE_CODE : AppId.NOTEPAD;
+      openApp(editorApp, false, undefined, { openPath: file.path });
+      return;
+    }
+    SystemBridge.launchApp(`xdg-open "${file.path}"`);
   }
 
   async function createFolder() {
