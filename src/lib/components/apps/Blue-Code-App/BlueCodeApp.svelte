@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { Code2, Plus, AlertCircle, FileCode, X } from 'lucide-svelte';
   import { createFileTree } from './fileTree';
   import { createEditorFiles } from './editorFiles';
@@ -12,11 +13,18 @@
   import MonacoEditor from './MonacoEditor.svelte';
 
   export let windowId: string;
+  /** Set when launched from Explorer with "open this file" — see
+   * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
+  export let openPath: string | undefined = undefined;
 
   const tree = createFileTree();
   const editor = createEditorFiles(tree.rootPath);
   const { rootPath } = tree;
-  const { openFiles, activeIdx, activeFile, fileDiagnostics, errors, warnings, lspStatus, editorTheme, fontSize, cursorPos } = editor;
+  const { openFiles, activeIdx, activeFile, fileDiagnostics, errors, warnings, lspStatus, editorTheme, fontSize, cursorPos, revealLine } = editor;
+
+  onMount(() => {
+    if (openPath) editor.openFile(openPath);
+  });
 
   let sidebarTab: SidebarTab = 'files';
   let sidebarCollapsed = false;
@@ -67,6 +75,27 @@
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => editor.saveFile($activeIdx));
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyMod.Shift | monacoApi.KeyCode.KeyS, editor.saveAll);
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyMod.Shift | monacoApi.KeyCode.KeyP, () => (showCommandPalette = true));
+
+    // Problems panel jump-to-line: revealLine is set by editor.
+    // openFileAtLine() and may arrive either before or after this mount
+    // (the target file's {#key $activeIdx} block and this handler race
+    // against each other) — consuming it here, right after mount,
+    // covers the "file wasn't already open" case; the reactive block
+    // below covers the "file was already open, just switching tabs" case.
+    if ($revealLine !== null) {
+      monacoEditorRef.revealLineInCenter($revealLine);
+      monacoEditorRef.setPosition({ lineNumber: $revealLine, column: 1 });
+      revealLine.set(null);
+    }
+  }
+
+  // Covers switching to an *already-open* file via a Problems click,
+  // where MonacoEditor doesn't remount (no {#key} change) and so
+  // handleEditorMount above never re-fires.
+  $: if ($revealLine !== null && monacoEditorRef && $activeFile) {
+    monacoEditorRef.revealLineInCenter($revealLine);
+    monacoEditorRef.setPosition({ lineNumber: $revealLine, column: 1 });
+    revealLine.set(null);
   }
 </script>
 
