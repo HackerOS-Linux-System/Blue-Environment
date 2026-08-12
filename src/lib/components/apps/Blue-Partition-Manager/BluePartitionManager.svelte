@@ -2,11 +2,11 @@
   import { onMount } from 'svelte';
   import {
     HardDrive, RefreshCw, Disc3, Play, Square, AlertTriangle, Loader2,
-    CheckCircle2, XCircle, Tag, Eraser, ChevronRight,
+    CheckCircle2, XCircle, Tag, Eraser, ChevronRight, Activity, Thermometer, Zap,
   } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
   import { dialogConfirm, dialogPrompt } from '../../../stores/dialog';
-  import type { BpmDevice } from './types';
+  import type { BpmDevice, SmartStatus, BenchmarkResult } from './types';
   import { FS_OPTIONS, formatBytes } from './types';
 
   let disks: BpmDevice[] = [];
@@ -118,6 +118,46 @@
   function usedFraction(d: BpmDevice, total: number): number {
     return total > 0 ? Math.min(1, d.size_bytes / total) : 0;
   }
+
+  // ── Disk health (SMART) + benchmark ──────────────────────────────────
+  // KDE Partition Manager has neither of these built in — you'd need a
+  // separate tool. Expanded inline per-disk so you don't lose your place
+  // in the device list.
+  let healthOpenFor: string | null = null;
+  let healthData: Record<string, SmartStatus> = {};
+  let healthLoading: string | null = null;
+  let benchmarkData: Record<string, BenchmarkResult> = {};
+  let benchmarkRunning: string | null = null;
+
+  async function toggleHealth(d: BpmDevice) {
+    if (healthOpenFor === d.path) { healthOpenFor = null; return; }
+    healthOpenFor = d.path;
+    if (!healthData[d.path]) {
+      healthLoading = d.path;
+      try {
+        healthData[d.path] = await SystemBridge.invokeCommand<SmartStatus>('bpm_smart_status', { device: d.path });
+      } catch (e: any) {
+        healthData[d.path] = {
+          available: false, healthy: null, temperature_celsius: null, power_on_hours: null,
+          power_cycle_count: null, attributes: [], model: null, serial: null,
+          error: e?.message ?? String(e),
+        };
+      } finally {
+        healthLoading = null;
+      }
+    }
+  }
+
+  async function runBenchmark(d: BpmDevice) {
+    benchmarkRunning = d.path;
+    try {
+      benchmarkData[d.path] = await SystemBridge.invokeCommand<BenchmarkResult>('bpm_benchmark_read', { device: d.path });
+    } catch (e: any) {
+      notify('error', `Benchmark failed: ${e?.message ?? e}`);
+    } finally {
+      benchmarkRunning = null;
+    }
+  }
 </script>
 
 <div class="flex h-full bg-slate-900 text-white overflow-hidden">
@@ -165,7 +205,59 @@
               <div class="text-sm font-medium truncate">{disk.model || disk.name} <span class="text-slate-500 font-normal">({disk.path})</span></div>
               <div class="text-xs text-slate-500">{formatBytes(disk.size_bytes)} · {disk.children?.length ?? 0} partition(s){disk.removable ? ' · removable' : ''}</div>
             </div>
+            <span role="button" tabindex="0" on:click|stopPropagation={() => toggleHealth(disk)}
+              class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs shrink-0 {healthOpenFor === disk.path ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-white/10'}">
+              <Activity size={12} /> Health
+            </span>
           </button>
+
+          {#if healthOpenFor === disk.path}
+            <div class="mx-4 mb-3 bg-slate-900/60 border border-white/5 rounded-xl p-3 text-sm">
+              {#if healthLoading === disk.path}
+                <div class="flex items-center gap-2 text-slate-400"><Loader2 size={14} class="animate-spin" /> Reading SMART data…</div>
+              {:else if healthData[disk.path]}
+                {@const h = healthData[disk.path]}
+                {#if !h.available}
+                  <div class="flex items-center gap-2 text-slate-500 text-xs"><AlertTriangle size={13} /> {h.error}</div>
+                {:else}
+                  <div class="flex flex-wrap items-center gap-4 mb-2">
+                    <div class="flex items-center gap-1.5">
+                      {#if h.healthy === true}<CheckCircle2 size={14} class="text-green-400" /> <span class="text-green-400">Healthy</span>
+                      {:else if h.healthy === false}<XCircle size={14} class="text-red-400" /> <span class="text-red-400">Failing — back up now</span>
+                      {:else}<span class="text-slate-500">Health status unknown</span>{/if}
+                    </div>
+                    {#if h.temperature_celsius !== null}
+                      <div class="flex items-center gap-1 text-slate-400"><Thermometer size={12} /> {h.temperature_celsius}°C</div>
+                    {/if}
+                    {#if h.power_on_hours !== null}
+                      <div class="text-slate-400">{h.power_on_hours} hrs on</div>
+                    {/if}
+                    {#if h.power_cycle_count !== null}
+                      <div class="text-slate-400">{h.power_cycle_count} power cycles</div>
+                    {/if}
+                  </div>
+                  {#if h.attributes.length > 0}
+                    <div class="max-h-32 overflow-y-auto text-xs space-y-0.5 mb-2">
+                      {#each h.attributes.filter((a) => a.failing || ['Reallocated Sector Ct', 'Reallocated Sectors Count', 'Current Pending Sector'].some((n) => a.name.includes(n))) as a (a.id)}
+                        <div class="flex justify-between {a.failing ? 'text-red-400' : 'text-slate-400'}">
+                          <span>{a.name}</span><span class="font-mono">{a.raw}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                {/if}
+              {/if}
+              <div class="flex items-center gap-2 pt-2 border-t border-white/5 mt-2">
+                <button on:click={() => runBenchmark(disk)} disabled={benchmarkRunning === disk.path}
+                  class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 disabled:opacity-50">
+                  {#if benchmarkRunning === disk.path}<Loader2 size={12} class="animate-spin" /> Testing…{:else}<Zap size={12} /> Benchmark read speed{/if}
+                </button>
+                {#if benchmarkData[disk.path]}
+                  <span class="text-xs text-blue-400 font-mono">{benchmarkData[disk.path].read_mb_per_sec.toFixed(0)} MB/s</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
 
           {#if disk.children?.length}
             <!-- Visual usage bar -->
