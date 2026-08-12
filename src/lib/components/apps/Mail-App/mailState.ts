@@ -91,7 +91,27 @@ export function createMailState() {
     else moveToFolder(id, 'trash');
     if (get(selectedEmail)?.id === id) selectedEmail.set(null);
   }
-  function selectEmail(email: Email) { selectedEmail.set(email); if (!email.read) markRead(email.id); }
+  function selectEmail(email: Email) {
+    selectedEmail.set(email);
+    if (!email.read) markRead(email.id);
+
+    // IMAP-sourced messages (id format `imap-{accountId}-{uid}`) come back
+    // from `mail_fetch_inbox` with an empty `body` — headers only, see the
+    // comment on `mail_fetch_inbox` in MailApp/mod.rs for why. Fetch the
+    // actual body on demand now that the user is actually reading this
+    // message, rather than fetching every body up front.
+    const m = email.id.match(/^imap-(.+)-([^-]+)$/);
+    if (m && !email.body && SystemBridge.isTauri()) {
+      const [, accountId, uid] = m;
+      SystemBridge.invokeCommand<string>('mail_fetch_body', { accountId, uid })
+        .then((body) => {
+          if (!body) return;
+          emails.update((prev) => prev.map((e) => (e.id === email.id ? { ...e, body } : e)));
+          selectedEmail.update((cur) => (cur && cur.id === email.id ? { ...cur, body } : cur));
+        })
+        .catch(() => {});
+    }
+  }
 
   function openCompose() { composeOpen.set(true); composeData.set(EMPTY_COMPOSE); replyMode.set(null); showCc.set(false); }
   function closeCompose() { composeOpen.set(false); }
