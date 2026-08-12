@@ -41,6 +41,25 @@ export interface UserConfig {
     clipboardHoverPreviewEnabled?: boolean;
     /** Show a network speed + timezone popover when hovering the clock. */
     networkHoverInfoEnabled?: boolean;
+    /** App IDs pinned to the center of the panel. */
+    pinnedApps?: string[];
+    /** Which app opens when you double-click a text file in Explorer. */
+    defaultTextEditor?: 'notepad' | 'blue_code';
+    /** Per-game stats for Blue Play's built-in original games, also
+     * covering added external games. */
+    blueGames?: Record<string, { highScore: number; playCount: number; lastPlayed?: string; playtimeSeconds?: number }>;
+    /** User-added external games (native or Windows via Wine/Proton/umu). */
+    blueGamesLibrary?: BlueGameLibraryEntry[];
+}
+
+export interface BlueGameLibraryEntry {
+    id: string;
+    title: string;
+    kind: 'native' | 'windows';
+    execPath: string;
+    runtime?: 'wine' | 'proton' | 'umu';
+    runtimePath?: string;
+    addedAt: string;
 }
 
 export interface PowerProfile {
@@ -103,6 +122,8 @@ export interface AIConfig {
     service: string;
     model: string;
     apiKey: string;
+    configured?: boolean;
+    rememberChoice?: boolean;
 }
 
 export interface ExternalWindow {
@@ -305,6 +326,34 @@ export const SystemBridge = {
     /** Low-level Tauri invoke — use only when a higher-level SystemBridge method doesn't exist. */
     invoke: async <T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
         return invoke<T>(cmd, args);
+    },
+
+    /**
+     * Fetches current weather for the TopBar widget via the Rust backend
+     * (`weather.rs::get_weather`) rather than calling `fetch()` directly
+     * from the webview. The old direct-fetch approach against `ipapi.co`
+     * silently failed whenever that provider rate-limited or blocked the
+     * webview's request, which is why the widget could disappear entirely
+     * with no visible error. The backend now also falls back across three
+     * IP-geolocation providers before giving up.
+     *
+     * Throws on failure — callers should catch and treat it as "no data
+     * this cycle" rather than a fatal error, since transient network
+     * issues are expected.
+     */
+    getWeather: async (cityOverride?: string): Promise<{
+        tempC: number; feelsLikeC: number; code: number; city: string;
+        humidity: number | null; windKph: number | null; highC: number | null; lowC: number | null;
+    }> => {
+        if (!isTauri) throw new Error('getWeather requires the Tauri backend');
+        const r = await invoke<{
+            temp_c: number; feels_like_c: number; code: number; city: string;
+            humidity: number | null; wind_kph: number | null; high_c: number | null; low_c: number | null;
+        }>('get_weather', { cityOverride: cityOverride ?? '' });
+        return {
+            tempC: r.temp_c, feelsLikeC: r.feels_like_c, code: r.code, city: r.city,
+            humidity: r.humidity, windKph: r.wind_kph, highC: r.high_c, lowC: r.low_c,
+        };
     },
 
     // --- Session ---
@@ -656,7 +705,7 @@ export const SystemBridge = {
         return {
             wallpaper: 'file:///usr/share/Blue-Environment/wallpapers/default.png',
             theme: 'dark', themeName: 'blue-default', accentColor: 'blue', displayScale: 1,
-            desktopPath: 'HOME/Desktop', panelEnabled: true, panelPosition: 'bottom',
+            desktopPath: 'HOME/Desktop', panelEnabled: true, panelPosition: 'top',
             panelSize: 40, panelOpacity: 0.9, language: 'en',
             nightLightEnabled: false, nightLightTemperature: 4000,
             nightLightSchedule: 'manual', nightLightStartHour: 20, nightLightEndHour: 6,
@@ -810,6 +859,20 @@ export const SystemBridge = {
         return false;
     },
 
+    // --- Blue Calendar ---
+    async calendarLoadEvents(): Promise<import('../components/apps/Blue-Calendar-App/types').CalendarEvent[]> {
+        if (isTauri) { try { return await invoke('calendar_load_events'); } catch { return []; } }
+        return [];
+    },
+    async calendarSaveEvent(event: import('../components/apps/Blue-Calendar-App/types').CalendarEvent): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('calendar_save_event', { event }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async calendarDeleteEvent(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('calendar_delete_event', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
     // --- Google sign-in (mock) ---
     googleSignIn: async (): Promise<{ accessToken: string; user: any } | null> =>
     new Promise(resolve => setTimeout(() => resolve({ accessToken: 'mock-token-123', user: { name: 'Jan Kowalski', email: 'jan@example.com', picture: '' } }), 1000)),
@@ -835,6 +898,78 @@ export const SystemBridge = {
         }
         const lastMsg = request.messages[request.messages.length - 1]?.content || 'empty';
         return `[Mock] ${request.service} response to: ${lastMsg}`;
+    },
+
+    /** Pings local Ollama and returns which models are actually pulled —
+     * powers Blue AI's local-AI Setup screen so it never offers a model
+     * name the user doesn't actually have. */
+    async checkOllamaStatus(): Promise<{ reachable: boolean; models: string[]; error?: string }> {
+        if (isTauri) {
+            try { return await invoke('check_ollama_status'); }
+            catch (e) { return { reachable: false, models: [], error: String(e) }; }
+        }
+        return { reachable: false, models: [], error: 'Not running in the desktop app' };
+    },
+    /** Kicks off Ollama's official install script under a single pkexec
+     * prompt. Progress/completion arrive via the two listener methods
+     * below, not a return value — this just starts it. */
+    async installOllama(): Promise<void> {
+        if (isTauri) { try { await invoke('install_ollama'); } catch { /* surfaced via the done event */ } }
+    },
+    async onOllamaInstallProgress(cb: (line: string) => void): Promise<() => void> {
+        if (!isTauri) return () => {};
+        try {
+            const mod = await import('@tauri-apps/api/event');
+            return await mod.listen('blue-ai://ollama-install-progress', (e: any) => cb(e.payload.line));
+        } catch { return () => {}; }
+    },
+    async onOllamaInstallDone(cb: (result: { success: boolean; error?: string }) => void): Promise<() => void> {
+        if (!isTauri) return () => {};
+        try {
+            const mod = await import('@tauri-apps/api/event');
+            return await mod.listen('blue-ai://ollama-install-done', (e: any) => cb(e.payload));
+        } catch { return () => {}; }
+    },
+
+    // ── Blue Play ──────────────────────────────────────────────────────
+    async bluePlayDetectRuntimes(): Promise<{
+        wine_available: boolean; wine_version?: string;
+        proton_available: boolean; proton_path?: string;
+        steam_proton_versions: { name: string; path: string }[];
+        umu_available: boolean;
+    }> {
+        if (isTauri) {
+            try { return await invoke('bpg_detect_runtimes'); }
+            catch { return { wine_available: false, proton_available: false, steam_proton_versions: [], umu_available: false }; }
+        }
+        return { wine_available: false, proton_available: false, steam_proton_versions: [], umu_available: false };
+    },
+    async bluePlayLaunchNative(gameId: string, execPath: string, args: string[] = []): Promise<{ launched: boolean; error?: string }> {
+        if (isTauri) {
+            try { return await invoke('bpg_launch_native', { gameId, execPath, args }); }
+            catch (e) { return { launched: false, error: String(e) }; }
+        }
+        return { launched: false, error: 'Not running in the desktop app' };
+    },
+    async bluePlayLaunchWindows(gameId: string, exePath: string, runtime: string, runtimePath?: string): Promise<{ launched: boolean; error?: string }> {
+        if (isTauri) {
+            try { return await invoke('bpg_launch_windows', { gameId, exePath, runtime, runtimePath }); }
+            catch (e) { return { launched: false, error: String(e) }; }
+        }
+        return { launched: false, error: 'Not running in the desktop app' };
+    },
+    /** Fires when a game launched via bluePlayLaunchNative/Windows exits
+     * — works regardless of whether the Blue Play window that launched
+     * it is still open/focused, since the backend tracks the process
+     * independently (see BluePlayApp/mod.rs). Returns an unlisten fn. */
+    async bluePlayOnGameExited(cb: (payload: { game_id: string; playtime_seconds: number; exit_success: boolean }) => void): Promise<() => void> {
+        if (!isTauri) return () => {};
+        try {
+            const mod = await import('@tauri-apps/api/event');
+            return await mod.listen('blue-play://game-exited', (e: any) => cb(e.payload));
+        } catch {
+            return () => {};
+        }
     },
 
     // --- Package manager (dnf — LegendaryOS is Fedora-based, no apt; snap is not part of the supported stack) ---
