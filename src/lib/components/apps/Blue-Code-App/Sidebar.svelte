@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RefreshCw, FolderOpen, FolderPlus, FilePlus } from 'lucide-svelte';
+  import { RefreshCw, FolderOpen, FolderPlus, FilePlus, AlertCircle, AlertTriangle } from 'lucide-svelte';
   import GitPanel from '../../GitPanel.svelte';
   import type { FileTreeState } from './fileTree';
   import type { EditorFilesState } from './editorFiles';
@@ -12,9 +12,9 @@
   export let sidebarTab: SidebarTab;
 
   const { rootPath, fileTree, isLoading, selectedDir } = tree;
-  const { openFiles } = editor;
+  const { openFiles, diagnostics, totalErrors, totalWarnings } = editor;
 
-  const TABS: SidebarTab[] = ['files', 'search', 'git', 'dev'];
+  const TABS: SidebarTab[] = ['files', 'search', 'git', 'problems', 'dev'];
 
   let searchTerm = '';
   let searchResults: { file: string; line: number; content: string }[] = [];
@@ -42,13 +42,24 @@
       if (idx >= 0) editor.closeFile(idx);
     }
   }
+
+  // Grouped for the Problems tab — computed here rather than inline in
+  // the template so TypeScript can infer the reduce's accumulator type
+  // properly instead of defaulting to `{}`/`any`.
+  $: problemsByFile = $diagnostics.reduce<Record<string, typeof $diagnostics>>((acc, d) => {
+    (acc[d.file] ??= []).push(d);
+    return acc;
+  }, {});
 </script>
 
 <div class="w-56 bg-slate-800/50 border-r border-white/5 flex flex-col overflow-hidden">
   <div class="flex border-b border-white/5 shrink-0">
     {#each TABS as tab (tab)}
-      <button on:click={() => (sidebarTab = tab)} class="flex-1 py-1.5 text-xs capitalize transition-colors {sidebarTab === tab ? 'bg-slate-900 text-white border-b-2 border-blue-500' : 'text-slate-500 hover:text-white'}">
+      <button on:click={() => (sidebarTab = tab)} class="flex-1 py-1.5 text-xs capitalize transition-colors relative {sidebarTab === tab ? 'bg-slate-900 text-white border-b-2 border-blue-500' : 'text-slate-500 hover:text-white'}">
         {tab}
+        {#if tab === 'problems' && ($totalErrors + $totalWarnings) > 0}
+          <span class="absolute top-0.5 right-1 min-w-[14px] h-[14px] px-0.5 rounded-full text-[9px] leading-[14px] {$totalErrors > 0 ? 'bg-red-500' : 'bg-yellow-500'} text-white">{$totalErrors + $totalWarnings}</span>
+        {/if}
       </button>
     {/each}
   </div>
@@ -99,6 +110,34 @@
 
   {#if sidebarTab === 'git'}
     <div class="flex-1 overflow-hidden"><GitPanel cwd={$rootPath} /></div>
+  {/if}
+
+  {#if sidebarTab === 'problems'}
+    <div class="flex-1 overflow-y-auto p-1">
+      {#if $diagnostics.length === 0}
+        <div class="text-center py-6 px-2 text-slate-600 text-xs">No problems detected across open files.</div>
+      {:else}
+        {#each Object.entries(problemsByFile) as [file, diags] (file)}
+          <div class="mb-1">
+            <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 truncate" title={file}>{file.split('/').pop()}</div>
+            {#each diags as d, i (i)}
+              <div on:click={() => editor.openFileAtLine(file, d.line)}
+                class="flex items-start gap-1.5 px-3 py-1 hover:bg-white/5 cursor-pointer rounded">
+                {#if d.severity === 'error'}
+                  <AlertCircle size={11} class="text-red-400 shrink-0 mt-0.5" />
+                {:else}
+                  <AlertTriangle size={11} class="text-yellow-400 shrink-0 mt-0.5" />
+                {/if}
+                <div class="min-w-0">
+                  <div class="text-[11px] text-slate-300 truncate">{d.message}</div>
+                  <div class="text-[10px] text-slate-600">Line {d.line}, Col {d.col}</div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/each}
+      {/if}
+    </div>
   {/if}
 
   {#if sidebarTab === 'dev'}
