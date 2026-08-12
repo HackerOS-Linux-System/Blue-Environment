@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, RefreshCw, Speaker, Check, Signal, SignalZero } from 'lucide-svelte';
+  import { Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { CompositorBridge } from '../utils/compositorBridge';
+  import { t } from '../stores/language';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 
   interface AudioSink { id: number; name: string; description: string; volume: number; muted: boolean; is_default: boolean; }
 
@@ -28,9 +30,23 @@
   let cellularEnabled = false;
   let cellularCarrier = '';
 
+  // Real HDR status (not a toggle here — that lives in Settings > Monitors,
+  // see MonitorsSection.svelte). This tile just reflects what the
+  // compositor actually reports back via HdrStateChanged — honestly
+  // "off" until protocols/color_management.rs's render-side tone-mapping
+  // stub is filled in, even right after the user enables it, per that
+  // module's doc comment. Reflecting the real (not optimistic) state
+  // here is the whole point: no fake "HDR On" badge for a picture that
+  // hasn't actually changed.
+  let hdrActive = false;
+  let unsubHdrPromise: Promise<() => void> | undefined;
+
   onMount(async () => {
     hasCellular = await SystemBridge.hasCellularModem().catch(() => false);
     if (hasCellular) refreshCellular();
+    unsubHdrPromise = CompositorBridge.onHdrStateChanged((_output, active) => {
+      hdrActive = active;
+    });
   });
 
   async function refreshCellular() {
@@ -82,6 +98,8 @@
 
   $: batteryColor = battery < 20 ? 'text-red-400' : battery < 50 ? 'text-yellow-400' : 'text-green-400';
   $: defaultSink = sinks.find((s) => s.is_default);
+
+  onDestroy(() => { unsubHdrPromise?.then((fn) => fn()); });
 </script>
 
 {#if isOpen}
@@ -115,6 +133,17 @@
           <div class="min-w-0 flex-1">
             <div class="text-xs font-bold leading-none">Mobile Data</div>
             <div class="text-[10px] opacity-70 truncate mt-0.5">{cellularEnabled ? (cellularCarrier || 'Connected') : 'Off'}</div>
+          </div>
+        </button>
+      {/if}
+      {#if hdrActive}
+        <button on:click={() => dispatch('openSettings', 'monitors')} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left bg-blue-600 text-white">
+          <div class="p-1.5 rounded-full bg-white/20 shrink-0">
+            <MonitorCheck size={14} />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold leading-none">{$t('monitors.hdr')}</div>
+            <div class="text-[10px] opacity-70 truncate mt-0.5">{$t('control_center.hdr_active')}</div>
           </div>
         </button>
       {/if}
