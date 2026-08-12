@@ -20,9 +20,15 @@ BLUE_SHARE = "/usr/share/Blue-Environment"
 BLUE_LIBS  = "#{BLUE_SHARE}/lib"
 BLUE_APPS  = "#{BLUE_SHARE}/apps"
 BLUE_WALLS = "#{BLUE_SHARE}/wallpapers"
-VERSION    = "0.6.0"
+VERSION    = "0.7.0"
 
 SHELL_MANIFEST       = "src-tauri/Cargo.toml"
+# Expects a `compositor/` subdirectory populated with the Blue-Compositor
+# source tree (vendored copy or git submodule) at build time — this repo
+# only builds it, it doesn't own that source. See compositor/ROADMAP.md
+# (once vendored in) for what's implemented there, including this pass's
+# additions: real dmabuf modifier negotiation, IME popup positioning
+# (ibus/fcitx5 bridge), and HDR/color-management protocol scaffolding.
 COMPOSITOR_MANIFEST  = "compositor/Cargo.toml"
 SHELL_BIN_PATH       = "target/release/blue-environment"
 COMPOSITOR_BIN_PATH  = "compositor/target/release/blue-compositor"
@@ -94,10 +100,13 @@ def cmd_help
   puts "  #{COLOR_BOLD}ruby build.rb BEDM#{COLOR_RESET}            Build BEDM (Blue Environment Display Manager)"
   puts "  #{COLOR_BOLD}ruby build.rb compositor#{COLOR_RESET}      Build only the Wayland compositor"
   puts "  #{COLOR_BOLD}ruby build.rb packages [fmt]#{COLOR_RESET}  Package already-built binaries only"
-  puts "                              fmt = rpm | deb | arch  (default: all available)"
+  puts "                              fmt = rpm | deb | arch | apk | opensuse  (default: all available)"
   puts "  #{COLOR_BOLD}ruby build.rb app <name>#{COLOR_RESET}      Build one Blue app standalone (no full shell)"
   puts "  #{COLOR_BOLD}ruby build.rb app#{COLOR_RESET}             List all standalone-buildable apps"
   puts "  #{COLOR_BOLD}ruby build.rb all#{COLOR_RESET}             Build compositor + desktop shell (no .rpm)"
+  print_hr
+  puts "  #{COLOR_BOLD}ruby build.rb check#{COLOR_RESET}           svelte-check only (fast — no vite build, no cargo, no packaging)"
+  puts "  #{COLOR_BOLD}ruby build.rb doctor#{COLOR_RESET}          Check build-time deps + IME runtime (ibus/fcitx5)"
   print_hr
   puts "  #{COLOR_BOLD}Maintenance:#{COLOR_RESET}"
   puts "    install                  Install the desktop build to the system (sudo)"
@@ -112,10 +121,12 @@ end
 
 # npm install + tsc + vite build (the React/Tauri shell frontend)
 def build_frontend
-  echo_build "npm install"
-  unless run_cmd("npm install")
-    echo_error "npm install failed"
-    return false
+  unless File.directory?("node_modules")
+    echo_build "npm install"
+    unless run_cmd("npm install")
+      echo_error "npm install failed"
+      return false
+    end
   end
   echo_build "npm run build (svelte-check + vite)"
   if run_cmd("npm run build")
@@ -123,6 +134,46 @@ def build_frontend
     true
   else
     echo_error "frontend build failed"
+    echo_warn  "Run 'ruby build.rb check' on its own for just the svelte-check step (faster to"
+    echo_warn  "iterate on than a full build) — see its output for the specific file/line."
+    false
+  end
+end
+
+# ============================================
+# FRONTEND CHECK — svelte-check only, no vite build, no cargo, no
+# packaging. Exists because `npm run build`'s `svelte-check && vite build`
+# only reports svelte-check's failure via a generic non-zero exit from
+# Tauri's `beforeBuildCommand` unless you're watching the raw npm output —
+# this surfaces it directly and, since translation files are plain .ts
+# (no Svelte-specific tooling needed to catch a syntax error in them),
+# catches exactly the class of bug that broke french.ts/italian.ts here:
+# an apostrophe inside a single-quoted string value (`'l'HDR'`) that
+# TypeScript parses as the string terminating early, not an unescaped
+# accent or unusual char — the same mistake is easy to reintroduce
+# whenever new translated strings get added by hand across many locale
+# files at once.
+# ============================================
+def cmd_check_frontend
+  echo_info "Checking Blue Environment frontend (svelte-check only — no vite build)"
+  print_hr
+  unless File.directory?("node_modules")
+    echo_build "npm install (node_modules missing)"
+    unless run_cmd("npm install")
+      echo_error "npm install failed"
+      return false
+    end
+  end
+  echo_build "svelte-check --tsconfig ./tsconfig.json"
+  if run_cmd("npx svelte-check --tsconfig ./tsconfig.json")
+    echo_success "svelte-check passed"
+    true
+  else
+    echo_error "svelte-check failed (see file:line above)."
+    echo_warn  "If the error is in src/lib/translations/*.ts and mentions \"',' expected\"" \
+               " / \"Expression expected\" / \"shorthand property\": check for an" \
+               " apostrophe inside a single-quoted string value — use double quotes" \
+               " for that value instead (e.g. \"l'HDR\" not 'l'HDR')."
     false
   end
 end
@@ -138,8 +189,86 @@ def build_shell_binary
   end
 end
 
+# The compositor links directly against several native libraries
+# (libinput, libgbm/mesa, libudev, libseat, libxkbcommon, libdrm,
+# wayland) that Rust/cargo cannot install for you — they have to already
+# be present as system *development* packages (the `-dev`/`-devel`
+# variants with headers + linkable .so symlinks, not just the runtime
+# libraries most systems ship by default). Missing ones surface as a
+# late, cryptic linker error like:
+#   cannot find -linput: No such file or directory
+#   cannot find -lgbm: No such file or directory
+# after several minutes of otherwise-successful compilation — which is
+# confusing because it looks like a code/build-system problem when it's
+# actually just a missing system package. This checks up front via
+# pkg-config and fails fast with the exact install command for the
+# detected distro instead.
+COMPOSITOR_PKG_CONFIG_DEPS = {
+  "libinput"    => "libinput",
+  "gbm"         => "mesa/gbm (EGL/GBM)",
+  "libudev"     => "udev",
+  "libseat"     => "seatd/libseat",
+  "xkbcommon"   => "libxkbcommon",
+  "libdrm"      => "libdrm",
+  "wayland-server" => "wayland",
+}.freeze
+
+def detect_distro_family
+  return :unknown unless File.exist?("/etc/os-release")
+  os_release = File.read("/etc/os-release")
+  id_like = os_release[/^ID_LIKE=(.*)$/, 1].to_s.delete('"')
+  id      = os_release[/^ID=(.*)$/, 1].to_s.delete('"')
+  combined = "#{id} #{id_like}".downcase
+  return :debian  if combined.include?("debian") || combined.include?("ubuntu")
+  return :fedora  if combined.include?("fedora") || combined.include?("rhel")
+  return :arch    if combined.include?("arch")
+  return :suse    if combined.include?("suse")
+  return :alpine  if combined.include?("alpine")
+  :unknown
+end
+
+def compositor_install_hint
+  case detect_distro_family
+  when :debian
+    "sudo apt install pkg-config libinput-dev libgbm-dev libudev-dev libseat-dev libxkbcommon-dev libdrm-dev libwayland-dev libegl1-mesa-dev libgles2-mesa-dev"
+  when :fedora
+    "sudo dnf install pkgconf-pkg-config libinput-devel mesa-libgbm-devel systemd-devel libseat-devel libxkbcommon-devel libdrm-devel wayland-devel mesa-libEGL-devel mesa-libGLES-devel"
+  when :arch
+    "sudo pacman -S --needed pkgconf libinput mesa systemd-libs seatd libxkbcommon libdrm wayland"
+  when :suse
+    "sudo zypper install pkg-config libinput-devel Mesa-libgbm-devel libudev-devel libseat-devel libxkbcommon-devel libdrm-devel wayland-devel"
+  when :alpine
+    "sudo apk add pkgconf libinput-dev mesa-dev eudev-dev seatd-dev libxkbcommon-dev libdrm-dev wayland-dev"
+  else
+    "install development packages (headers + .so symlinks, e.g. '-dev'/'-devel' variants) for: libinput, mesa/gbm, libudev, libseat, libxkbcommon, libdrm, wayland"
+  end
+end
+
+def check_compositor_build_deps
+  unless system("which pkg-config > /dev/null 2>&1")
+    echo_error "pkg-config not found — needed to even check for the compositor's native dependencies."
+    echo_warn  "Install it first, e.g.: #{compositor_install_hint}"
+    return false
+  end
+
+  missing = COMPOSITOR_PKG_CONFIG_DEPS.keys.reject { |lib| system("pkg-config --exists #{lib} 2>/dev/null") }
+  return true if missing.empty?
+
+  echo_error "Missing native development libraries needed to build the compositor:"
+  missing.each { |lib| echo_warn "  - #{lib} (#{COMPOSITOR_PKG_CONFIG_DEPS[lib]})" }
+  echo_warn "Without these, cargo will compile for several minutes and then fail at the *linking* step"
+  echo_warn "with an error like 'cannot find -linput' / 'cannot find -lgbm' — this check exists to catch"
+  echo_warn "that up front instead. Install them with:"
+  puts "#{COLOR_BOLD}    #{compositor_install_hint}#{COLOR_RESET}"
+  false
+end
+
 def build_compositor_binary
   echo_build "cargo build — blue-compositor"
+  unless check_compositor_build_deps
+    echo_error "compositor build aborted — missing native dependencies (see above)"
+    return false
+  end
   if run_cmd("cargo build --release --manifest-path #{COMPOSITOR_MANIFEST}")
     echo_success "blue-compositor compiled"
     true
@@ -147,6 +276,37 @@ def build_compositor_binary
     echo_error "compositor build failed"
     false
   end
+end
+
+# ============================================
+# RUNTIME CHECK — things that aren't build-time deps but affect what
+# actually works once the compositor is running: an IME engine for the
+# ibus/fcitx5 bridge (protocols/input_method.rs on the compositor side),
+# and the i18n locale coverage in this shell's own translations/.
+# Advisory only — never blocks a build, since none of this is required to
+# compile or even to run (the compositor works fine with no IME running,
+# it just won't have a candidate window to show).
+# ============================================
+def check_ime_runtime
+  ibus = command_exists?("ibus-daemon") || command_exists?("ibus")
+  fcitx5 = command_exists?("fcitx5")
+  if ibus || fcitx5
+    echo_success "IME engine found (#{[("ibus" if ibus), ("fcitx5" if fcitx5)].compact.join(' + ')}) — candidate-window bridge in the compositor can attach to it"
+  else
+    echo_warn "No ibus or fcitx5 found on PATH. The compositor's IME candidate-window support " \
+              "(compositor/src/protocols/input_method.rs) has nothing to bridge to without one — " \
+              "install ibus (+ ibus-wayland, on distros that split it out) or fcitx5 to use CJK/other IME input."
+  end
+end
+
+def cmd_doctor
+  echo_info "Blue Environment — environment check"
+  print_hr
+  echo_build "Build-time native dependencies (compositor)"
+  check_compositor_build_deps
+  echo_build "Runtime: input method engine"
+  check_ime_runtime
+  print_hr
 end
 
 # The 'blue' CLI launcher is a self-contained Ruby script (launcher/main.rb)
@@ -279,6 +439,49 @@ def build_arch_pkg(label = "Arch Linux")
 end
 
 # ============================================
+# .apk — Alpine Linux package (abuild)
+# ============================================
+def build_apk(label = "Alpine")
+  unless command_exists?("abuild")
+    echo_error "abuild not found — install the 'alpine-sdk' package (on Alpine) to produce .apk files"
+    return false
+  end
+
+  root = "build/apk"
+  FileUtils.rm_rf(root)
+  FileUtils.mkdir_p(root)
+  FileUtils.cp(SHELL_BIN_PATH, "#{root}/blue-environment")
+  FileUtils.cp(COMPOSITOR_BIN_PATH, "#{root}/blue-compositor")
+  FileUtils.cp("blue", "#{root}/blue")
+  File.write("#{root}/blue-environment.desktop",
+    "[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/blue-environment\nIcon=/usr/share/Blue-Environment/icon.png\nType=Application\nCategories=System;\n")
+  File.write("#{root}/blue-environment-session.desktop",
+    "[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/lib/blue-compositor\nType=Application\nDesktopNames=Blue\n")
+  run_cmd("sed 's/@VERSION@/#{VERSION}/g' packaging/APKBUILD > #{root}/APKBUILD")
+
+  pwd = Dir.pwd
+  # abuild expects to run as a non-root build user with its own signing
+  # key (`abuild-keygen`) already set up — that setup is environment
+  # -specific (CI provisions it; see .github/workflows/build.yml's
+  # `alpine-musl` job) so it's assumed to already exist here rather than
+  # generated inline.
+  if run_cmd("cd #{root} && abuild-keygen -n -a 2>/dev/null; SRCDEST=#{pwd}/#{root} abuild -r")
+    echo_success "#{label} package → ~/packages/ (abuild's default output dir)"
+    true
+  else
+    echo_error "#{label} package build failed"
+    false
+  end
+end
+
+# ============================================
+# openSUSE / SLE — separate spec from Fedora (see packaging/opensuse/)
+# ============================================
+def build_opensuse_rpm(label = "openSUSE")
+  build_rpm("packaging/opensuse/blue-environment.spec", "rpmbuild/opensuse", label)
+end
+
+# ============================================
 # DESKTOP — shell + compositor, paczki .rpm (Fedora + LegendaryOS)
 # ============================================
 def cmd_build_desktop
@@ -314,6 +517,18 @@ def cmd_build_desktop
     echo_warn "makepkg not found — skipping Arch package (only available on Arch-based systems)"
   end
 
+  if command_exists?("abuild")
+    echo_build "packaging Alpine .apk"
+    results["Alpine .apk"] = build_apk
+  else
+    echo_warn "abuild not found — skipping .apk (only available on Alpine, needs the 'alpine-sdk' package)"
+  end
+
+  if command_exists?("rpmbuild") && File.exist?("/etc/os-release") && File.read("/etc/os-release").match?(/suse/i)
+    echo_build "packaging openSUSE .rpm"
+    results["openSUSE .rpm"] = build_opensuse_rpm
+  end
+
   if results.empty?
     echo_error "No packaging tool found (need at least one of: rpmbuild, dpkg-deb, makepkg)"
     exit 1
@@ -346,10 +561,16 @@ def cmd_build_packages(format = nil)
   when "arch", "pacman"
     exit 1 unless command_exists?("makepkg")
     build_arch_pkg
+  when "apk", "alpine"
+    exit 1 unless command_exists?("abuild")
+    build_apk
+  when "opensuse", "suse"
+    exit 1 unless command_exists?("rpmbuild")
+    build_opensuse_rpm
   when nil, "all"
     cmd_build_desktop
   else
-    echo_error "Unknown package format '#{format}'. Use: rpm, deb, arch"
+    echo_error "Unknown package format '#{format}'. Use: rpm, deb, arch, apk, opensuse"
     exit 1
   end
 end
@@ -770,8 +991,9 @@ when "BEDM", "bedm"
 when "compositor"
   cmd_build_compositor
 when "packages", "pkg"
-  # ruby build.rb packages [rpm|deb|arch]   (binaries must already be built —
-  # e.g. after `ruby build.rb shell` — this only (re)packages them)
+  # ruby build.rb packages [rpm|deb|arch|apk|opensuse]   (binaries must
+  # already be built — e.g. after `ruby build.rb shell` — this only
+  # (re)packages them)
   cmd_build_packages(ARGV[1])
 when "app"
   # ruby build.rb app <app_name>
@@ -790,6 +1012,10 @@ when "uninstall"
   cmd_uninstall
 when "clean"
   cmd_clean
+when "check"
+  exit(1) unless cmd_check_frontend
+when "doctor"
+  cmd_doctor
 when "help", "-h", "--help"
   cmd_help
 else
