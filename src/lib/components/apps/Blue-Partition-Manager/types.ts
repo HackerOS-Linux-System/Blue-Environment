@@ -13,6 +13,33 @@ export interface BpmDevice {
   children: BpmDevice[];
 }
 
+export interface SmartAttribute {
+  id: number;
+  name: string;
+  value: number;
+  worst: number;
+  threshold: number;
+  raw: string;
+  failing: boolean;
+}
+
+export interface SmartStatus {
+  available: boolean;
+  healthy: boolean | null;
+  temperature_celsius: number | null;
+  power_on_hours: number | null;
+  power_cycle_count: number | null;
+  attributes: SmartAttribute[];
+  model: string | null;
+  serial: string | null;
+  error: string | null;
+}
+
+export interface BenchmarkResult {
+  read_mb_per_sec: number;
+  sample_size_mb: number;
+}
+
 export const FS_OPTIONS = ['ext4', 'btrfs', 'xfs', 'fat32', 'ntfs', 'swap'] as const;
 export type FsOption = (typeof FS_OPTIONS)[number];
 
