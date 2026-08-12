@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Battery, Zap, Wind, Check } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
+  import { t } from '../../../../stores/language';
   import type { PowerProfile } from '../../../../types';
 
   let profile = 'balanced';
@@ -23,7 +24,7 @@
 </script>
 
 <div class="space-y-6">
-  <h2 class="text-2xl font-bold text-white">Power</h2>
+  <h2 class="text-2xl font-bold text-white">{$t('settings.power.title')}</h2>
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5">
     <div class="flex items-center gap-4">
       <div class="p-4 bg-blue-600/20 rounded-full">
@@ -31,12 +32,12 @@
       </div>
       <div>
         <div class="text-3xl font-bold text-white">{battery.percentage}%</div>
-        <div class="text-slate-400">{battery.charging ? 'Charging' : 'On battery'}</div>
+        <div class="text-slate-400">{battery.charging ? $t('settings.power.charging') : $t('settings.power.on_battery')}</div>
       </div>
     </div>
   </div>
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5">
-    <h3 class="text-lg font-semibold text-white mb-4">Power Profiles</h3>
+    <h3 class="text-lg font-semibold text-white mb-4">{$t('settings.power.profiles')}</h3>
     <div class="space-y-2">
       {#each profiles as p (p.name)}
         {@const Icon = iconFor(p.icon ?? 'Battery')}
