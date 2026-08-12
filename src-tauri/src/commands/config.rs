@@ -1,12 +1,11 @@
 use crate::types::*;
-use crate::{apps, cache, ai, packages, window_tracker};
+use crate::{cache};
 use crate::session;
 use crate::commands::misc::{clipboard_history_path, notifications_path};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use tokio::process::Command as TokioCommand;
-use serde::{Serialize, Deserialize};
 
 #[tauri::command]
 pub fn save_config(config: String) {
