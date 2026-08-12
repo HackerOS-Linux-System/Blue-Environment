@@ -1,10 +1,5 @@
 use crate::types::*;
-use crate::{apps, cache, ai, packages, window_tracker};
-use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
-use tokio::process::Command as TokioCommand;
-use serde::{Serialize, Deserialize};
 
 #[tauri::command]
 pub fn get_power_profiles() -> Vec<PowerProfile> {
