@@ -24,18 +24,39 @@ export function createPackages() {
   SystemBridge.invokeCommand<string>('get_detected_backend').then((b) => backend.set(b as PkgBackend)).catch(() => {});
   SystemBridge.invokeCommand<BootcStatus | null>('get_bootc_status').then((s) => bootcStatus.set(s)).catch(() => {});
 
+  // Backend calls are now bounded on the Rust side (see
+  // src-tauri/src/packages.rs::run_timeout — the actual fix for the bug
+  // where this spun forever, caused by unbounded `dnf`/`flatpak`/`zypper`
+  // shell-outs hanging when repos were unreachable). This frontend-side
+  // race is a second, independent safety net: even an unforeseen future
+  // hang can't freeze the UI past this — the user gets an actionable
+  // error instead of an infinite spinner.
+  const FRONTEND_LOAD_TIMEOUT_MS = 40_000;
+
   async function loadPackages() {
     loading.set(true);
     error.set(null);
+    let timedOut = false;
+    const timeoutGuard = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        timedOut = true;
+        reject(new Error('Package list took too long to load. This usually means a package repository is unreachable — check your network connection and try refreshing.'));
+      }, FRONTEND_LOAD_TIMEOUT_MS);
+    });
+
     try {
-      const [native, flatpak, appimage] = await Promise.all([
-        SystemBridge.invokeCommand<PackageInfo[]>('get_native_packages').catch((): PackageInfo[] => []),
-        SystemBridge.getFlatpakPackages().catch((): PackageInfo[] => []),
-        SystemBridge.getAppImagePackages().catch((): PackageInfo[] => []),
+      const [native, flatpak, appimage] = await Promise.race([
+        Promise.all([
+          SystemBridge.invokeCommand<PackageInfo[]>('get_native_packages').catch((): PackageInfo[] => []),
+          SystemBridge.getFlatpakPackages().catch((): PackageInfo[] => []),
+          SystemBridge.getAppImagePackages().catch((): PackageInfo[] => []),
+        ]),
+        timeoutGuard,
       ]);
       packages.set([...native, ...flatpak, ...appimage]);
     } catch (e: any) {
-      error.set(e?.message ?? String(e));
+      if (!timedOut) error.set(e?.message ?? String(e));
+      else error.set(e.message);
     } finally {
       loading.set(false);
     }
