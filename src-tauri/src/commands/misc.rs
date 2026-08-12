@@ -1,10 +1,6 @@
-use crate::types::*;
-use crate::{apps, cache, ai, packages, window_tracker};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use tokio::process::Command as TokioCommand;
-use serde::{Serialize, Deserialize};
 use tauri::Emitter;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -212,6 +208,9 @@ pub fn compositor_ipc_relay(app: tauri::AppHandle) {
                             Some("screenshot_ready")    => Some("compositor:screenshot-ready"),
                             Some("screen_locked")       => Some("compositor:screen-locked"),
                             Some("output_changed")      => Some("compositor:output-changed"),
+                            Some("ime_candidate_window") => Some("compositor:ime-candidate-window"),
+                            Some("hdr_state_changed")   => Some("compositor:hdr-state-changed"),
+                            Some("gpu_list")            => Some("compositor:gpu-list"),
                             _ => None,
                         }
                     } else {
