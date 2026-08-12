@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { UserConfig } from '../../../../types';
   import { applyNightLight, getGeoLocation, computeSunTimes, type GeoCoords } from '../display_helpers';
+  import { t } from '../../../../stores/language';
 
   export let config: UserConfig;
   export let onSave: (p: Partial<UserConfig>) => Promise<void>;
@@ -47,16 +48,16 @@
 </script>
 
 <div class="space-y-6">
-  <h2 class="text-2xl font-bold text-white">Night Light</h2>
+  <h2 class="text-2xl font-bold text-white">{$t('settings.nightlight.title')}</h2>
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-5">
     <div class="flex items-center justify-between">
-      <label class="text-sm font-medium text-slate-400">Night Light</label>
+      <label class="text-sm font-medium text-slate-400">{$t('settings.nightlight.title')}</label>
       <input type="checkbox" checked={config.nightLightEnabled ?? false} on:change={toggle} class="w-4 h-4 accent-blue-500" />
     </div>
 
     {#if config.nightLightEnabled}
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-1">Color Temperature (K)</label>
+        <label class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.nightlight.temperature')}</label>
         <input type="range" min="1000" max="10000" step="100" value={config.nightLightTemperature ?? 4000} on:change={changeTemp}
           class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-400" />
         <div class="flex justify-between text-xs text-slate-500 mt-1">
@@ -67,15 +68,15 @@
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-2">Schedule</label>
+        <label class="block text-sm font-medium text-slate-400 mb-2">{$t('settings.nightlight.schedule')}</label>
         <div class="flex gap-2">
           <button on:click={() => changeSchedule('manual')}
             class="flex-1 py-2 rounded-lg text-sm border {schedule === 'manual' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'border-white/10 text-slate-400 hover:bg-white/5'}">
-            Manual
+            {$t('settings.nightlight.manual')}
           </button>
           <button on:click={() => changeSchedule('sunset')}
             class="flex-1 py-2 rounded-lg text-sm border {schedule === 'sunset' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'border-white/10 text-slate-400 hover:bg-white/5'}">
-            Sunset to sunrise
+            {$t('settings.nightlight.sunset_to_sunrise')}
           </button>
         </div>
       </div>
@@ -83,27 +84,27 @@
       {#if schedule === 'sunset'}
         <div class="rounded-xl bg-slate-900/60 border border-white/5 p-3 text-xs text-slate-400 space-y-1.5">
           {#if geo && sunTimes}
-            <div class="flex justify-between"><span>Sunset today</span><span class="text-slate-200">{sunTimes.sunset}</span></div>
-            <div class="flex justify-between"><span>Sunrise tomorrow</span><span class="text-slate-200">{sunTimes.sunrise}</span></div>
-            <div class="text-[11px] text-slate-500 pt-1">Based on your device location ({geo.lat.toFixed(2)}, {geo.lon.toFixed(2)}). Recalculated automatically every day.</div>
+            <div class="flex justify-between"><span>{$t('settings.nightlight.sunset_today')}</span><span class="text-slate-200">{sunTimes.sunset}</span></div>
+            <div class="flex justify-between"><span>{$t('settings.nightlight.sunrise_tomorrow')}</span><span class="text-slate-200">{sunTimes.sunrise}</span></div>
+            <div class="text-[11px] text-slate-500 pt-1">{$t('settings.nightlight.location_based').replace('{lat}', geo.lat.toFixed(2)).replace('{lon}', geo.lon.toFixed(2))}</div>
           {:else if geoDenied}
-            <div class="text-amber-400">Location unavailable — using a fixed fallback window (19:00–07:00).</div>
-            <button on:click={resolveGeo} class="text-blue-400 hover:underline">Try location again</button>
+            <div class="text-amber-400">{$t('settings.nightlight.location_unavailable')}</div>
+            <button on:click={resolveGeo} class="text-blue-400 hover:underline">{$t('settings.nightlight.try_location_again')}</button>
           {:else}
-            <div>Resolving sunrise/sunset for your location…</div>
+            <div>{$t('settings.nightlight.resolving')}</div>
           {/if}
         </div>
       {:else}
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs text-slate-500 mb-1">Start hour</label>
+            <label class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.start_hour')}</label>
             <select value={config.nightLightStartHour ?? 20} on:change={(e) => changeHour('nightLightStartHour', e)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm">
               {#each Array(24) as _, h}<option value={h}>{String(h).padStart(2, '0')}:00</option>{/each}
             </select>
           </div>
           <div>
-            <label class="block text-xs text-slate-500 mb-1">End hour</label>
+            <label class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.end_hour')}</label>
             <select value={config.nightLightEndHour ?? 6} on:change={(e) => changeHour('nightLightEndHour', e)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm">
               {#each Array(24) as _, h}<option value={h}>{String(h).padStart(2, '0')}:00</option>{/each}
