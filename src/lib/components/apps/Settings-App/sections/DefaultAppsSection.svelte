@@ -2,20 +2,21 @@
   import { onMount } from 'svelte';
   import { Check, ChevronDown, FileText, Globe, Mail, Music, Film, Image, Archive, Code2, Terminal } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
+  import { t } from '../../../../stores/language';
 
-  interface AppRole { id: string; label: string; description: string; icon: any; mimeTypes: string[]; current: string | null; alternatives: AppOption[]; }
+  interface AppRole { id: string; labelKey: string; descKey: string; icon: any; mimeTypes: string[]; current: string | null; alternatives: AppOption[]; }
   interface AppOption { id: string; name: string; exec: string; icon?: string; }
 
   const ROLES: Omit<AppRole, 'current' | 'alternatives'>[] = [
-    { id: 'text', label: 'Text Editor', description: 'Default app to open plain text files', icon: FileText, mimeTypes: ['text/plain'] },
-    { id: 'web', label: 'Web Browser', description: 'Default app to open web links', icon: Globe, mimeTypes: ['text/html', 'x-scheme-handler/http', 'x-scheme-handler/https'] },
-    { id: 'mail', label: 'Mail Client', description: 'Default app for email links', icon: Mail, mimeTypes: ['x-scheme-handler/mailto'] },
-    { id: 'music', label: 'Music Player', description: 'Default app for audio files', icon: Music, mimeTypes: ['audio/mpeg', 'audio/ogg', 'audio/flac'] },
-    { id: 'video', label: 'Video Player', description: 'Default app for video files', icon: Film, mimeTypes: ['video/mp4', 'video/mkv', 'video/webm'] },
-    { id: 'image', label: 'Image Viewer', description: 'Default app to open images', icon: Image, mimeTypes: ['image/png', 'image/jpeg', 'image/webp'] },
-    { id: 'archive', label: 'Archive Manager', description: 'Default app for zip/tar files', icon: Archive, mimeTypes: ['application/zip', 'application/x-tar'] },
-    { id: 'code', label: 'Code Editor', description: 'Default app for source code files', icon: Code2, mimeTypes: ['text/x-python', 'text/x-csrc', 'text/x-script'] },
-    { id: 'terminal', label: 'Terminal', description: 'Default terminal emulator', icon: Terminal, mimeTypes: [] },
+    { id: 'text', labelKey: 'settings.defaultapps.role_text', descKey: 'settings.defaultapps.role_text_desc', icon: FileText, mimeTypes: ['text/plain'] },
+    { id: 'web', labelKey: 'settings.defaultapps.role_web', descKey: 'settings.defaultapps.role_web_desc', icon: Globe, mimeTypes: ['text/html', 'x-scheme-handler/http', 'x-scheme-handler/https'] },
+    { id: 'mail', labelKey: 'settings.defaultapps.role_mail', descKey: 'settings.defaultapps.role_mail_desc', icon: Mail, mimeTypes: ['x-scheme-handler/mailto'] },
+    { id: 'music', labelKey: 'settings.defaultapps.role_music', descKey: 'settings.defaultapps.role_music_desc', icon: Music, mimeTypes: ['audio/mpeg', 'audio/ogg', 'audio/flac'] },
+    { id: 'video', labelKey: 'settings.defaultapps.role_video', descKey: 'settings.defaultapps.role_video_desc', icon: Film, mimeTypes: ['video/mp4', 'video/mkv', 'video/webm'] },
+    { id: 'image', labelKey: 'settings.defaultapps.role_image', descKey: 'settings.defaultapps.role_image_desc', icon: Image, mimeTypes: ['image/png', 'image/jpeg', 'image/webp'] },
+    { id: 'archive', labelKey: 'settings.defaultapps.role_archive', descKey: 'settings.defaultapps.role_archive_desc', icon: Archive, mimeTypes: ['application/zip', 'application/x-tar'] },
+    { id: 'code', labelKey: 'settings.defaultapps.role_code', descKey: 'settings.defaultapps.role_code_desc', icon: Code2, mimeTypes: ['text/x-python', 'text/x-csrc', 'text/x-script'] },
+    { id: 'terminal', labelKey: 'settings.defaultapps.role_terminal', descKey: 'settings.defaultapps.role_terminal_desc', icon: Terminal, mimeTypes: [] },
   ];
 
   const BLUE_ALTS: Record<string, AppOption[]> = {
@@ -87,11 +88,11 @@
 </script>
 
 {#if loading}
-  <div class="flex items-center justify-center h-40 text-slate-500 text-sm">Loading default apps...</div>
+  <div class="flex items-center justify-center h-40 text-slate-500 text-sm">{$t('settings.defaultapps.loading')}</div>
 {:else}
   <div class="space-y-6">
-    <h2 class="text-2xl font-bold text-white">Default Apps</h2>
-    <p class="text-slate-500 text-sm -mt-4">Choose which app opens each type of file or link.</p>
+    <h2 class="text-2xl font-bold text-white">{$t('settings.defaultapps.title')}</h2>
+    <p class="text-slate-500 text-sm -mt-4">{$t('settings.defaultapps.desc')}</p>
 
     <div class="space-y-2">
       {#each roles as role (role.id)}
@@ -104,17 +105,17 @@
               <svelte:component this={role.icon} size={18} />
             </div>
             <div class="flex-1 text-left">
-              <div class="text-sm text-white font-medium">{role.label}</div>
+              <div class="text-sm text-white font-medium">{$t(role.labelKey)}</div>
               <div class="text-xs text-slate-500 mt-0.5">
                 {#if role.current}
                   <span class="text-blue-400">{role.alternatives.find((a) => a.id === role.current)?.name ?? role.current}</span>
                 {:else}
-                  <span class="text-slate-600">No default set</span>
+                  <span class="text-slate-600">{$t('settings.defaultapps.no_default')}</span>
                 {/if}
               </div>
             </div>
             {#if hasAlts}<ChevronDown size={14} class="text-slate-600 transition-transform {isOpen ? 'rotate-180' : ''}" />
-            {:else}<span class="text-xs text-slate-700 italic">No alternatives installed</span>{/if}
+            {:else}<span class="text-xs text-slate-700 italic">{$t('settings.defaultapps.no_alternatives')}</span>{/if}
           </button>
 
           {#if isOpen}
@@ -134,6 +135,6 @@
       {/each}
     </div>
 
-    <p class="text-xs text-slate-700">Default app changes are applied immediately via xdg-mime. Some apps may need to be restarted to pick up the change.</p>
+    <p class="text-xs text-slate-700">{$t('settings.defaultapps.applied_hint')}</p>
   </div>
 {/if}
