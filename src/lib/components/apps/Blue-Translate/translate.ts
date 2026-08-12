@@ -15,8 +15,14 @@ function loadHistory(): HistoryEntry[] {
  *  2. Native `translate-shell` via the Rust backend (BlueTranslateApp/mod.rs
  *     — src-tauri/src/BlueTranslateApp/), if the `trans` CLI is installed.
  *     No network service or API key required.
- *  3. The AI service already configured for Blue AI (Settings → aiConfig).
- *  4. None available → a clear, actionable error.
+ *  3. MyMemory (mymemory.translated.net) — a free, keyless public HTTP
+ *     translation API. Added so the app works out of the box on a fresh
+ *     install with only an internet connection: no local server to run,
+ *     no CLI to install, no API key to configure. Rate-limited (~5000
+ *     words/day per IP without an email param) but plenty for
+ *     interactive use.
+ *  4. The AI service already configured for Blue AI (Settings → aiConfig).
+ *  5. None available → a clear, actionable error.
  */
 async function callNativeTranslate(text: string, from: string, to: string): Promise<TranslateResult | null> {
   if (!SystemBridge.isTauri()) return null;
@@ -40,6 +46,52 @@ async function callLibreTranslate(text: string, from: string, to: string): Promi
     const data = await res.json();
     if (!data.translatedText) return null;
     return { text: data.translatedText, detectedLang: data.detectedLanguage?.language };
+  } catch {
+    return null;
+  }
+}
+
+/** MyMemory caps single requests at 500 bytes; longer text is chunked by
+ *  sentence and stitched back together so the app doesn't just fail on
+ *  a long paste. */
+const MYMEMORY_MAX_CHARS = 480;
+
+function chunkForMyMemory(text: string): string[] {
+  if (text.length <= MYMEMORY_MAX_CHARS) return [text];
+  const sentences = text.match(/[^.!?\n]+[.!?\n]*/g) ?? [text];
+  const chunks: string[] = [];
+  let current = '';
+  for (const s of sentences) {
+    if ((current + s).length > MYMEMORY_MAX_CHARS && current) {
+      chunks.push(current);
+      current = s;
+    } else {
+      current += s;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function callMyMemoryTranslate(text: string, from: string, to: string): Promise<TranslateResult | null> {
+  try {
+    const langpair = `${from === 'auto' ? 'autodetect' : from}|${to}`;
+    const chunks = chunkForMyMemory(text);
+    const translated: string[] = [];
+    let detected: string | undefined;
+
+    for (const chunk of chunks) {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(chunk)}&langpair=${encodeURIComponent(langpair)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const best = data?.responseData?.translatedText;
+      if (!best || data?.responseStatus === 403) return null;
+      translated.push(best);
+      detected = detected ?? data?.responseData?.detectedLanguage;
+    }
+
+    return { text: translated.join(' '), detectedLang: detected };
   } catch {
     return null;
   }
@@ -72,7 +124,7 @@ export function createTranslateState() {
   const toLang = writable('en');
   const loading = writable(false);
   const error = writable<string | null>(null);
-  const backend = writable<'libretranslate' | 'native' | 'ai' | null>(null);
+  const backend = writable<'libretranslate' | 'native' | 'mymemory' | 'ai' | null>(null);
   const history = writable<HistoryEntry[]>(loadHistory());
 
   function saveHistory(entry: HistoryEntry) {
@@ -98,8 +150,12 @@ export function createTranslateState() {
       result = await callNativeTranslate(text, from, to);
       if (result) backend.set('native');
       else {
-        result = await callAiTranslate(text, from, to);
-        if (result) backend.set('ai');
+        result = await callMyMemoryTranslate(text, from, to);
+        if (result) backend.set('mymemory');
+        else {
+          result = await callAiTranslate(text, from, to);
+          if (result) backend.set('ai');
+        }
       }
     }
 
