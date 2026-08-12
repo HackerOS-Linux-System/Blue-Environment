@@ -4,12 +4,15 @@ extern crate libc;
 
 mod types;
 mod commands;
+mod logging;
 
 mod session;
 mod cache;
 mod apps;
 mod window_tracker;
 mod ai;
+mod weather;
+mod parental_controls;
 mod packages;
 mod icon_resolver;
 #[path = "CameraApp/mod.rs"]
@@ -18,6 +21,8 @@ mod camera_app;
 mod blue_web_app;
 #[path = "BlueCodeApp/mod.rs"]
 mod blue_code_app;
+#[path = "BlueCalendarApp/mod.rs"]
+mod blue_calendar_app;
 #[path = "TerminalApp/mod.rs"]
 mod terminal_app;
 use terminal_app::{spawn_terminal, write_to_terminal, pty_create, pty_write, pty_resize, pty_close};
@@ -25,6 +30,8 @@ use terminal_app::{spawn_terminal, write_to_terminal, pty_create, pty_write, pty
 mod exploler_app;
 #[path = "BluePartitionManager/mod.rs"]
 mod blue_partition_manager;
+#[path = "BluePlayApp/mod.rs"]
+mod blue_play_app;
 #[path = "SettingsApp/mod.rs"]
 #[allow(non_snake_case)]
 mod SettingsApp;
@@ -44,10 +51,14 @@ mod blue_translate_app;
 #[path = "BlueInstallerApp/mod.rs"]
 mod blue_installer_app;
 
-use cache::CachedApp;
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
-use blue_web_app::{web_open_native, web_fetch_site_info};
+use blue_web_app::{
+    web_open_native, web_fetch_site_info,
+    web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
+    web_view_set_visible, web_view_close, WebViewRegistry,
+};
 use blue_code_app::{start_language_server, stop_language_server};
+use blue_calendar_app::{calendar_load_events, calendar_save_event, calendar_delete_event};
 use blue_translate_app::translate_text;
 use blue_installer_app::{installer_list_disks, installer_run};
 
@@ -71,7 +82,6 @@ use blue_installer_app::{installer_list_disks, installer_run};
 // glob `use` so the invoke_handler! list further down didn't need to change
 // at all — same command names, same behavior, just organized into smaller
 // files.
-use types::*;
 use commands::session::*;
 use commands::system_stats::*;
 use commands::network::*;
@@ -83,6 +93,13 @@ use commands::packages::*;
 use commands::misc::*;
 
 fn main() {
+    // Must be first — everything below this point may log, and before
+    // this call every `tracing::*!` in the codebase was a silent no-op
+    // (see logging.rs's module doc for why). The guard has to live for
+    // the whole process; binding it to `_guard` (not `_`) keeps it alive
+    // until `main` returns instead of dropping it immediately.
+    let _log_guard = logging::init();
+
     cache::ensure_dirs();
 
     let config = cache::load_user_config();
@@ -94,6 +111,7 @@ fn main() {
 
     tauri::Builder::default()
     .manage(terminal_app::new_pty_sessions())
+    .manage(WebViewRegistry::default())
     // These 6 plugins were never registered in the old main.rs (it had
     // ZERO .plugin() calls despite the frontend depending on several of
     // them directly — e.g. every SystemBridge.pickFile/pickDirectory call
@@ -124,7 +142,7 @@ fn main() {
         system_monitor_app::kill_process,
         system_monitor_app::renice_process,
         read_config_file, write_config_file, read_cache_file, write_cache_file,
-        blue_screenshot::take_screenshot, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
+        blue_screenshot::take_screenshot, blue_screenshot::default_screenshot_path, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
         get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
         get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi,
         get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair,
@@ -138,12 +156,23 @@ fn main() {
         set_night_light_enabled, set_night_light_temperature,
         get_notification_history, save_notification_history,
         get_custom_themes, save_custom_theme, delete_custom_theme,
-        ai_call, get_ai_config, save_ai_config,
+        ai_call, get_ai_config, save_ai_config, check_ollama_status, install_ollama,
+        weather::get_weather,
+        parental_controls::parental_controls_get,
+        parental_controls::parental_controls_is_pin_set,
+        parental_controls::parental_controls_set_pin,
+        parental_controls::parental_controls_verify_pin,
+        parental_controls::parental_controls_set_enabled,
+        parental_controls::parental_controls_set_blocked_apps,
+        parental_controls::parental_controls_set_daily_limit,
+        parental_controls::parental_controls_set_allowed_hours,
+        parental_controls::parental_controls_check_launch,
+        parental_controls::parental_controls_record_usage,
         get_dnf_packages, get_flatpak_packages, get_appimage_packages,
         install_dnf_package, remove_dnf_package, update_dnf_package,
         get_native_packages, get_detected_backend,
         install_native_package, remove_native_package,
-        get_bootc_status, bootc_upgrade, bootc_switch_image,
+        get_bootc_status, bootc_upgrade, bootc_switch_image, rpm_ostree_upgrade,
         install_flatpak_package, remove_flatpak_package, update_flatpak_package,
         install_appimage, remove_appimage, update_appimage,
         set_panel_enabled,
@@ -153,15 +182,20 @@ fn main() {
         blue_partition_manager::bpm_list_devices, blue_partition_manager::bpm_mount,
         blue_partition_manager::bpm_unmount, blue_partition_manager::bpm_format,
         blue_partition_manager::bpm_set_label,
+        blue_partition_manager::bpm_smart_status, blue_partition_manager::bpm_benchmark_read,
+        blue_play_app::bpg_detect_runtimes, blue_play_app::bpg_launch_native, blue_play_app::bpg_launch_windows,
         list_icon_themes, set_icon_theme,
         has_cellular_modem, get_cellular_status, set_cellular_enabled,
         save_pattern_lock, delete_pattern_lock, pattern_is_configured, has_fingerprint,
         camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video,
         web_open_native, web_fetch_site_info,
+        web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
+        web_view_set_visible, web_view_close,
         start_language_server, stop_language_server,
+        calendar_load_events, calendar_save_event, calendar_delete_event,
         blue_archive_app::archive_list, blue_archive_app::archive_extract, blue_archive_app::archive_create,
         mail_app::mail_get_accounts, mail_app::mail_save_account, mail_app::mail_delete_account,
-        mail_app::mail_fetch_inbox, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
+        mail_app::mail_fetch_inbox, mail_app::mail_fetch_body, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
         // SettingsApp backend commands
         SettingsApp::settings_get_displays,
         SettingsApp::settings_set_brightness,
