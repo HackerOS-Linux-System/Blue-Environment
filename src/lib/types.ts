@@ -22,6 +22,8 @@ export enum AppId {
   BLUE_INSTALLER = 'blue_installer',
   BLUE_PARTITION_MANAGER = 'blue_partition_manager',
   CAMERA = 'camera',
+  BLUE_PLAY = 'blue_play',
+  BLUE_CALENDAR = 'blue_calendar',
   EXTERNAL = 'external',
 }
 
@@ -67,6 +69,11 @@ export interface WindowState {
   workspace: number;
   externalWindowId?: string;
   pid?: number;
+  /** Extra data passed to the app at launch time — e.g. `{ openPath }`
+   * so Notepad/Blue Code can open a specific file immediately instead
+   * of starting empty. Spread onto the app component's props alongside
+   * `windowId` (see App.svelte). */
+  launchArgs?: Record<string, unknown>;
 }
 
 export interface AppsEnabled {
@@ -87,6 +94,13 @@ export interface AIConfig {
   service: string;
   model: string;
   apiKey: string;
+  /** True once the user has been through the provider/model picker at
+   * least once. Used to decide whether to show the Setup screen again
+   * on next open. */
+  configured?: boolean;
+  /** If false, Blue AI shows the Setup screen every time it's opened
+   * instead of remembering the last choice. */
+  rememberChoice?: boolean;
 }
 
 export interface UserConfig {
@@ -117,6 +131,21 @@ export interface UserConfig {
   weatherUnit?: 'celsius' | 'fahrenheit';
   clipboardHoverPreviewEnabled?: boolean;
   networkHoverInfoEnabled?: boolean;
+  /** App IDs pinned to the center of the panel. Previously only settable
+   * by hand-editing the config file — now has real Settings UI (see
+   * PanelSection.svelte). */
+  pinnedApps?: string[];
+  /** Which app opens when you double-click a text file in Explorer.
+   * Previously this always fell back to a read-only preview pane inside
+   * Explorer itself — never a real editor. */
+  defaultTextEditor?: 'notepad' | 'blue_code';
+  /** Per-game stats for Blue Play's built-in original games, keyed by
+   * game id (e.g. 'snake', '2048'). Also used for external games (see
+   * blueGamesLibrary) so both share one recently-played/high-score model. */
+  blueGames?: Record<string, { highScore: number; playCount: number; lastPlayed?: string; playtimeSeconds?: number }>;
+  /** User-added external games (native Linux binaries or Windows .exe
+   * run through Wine/Proton/umu), managed from Blue Play's Library tab. */
+  blueGamesLibrary?: BlueGameLibraryEntry[];
 }
 
 export interface ThemeDefinition {
@@ -169,6 +198,19 @@ export interface SystemStats {
   diskUsage?: string;
   gpuModel?: string;
   hostname?: string;
+}
+
+export interface BlueGameLibraryEntry {
+  id: string;
+  title: string;
+  kind: 'native' | 'windows';
+  execPath: string;
+  /** Only meaningful for kind === 'windows': which runtime to launch it
+   * with, and that runtime's resolved binary path (for Proton, which
+   * needs a specific version's binary, not just "proton" on PATH). */
+  runtime?: 'wine' | 'proton' | 'umu';
+  runtimePath?: string;
+  addedAt: string;
 }
 
 export interface AIMessage {
