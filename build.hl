@@ -1,1 +1,1035 @@
+#!/usr/bin/env hl
+/// Blue Environment Build System — Hacker Lang port
+using <gen 2>
 
+# <main/colors>
+# <main/sys>
+# <main/fs>
+
+;; ============================================
+;; KONFIGURACJA
+;; ============================================
+% BLUE_SHARE: str = /usr/share/Blue-Environment
+% BLUE_LIBS: str  = /usr/share/Blue-Environment/lib
+% BLUE_APPS: str  = /usr/share/Blue-Environment/apps
+% BLUE_WALLS: str = /usr/share/Blue-Environment/wallpapers
+% VERSION: str    = 0.7.0
+% SHELL_MANIFEST: str     = src-tauri/Cargo.toml
+% COMPOSITOR_MANIFEST: str = compositor/Cargo.toml
+% SHELL_BIN_PATH: str     = target/release/blue-environment
+% COMPOSITOR_BIN_PATH: str = compositor/target/release/blue-compositor
+% DEB_CONTROL_DIR: str    = packaging/blue-environment-debian
+
+;; ============================================
+;; FUNKCJE POMOCNICZE
+;; ============================================
+
+: check_root def
+    > id -u |> @uid
+    ? switch @uid
+    | 0
+        ;; root OK
+    | *
+        ::red ✗ This command requires root privileges
+        > exit 1
+    done
+done
+
+: echo_info def
+    ::cyan @_1
+done
+
+: echo_success def
+    ::green  ✓ @_1
+done
+
+: echo_error def
+    ::red  ✗ @_1
+done
+
+: echo_warn def
+    ::yellow  ! @_1
+done
+
+: echo_build def
+    ~> → @_1
+done
+
+: print_hr def
+    % len: int = 56
+    ? switch @_1
+    | 
+        ;; domyślna długość
+    | *
+        % len: int = @_1
+    done
+    ::hr @len
+done
+
+: command_exists def
+    > which @_1 > /dev/null 2>&1
+    ? ok
+        % exists: bool = true
+    done
+    ? err
+        % exists: bool = false
+    done
+done
+
+;; ============================================
+;; HELP
+;; ============================================
+: cmd_help def
+    -- print_hr
+    ~> Blue Environment v@VERSION — Build System
+    -- print_hr
+    ~>  hl build.hl                  Show this list
+    ~>  hl build.hl desktop          Build shell + compositor, package .rpm + .deb + Arch
+    ~>                               (auto-detects rpmbuild / dpkg-deb / makepkg)
+    ~>  hl build.hl shell            npm install + npm run tauri build (fastest)
+    ~>  hl build.hl shell debian     Shell build — Blue Software uses APT backend
+    ~>  hl build.hl shell arch       Shell build — Blue Software uses Pacman backend
+    ~>  hl build.hl shell fedora     Shell build — Blue Software uses DNF backend
+    ~>  hl build.hl shell opensuse   Shell build — Blue Software uses Zypper backend
+    ~>  hl build.hl shell rpm-ostree Shell build — Blue Software uses rpm-ostree backend
+    ~>  hl build.hl android          Build the Android / mobile shell (.apk)
+    ~>                               Requires ANDROID_HOME or ~/Android/Sdk
+    ~>  hl build.hl tv               Build the TV / Big Picture shell
+    ~>                               10-foot UI, gamepad navigation
+    ~>  hl build.hl BEDM             Build BEDM (Blue Environment Display Manager)
+    ~>  hl build.hl compositor       Build only the Wayland compositor
+    ~>  hl build.hl packages [fmt]   Package already-built binaries only
+    ~>                               fmt = rpm | deb | arch | apk | opensuse (default: all)
+    ~>  hl build.hl app <name>       Build one Blue app standalone
+    ~>  hl build.hl app              List all standalone-buildable apps
+    ~>  hl build.hl all              Build compositor + desktop shell (no packages)
+    -- print_hr
+    ~>  hl build.hl check            svelte-check only (fast)
+    ~>  hl build.hl doctor           Check build-time deps + IME runtime
+    -- print_hr
+    ~>  Maintenance:
+    ~>  install                      Install the desktop build (sudo)
+    ~>  uninstall                    Remove it from the system (sudo)
+    ~>  clean                        Remove build artifacts
+    -- print_hr
+done
+
+;; ============================================
+;; FRONTEND + SHELL + COMPOSITOR
+;; ============================================
+: build_frontend def
+    > test -d node_modules
+    ? err
+        -- echo_build "npm install"
+        > npm install
+        ? err
+            -- echo_error "npm install failed"
+            % ok: bool = false
+            -- return
+        done
+    done
+
+    -- echo_build "npm run build (svelte-check + vite)"
+    > npm run build
+    ? ok
+        -- echo_success "frontend build complete"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "frontend build failed"
+        -- echo_warn "Run 'hl build.hl check' for just the svelte-check step"
+        % ok: bool = false
+    done
+done
+
+: cmd_check_frontend def
+    -- echo_info "Checking Blue Environment frontend (svelte-check only)"
+    -- print_hr
+
+    > test -d node_modules
+    ? err
+        -- echo_build "npm install (node_modules missing)"
+        > npm install
+        ? err
+            -- echo_error "npm install failed"
+            % ok: bool = false
+            -- return
+        done
+    done
+
+    -- echo_build "svelte-check --tsconfig ./tsconfig.json"
+    > npx svelte-check --tsconfig ./tsconfig.json
+    ? ok
+        -- echo_success "svelte-check passed"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "svelte-check failed (see file:line above)"
+        -- echo_warn "If the error is in src/lib/translations/*.ts check for apostrophe inside single-quoted string"
+        % ok: bool = false
+    done
+done
+
+: build_shell_binary def
+    -- echo_build "cargo build — blue-environment (shell)"
+    > cargo build --release --manifest-path @SHELL_MANIFEST
+    ? ok
+        -- echo_success "blue-environment compiled"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "shell build failed"
+        % ok: bool = false
+    done
+done
+
+: detect_distro_family def
+    > test -f /etc/os-release
+    ? err
+        % family: str = unknown
+        -- return
+    done
+
+    > grep -E '^ID=|^ID_LIKE=' /etc/os-release | tr -d '"' | tr '\n' ' ' |> @combined
+    ::lower @combined |> @combined
+
+    ? switch @combined
+    | *debian* *ubuntu*
+        % family: str = debian
+    | *fedora* *rhel*
+        % family: str = fedora
+    | *arch*
+        % family: str = arch
+    | *suse*
+        % family: str = suse
+    | *alpine*
+        % family: str = alpine
+    | *
+        % family: str = unknown
+    done
+done
+
+: compositor_install_hint def
+    -- detect_distro_family
+    ? switch @family
+    | debian
+        % hint: str = "sudo apt install pkg-config libinput-dev libgbm-dev libudev-dev libseat-dev libxkbcommon-dev libdrm-dev libwayland-dev libegl1-mesa-dev libgles2-mesa-dev"
+    | fedora
+        % hint: str = "sudo dnf install pkgconf-pkg-config libinput-devel mesa-libgbm-devel systemd-devel libseat-devel libxkbcommon-devel libdrm-devel wayland-devel mesa-libEGL-devel mesa-libGLES-devel"
+    | arch
+        % hint: str = "sudo pacman -S --needed pkgconf libinput mesa systemd-libs seatd libxkbcommon libdrm wayland"
+    | suse
+        % hint: str = "sudo zypper install pkg-config libinput-devel Mesa-libgbm-devel libudev-devel libseat-devel libxkbcommon-devel libdrm-devel wayland-devel"
+    | alpine
+        % hint: str = "sudo apk add pkgconf libinput-dev mesa-dev eudev-dev seatd-dev libxkbcommon-dev libdrm-dev wayland-dev"
+    | *
+        % hint: str = "install development packages for: libinput, mesa/gbm, libudev, libseat, libxkbcommon, libdrm, wayland"
+    done
+done
+
+: check_compositor_build_deps def
+    > which pkg-config > /dev/null 2>&1
+    ? err
+        -- echo_error "pkg-config not found"
+        -- compositor_install_hint
+        -- echo_warn "Install it first, e.g.: @hint"
+        % ok: bool = false
+        -- return
+    done
+
+    % missing: str = 
+    @ lib in libinput gbm libudev libseat xkbcommon libdrm wayland-server
+        > pkg-config --exists @lib 2>/dev/null
+        ? err
+            % missing: str = @missing @lib
+        done
+    done
+
+    ? switch @missing
+    | 
+        % ok: bool = true
+    | *
+        -- echo_error "Missing native development libraries needed to build the compositor:"
+        @ lib in @missing
+            -- echo_warn " - @lib"
+        done
+        -- compositor_install_hint
+        ~> @hint
+        % ok: bool = false
+    done
+done
+
+: build_compositor_binary def
+    -- echo_build "cargo build — blue-compositor"
+    -- check_compositor_build_deps
+    ? switch @ok
+    | false
+        -- echo_error "compositor build aborted — missing native dependencies"
+        % ok: bool = false
+        -- return
+    done
+
+    > cargo build --release --manifest-path @COMPOSITOR_MANIFEST
+    ? ok
+        -- echo_success "blue-compositor compiled"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "compositor build failed"
+        % ok: bool = false
+    done
+done
+
+: check_ime_runtime def
+    > which ibus-daemon > /dev/null 2>&1 || which ibus > /dev/null 2>&1
+    ? ok
+        % has_ibus: bool = true
+    done
+    ? err
+        % has_ibus: bool = false
+    done
+
+    > which fcitx5 > /dev/null 2>&1
+    ? ok
+        % has_fcitx: bool = true
+    done
+    ? err
+        % has_fcitx: bool = false
+    done
+
+    ? switch @has_ibus
+    | true
+        -- echo_success "IME engine found (ibus) — candidate-window bridge can attach"
+    done
+    ? switch @has_fcitx
+    | true
+        -- echo_success "IME engine found (fcitx5) — candidate-window bridge can attach"
+    done
+    ? switch @has_ibus
+    | false
+        ? switch @has_fcitx
+        | false
+            -- echo_warn "No ibus or fcitx5 found. Install one for CJK/IME support"
+        done
+    done
+done
+
+: cmd_doctor def
+    -- echo_info "Blue Environment — environment check"
+    -- print_hr
+    -- echo_build "Build-time native dependencies (compositor)"
+    -- check_compositor_build_deps
+    -- echo_build "Runtime: input method engine"
+    -- check_ime_runtime
+    -- print_hr
+done
+
+: build_launcher_cli def
+    -- echo_build "staging blue CLI launcher (main.rb + src/)"
+    > test -f launcher/main.rb
+    ? err
+        -- echo_error "launcher/main.rb missing — skipping CLI"
+        % ok: bool = false
+        -- return
+    done
+
+    > mkdir -p staging/blue
+    > cp launcher/main.rb staging/blue/main.rb
+    > cp -r launcher/src staging/blue/src
+    > cp launcher/blue blue
+    > chmod 0755 blue
+    -- echo_success "blue CLI staged (staging/blue/ + blue wrapper)"
+    % ok: bool = true
+done
+
+;; ============================================
+;; PACKAGING
+;; ============================================
+: stage_rpm_sources def
+    % topdir: str = @_1
+    > mkdir -p @topdir/SOURCES
+    > cp @SHELL_BIN_PATH @topdir/SOURCES/blue-environment
+    > cp @COMPOSITOR_BIN_PATH @topdir/SOURCES/blue-compositor
+    > cp blue @topdir/SOURCES/blue
+done
+
+: build_rpm def
+    % spec_path: str = @_1
+    % topdir: str    = @_2
+    % label: str     = @_3
+
+    > mkdir -p @topdir/BUILD @topdir/RPMS @topdir/SOURCES @topdir/SPECS @topdir/SRPMS
+    -- stage_rpm_sources @topdir
+
+    > sed "s/@VERSION@/@VERSION/g" @spec_path > @topdir/SPECS/blue-environment.spec
+    > pwd |> @pwd
+    > rpmbuild -bb @topdir/SPECS/blue-environment.spec --define "_topdir @pwd/@topdir"
+    ? ok
+        -- echo_success "@label RPM → @topdir/RPMS/"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "@label RPM build failed"
+        % ok: bool = false
+    done
+done
+
+: stage_deb_tree def
+    % root: str = @_1
+    > rm -rf @root
+    > mkdir -p @root/DEBIAN
+    > mkdir -p @root/usr/share/Blue-Environment/lib/blue/src
+    > mkdir -p @root/usr/share/wayland-sessions
+    > mkdir -p @root/usr/share/applications
+    > mkdir -p @root/usr/local/bin
+
+    > install -m 0755 @SHELL_BIN_PATH @root/usr/share/Blue-Environment/blue-environment
+    > install -m 0755 @COMPOSITOR_BIN_PATH @root/usr/share/Blue-Environment/lib/blue-compositor
+    > install -m 0755 blue @root/usr/local/bin/blue
+    > install -m 0644 launcher/main.rb @root/usr/share/Blue-Environment/lib/blue/main.rb
+    > cp -r launcher/src/. @root/usr/share/Blue-Environment/lib/blue/src
+
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/lib/blue-compositor\nType=Application\nDesktopNames=Blue\n' > @root/usr/share/wayland-sessions/blue-environment.desktop
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/blue-environment\nIcon=/usr/share/Blue-Environment/icon.png\nType=Application\nCategories=System;\n' > @root/usr/share/applications/blue-environment.desktop
+done
+
+: build_deb def
+    > which dpkg-deb > /dev/null 2>&1
+    ? err
+        -- echo_error "dpkg-deb not found — install dpkg-dev"
+        % ok: bool = false
+        -- return
+    done
+
+    % root: str = build/deb/blue-environment
+    -- stage_deb_tree @root
+
+    > cat @DEB_CONTROL_DIR/control |> @control_src
+    ;; uproszczone — w pełnej wersji trzeba wyciągnąć ostatnią stanzę
+    > echo "Version: @VERSION" >> @root/DEBIAN/control
+    > test -f @DEB_CONTROL_DIR/postinst
+    ? ok
+        > install -m 0755 @DEB_CONTROL_DIR/postinst @root/DEBIAN/postinst
+    done
+
+    > mkdir -p dist
+    % out: str = dist/blue-environment_@VERSION_amd64.deb
+    > dpkg-deb --root-owner-group --build @root @out
+    ? ok
+        -- echo_success "Debian/Ubuntu DEB → @out"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "DEB build failed"
+        % ok: bool = false
+    done
+done
+
+: build_arch_pkg def
+    > which makepkg > /dev/null 2>&1
+    ? err
+        -- echo_error "makepkg not found — only on Arch-based systems"
+        % ok: bool = false
+        -- return
+    done
+
+    % pkgdir: str = build/arch
+    > mkdir -p @pkgdir
+    > cp @SHELL_BIN_PATH @pkgdir/blue-environment
+    > cp @COMPOSITOR_BIN_PATH @pkgdir/blue-compositor
+    > cp blue @pkgdir/blue
+
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/blue-environment\nIcon=/usr/share/Blue-Environment/icon.png\nType=Application\nCategories=System;\n' > @pkgdir/blue-environment.desktop
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/lib/blue-compositor\nType=Application\nDesktopNames=Blue\n' > @pkgdir/blue-environment-session.desktop
+
+    > sed "s/@VERSION@/@VERSION/g" packaging/PKGBUILD > @pkgdir/PKGBUILD
+    > pwd |> @pwd
+    > cd @pkgdir && makepkg -f --skipinteg SRCDEST=@pwd/@pkgdir
+    ? ok
+        -- echo_success "Arch package → @pkgdir/*.pkg.tar.zst"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "Arch package build failed"
+        % ok: bool = false
+    done
+done
+
+: build_apk def
+    > which abuild > /dev/null 2>&1
+    ? err
+        -- echo_error "abuild not found — install alpine-sdk"
+        % ok: bool = false
+        -- return
+    done
+
+    % root: str = build/apk
+    > rm -rf @root
+    > mkdir -p @root
+    > cp @SHELL_BIN_PATH @root/blue-environment
+    > cp @COMPOSITOR_BIN_PATH @root/blue-compositor
+    > cp blue @root/blue
+
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/blue-environment\nIcon=/usr/share/Blue-Environment/icon.png\nType=Application\nCategories=System;\n' > @root/blue-environment.desktop
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=/usr/share/Blue-Environment/lib/blue-compositor\nType=Application\nDesktopNames=Blue\n' > @root/blue-environment-session.desktop
+
+    > sed "s/@VERSION@/@VERSION/g" packaging/APKBUILD > @root/APKBUILD
+    > pwd |> @pwd
+    > cd @root && abuild-keygen -n -a 2>/dev/null ; SRCDEST=@pwd/@root abuild -r
+    ? ok
+        -- echo_success "Alpine package → ~/packages/"
+        % ok: bool = true
+    done
+    ? err
+        -- echo_error "Alpine package build failed"
+        % ok: bool = false
+    done
+done
+
+: build_opensuse_rpm def
+    -- build_rpm packaging/opensuse/blue-environment.spec rpmbuild/opensuse openSUSE
+done
+
+;; ============================================
+;; GŁÓWNE KOMENDY BUDOWANIA
+;; ============================================
+: cmd_build_desktop def
+    -- echo_info "Building Blue Environment v@VERSION — Desktop (all installable package formats)"
+    -- build_frontend
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_shell_binary
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_compositor_binary
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_launcher_cli
+
+    > which rpmbuild > /dev/null 2>&1
+    ? ok
+        -- echo_build "packaging Fedora .rpm"
+        -- build_rpm packaging/blue-environment-fedora.spec rpmbuild/fedora Fedora
+        -- echo_build "packaging LegendaryOS .rpm"
+        -- build_rpm packaging/blue-environment-legendaryos.spec rpmbuild/legendaryos LegendaryOS
+    done
+    ? err
+        -- echo_warn "rpmbuild not found — skipping .rpm"
+    done
+
+    > which dpkg-deb > /dev/null 2>&1
+    ? ok
+        -- echo_build "packaging .deb"
+        -- build_deb
+    done
+    ? err
+        -- echo_warn "dpkg-deb not found — skipping .deb"
+    done
+
+    > which makepkg > /dev/null 2>&1
+    ? ok
+        -- echo_build "packaging Arch .pkg.tar.zst"
+        -- build_arch_pkg
+    done
+    ? err
+        -- echo_warn "makepkg not found — skipping Arch package"
+    done
+
+    > which abuild > /dev/null 2>&1
+    ? ok
+        -- echo_build "packaging Alpine .apk"
+        -- build_apk
+    done
+    ? err
+        -- echo_warn "abuild not found — skipping .apk"
+    done
+
+    > test -f /etc/os-release && grep -qi suse /etc/os-release
+    ? ok
+        > which rpmbuild > /dev/null 2>&1
+        ? ok
+            -- echo_build "packaging openSUSE .rpm"
+            -- build_opensuse_rpm
+        done
+    done
+
+    -- print_hr
+    ::green ✓ Desktop build complete
+    -- print_hr
+done
+
+: cmd_build_packages def
+    % format: str = @_1
+    ? switch @format
+    | rpm
+        > which rpmbuild > /dev/null 2>&1
+        ? err
+            > exit 1
+        done
+        -- build_rpm packaging/blue-environment-fedora.spec rpmbuild/fedora Fedora
+        -- build_rpm packaging/blue-environment-legendaryos.spec rpmbuild/legendaryos LegendaryOS
+    | deb
+        > which dpkg-deb > /dev/null 2>&1
+        ? err
+            > exit 1
+        done
+        -- build_deb
+    | arch
+    | pacman
+        > which makepkg > /dev/null 2>&1
+        ? err
+            > exit 1
+        done
+        -- build_arch_pkg
+    | apk
+    | alpine
+        > which abuild > /dev/null 2>&1
+        ? err
+            > exit 1
+        done
+        -- build_apk
+    | opensuse
+    | suse
+        > which rpmbuild > /dev/null 2>&1
+        ? err
+            > exit 1
+        done
+        -- build_opensuse_rpm
+    | 
+    | all
+        -- cmd_build_desktop
+    | *
+        -- echo_error "Unknown package format '@format'. Use: rpm, deb, arch, apk, opensuse"
+        > exit 1
+    done
+done
+
+: cmd_build_tv def
+    -- echo_info "Building Blue Environment v@VERSION — TV / Big Picture Shell"
+    => VITE_BLUE_UI_MODE = bigpicture
+    => VITE_BLUE_ALTERNATIVE = tv
+    -- echo_build "UI mode: VITE_BLUE_UI_MODE=bigpicture, VITE_BLUE_ALTERNATIVE=tv"
+
+    > test -f src/alternatives/tv/main.tsx
+    ? err
+        -- echo_error "TV shell not found — see STATUS.md"
+        > exit 1
+    done
+
+    -- echo_build "npm install (if needed)"
+    > npm install --prefer-offline 2>/dev/null || npm install
+
+    -- echo_build "Copying icon assets"
+    > mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png 2>/dev/null || true
+
+    -- echo_build "npm run build — TV shell"
+    > npm run build
+    ? err
+        -- echo_error "TV frontend build failed"
+        > exit 1
+    done
+    -- echo_success "TV frontend built"
+
+    -- echo_build "cargo build — Tauri shell binary (TV)"
+    > cd src-tauri && cargo build --release
+    ? err
+        -- echo_error "Shell binary build failed"
+        > exit 1
+    done
+    -- echo_success "Shell binary built"
+    -- echo_success "TV / Big Picture build complete"
+    -- echo_info "Binary: target/release/blue-environment"
+done
+
+: cmd_build_android def
+    -- echo_info "Building Blue Environment v@VERSION — Android / Mobile Shell"
+    => VITE_BLUE_UI_MODE = mobile
+    => VITE_BLUE_ALTERNATIVE = android
+
+    > which npx > /dev/null 2>&1
+    ? err
+        -- echo_error "npx not found — install Node.js + npm first"
+        > exit 1
+    done
+
+    ;; Auto-detect Android SDK
+    % sdk_path: str = 
+    > test -n "$ANDROID_HOME" && test -d "$ANDROID_HOME"
+    ? ok
+        % sdk_path: str = $ANDROID_HOME
+    done
+    > test -z "@sdk_path" && test -d ~/Android/Sdk
+    ? ok
+        % sdk_path: str = ~/Android/Sdk
+    done
+    > test -z "@sdk_path" && test -d /opt/android-sdk
+    ? ok
+        % sdk_path: str = /opt/android-sdk
+    done
+
+    ? switch @sdk_path
+    | 
+        -- echo_error "Android SDK not found"
+        > exit 1
+    done
+
+    => ANDROID_HOME = @sdk_path
+    => ANDROID_SDK_ROOT = @sdk_path
+    -- echo_success "Android SDK: @sdk_path"
+
+    > test -f src/alternatives/android/main.tsx
+    ? err
+        -- echo_error "Android shell not found — see STATUS.md"
+        > exit 1
+    done
+
+    -- echo_build "npm install (if needed)"
+    > npm install --prefer-offline 2>/dev/null || npm install
+
+    -- echo_build "Copying icon assets"
+    > mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png 2>/dev/null || true
+
+    -- echo_build "npm run build — Android/mobile shell"
+    > npm run build
+    ? err
+        -- echo_error "Android frontend build failed"
+        > exit 1
+    done
+    -- echo_success "Android frontend built"
+
+    > test -d src-tauri/gen/android
+    ? err
+        -- echo_build "tauri android init"
+        > npx tauri android init
+    done
+
+    -- echo_build "tauri android build → release .apk"
+    > npx tauri android build --apk --release
+    ? ok
+        -- echo_success "APK build finished — check src-tauri/gen/android"
+    done
+    ? err
+        -- echo_error "Android build failed — ensure NDK and JDK 17+ are installed"
+        > exit 1
+    done
+done
+
+: cmd_build_bedm def
+    -- echo_info "Building BEDM — Blue Environment Display Manager"
+
+    -- echo_build "cargo build — bedm-daemon"
+    > cd BEDM/bedm-daemon && cargo build --release
+    ? ok
+        -- echo_success "bedm-daemon compiled"
+        % daemon_ok: bool = true
+    done
+    ? err
+        -- echo_error "bedm-daemon build failed"
+        % daemon_ok: bool = false
+    done
+
+    -- echo_build "npm build — bedm-ui"
+    > cd BEDM/bedm-ui && npm install && npm run build
+    ? ok
+        -- echo_success "bedm-ui compiled"
+        % ui_ok: bool = true
+    done
+    ? err
+        -- echo_error "bedm-ui build failed"
+        % ui_ok: bool = false
+    done
+
+    -- echo_build "tauri build — bedm-greeter"
+    > cd BEDM/bedm-greeter && npm install && npx tauri build
+    ? ok
+        -- echo_success "bedm-greeter compiled"
+        % greeter_ok: bool = true
+    done
+    ? err
+        -- echo_error "bedm-greeter build failed"
+        % greeter_ok: bool = false
+    done
+
+    ? switch @daemon_ok
+    | true
+        ? switch @ui_ok
+        | true
+            ? switch @greeter_ok
+            | true
+                ::green ✓ BEDM build complete.
+            | *
+                -- echo_warn "BEDM build finished with errors"
+                > exit 1
+            done
+        done
+    done
+done
+
+: cmd_build_shell def
+    % pkg_manager: str = @_1
+    % variant: str = 
+    ? switch @pkg_manager
+    | 
+        ;; empty
+    | *
+        % variant: str =  [pkg: @pkg_manager]
+        => BLUE_PKG_MANAGER = @pkg_manager
+        -- echo_build "Package manager backend: @pkg_manager"
+    done
+
+    -- echo_info "Building Blue Environment v@VERSION — Shell only@variant"
+    -- echo_info "Runs: npm install && npm run tauri build"
+
+    -- echo_build "npm install"
+    > npm install
+    ? err
+        -- echo_error "npm install failed"
+        > exit 1
+    done
+    -- echo_success "npm install done"
+
+    -- echo_build "Copying icon assets"
+    > mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png 2>/dev/null || true
+
+    -- echo_build "npm run tauri build"
+    > npm run tauri build
+    ? err
+        -- echo_error "tauri build failed"
+        > exit 1
+    done
+    -- echo_success "Shell build complete"
+    -- echo_info "Binary: target/release/blue-environment"
+done
+
+: cmd_build_compositor def
+    -- echo_info "Building Blue Compositor (standalone)"
+    -- build_compositor_binary
+    ? switch @ok
+    | true
+        ::green ✓ Compositor build complete → @COMPOSITOR_BIN_PATH
+    | *
+        > exit 1
+    done
+done
+
+: cmd_build_all def
+    -- echo_info "Building Blue Environment v@VERSION — compositor + desktop shell"
+    -- build_compositor_binary
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_frontend
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_shell_binary
+    ? switch @ok
+    | false
+        > exit 1
+    done
+    -- build_launcher_cli
+    ::green ✓ Compositor + shell build complete.
+done
+
+: cmd_build_app def
+    % app_name: str = @_1
+    ? switch @app_name
+    | 
+        -- echo_info "Blue Environment v@VERSION — Standalone App Builder"
+        -- echo_info "Usage: hl build.hl app <app_name>"
+        -- echo_info ""
+        -- echo_info "Available apps:"
+        ~>  notepad            Notepad              Plain-text and Markdown editor
+        ~>  blue_docs          Blue Docs            Rich document editor (DOCX/PDF/Markdown)
+        ~>  blue_code          Blue Code            Monaco-based code editor with LSP hints
+        ~>  terminal           Terminal             PTY-backed terminal emulator
+        ~>  mail               Blue Mail            IMAP/SMTP email client
+        ~>  blue_ai            Blue AI              AI chat assistant (multi-provider)
+        ~>  blue_web           Blue Browser         WebView-based web browser
+        ~>  blue_images        Blue Images          Image viewer and editor
+        ~>  blue_video         Blue Video           Video player (MPV backend)
+        ~>  blue_screenshot    Blue Screenshot      Screenshot tool with region select
+        ~>  blue_archive       Blue Archive         Archive manager (zip/tar/7z)
+        ~>  exploler           Blue Files           File manager / Explorer
+        ~>  calculator         Calculator           Scientific calculator
+        ~>  system_monitor     System Monitor       CPU/RAM/GPU/network metrics
+        ~>  blue_software      Blue Software        Package manager frontend
+        ~>  camera             Camera               Webcam capture application
+        -- echo_info ""
+        -- echo_info "Example: hl build.hl app blue_docs"
+        -- return
+    done
+
+    ;; uproszczona mapa aplikacji (w pełnej wersji można dodać pełny switch)
+    % label: str = @app_name
+    % desc: str  = standalone app
+
+    -- echo_info "Building Blue Environment v@VERSION — @label (standalone)"
+    -- echo_info "@desc"
+
+    => VITE_BLUE_STANDALONE_APP = @app_name
+    => VITE_BLUE_UI_MODE = app
+
+    -- echo_build "npm install (if needed)"
+    > npm install --prefer-offline 2>/dev/null || npm install
+    ? err
+        -- echo_error "npm install failed"
+        > exit 1
+    done
+
+    -- echo_build "Copying icon assets"
+    > mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png 2>/dev/null || true
+
+    -- echo_build "npm run build — standalone @label"
+    > npm run build
+    ? err
+        -- echo_error "Frontend build failed"
+        > exit 1
+    done
+    -- echo_success "Frontend built"
+
+    -- echo_build "cargo build --release — Tauri wrapper for @label"
+    > cd src-tauri && cargo build --release
+    ? err
+        -- echo_error "Tauri build failed"
+        > exit 1
+    done
+
+    % out: str = target/release/blue-@app_name
+    > test -f target/release/blue-environment
+    ? ok
+        > cp target/release/blue-environment @out
+    done
+    -- echo_success "@label built"
+    -- echo_info "Binary: @out"
+done
+
+;; ============================================
+;; INSTALL / UNINSTALL / CLEAN
+;; ============================================
+: cmd_install def
+    -- check_root
+    -- echo_info "Installing Blue Environment v@VERSION..."
+
+    > mkdir -p @BLUE_LIBS @BLUE_APPS @BLUE_WALLS
+    > mkdir -p /usr/share/wayland-sessions /usr/share/applications
+
+    > test -f @SHELL_BIN_PATH
+    ? ok
+        > cp @SHELL_BIN_PATH @BLUE_SHARE/blue-environment
+        > chmod 0755 @BLUE_SHARE/blue-environment
+        -- echo_success "blue-environment"
+    done
+    ? err
+        -- echo_error "binary missing — run 'hl build.hl desktop' (or 'all') first"
+    done
+
+    > test -f @COMPOSITOR_BIN_PATH
+    ? ok
+        > cp @COMPOSITOR_BIN_PATH @BLUE_LIBS/blue-compositor
+        > chmod 0755 @BLUE_LIBS/blue-compositor
+        -- echo_success "blue-compositor"
+    done
+    ? err
+        -- echo_error "compositor missing — run 'hl build.hl compositor' (or 'all') first"
+    done
+
+    > test -f launcher/blue
+    ? ok
+        > cp launcher/blue /usr/local/bin/blue
+        > chmod 0755 /usr/local/bin/blue
+        > mkdir -p @BLUE_LIBS/blue
+        > cp launcher/main.rb @BLUE_LIBS/blue/main.rb
+        > cp -r launcher/src @BLUE_LIBS/blue/src
+        -- echo_success "blue CLI"
+    done
+
+    > test -d wallpapers
+    ? ok
+        > cp -r wallpapers/* @BLUE_WALLS/
+        -- echo_success "wallpapers"
+    done
+
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=@BLUE_LIBS/blue-compositor\nType=Application\nDesktopNames=Blue\nVersion=@VERSION\n' > /usr/share/wayland-sessions/blue-environment.desktop
+    > printf '[Desktop Entry]\nName=Blue Environment\nExec=@BLUE_SHARE/blue-environment\nIcon=@BLUE_SHARE/icon.png\nType=Application\nCategories=System;\n' > /usr/share/applications/blue-environment.desktop
+    > echo @VERSION > @BLUE_SHARE/.version
+
+    ::green ✓ Installation complete! Run: blue start
+done
+
+: cmd_uninstall def
+    -- check_root
+    -- echo_info "Uninstalling Blue Environment..."
+    > rm -rf @BLUE_SHARE
+    > rm -f /usr/share/wayland-sessions/blue-environment.desktop
+    > rm -f /usr/share/applications/blue-environment.desktop
+    > rm -f /usr/local/bin/blue
+    ::yellow ✓ Uninstalled. User configs in ~/.config/Blue-Environment kept.
+done
+
+: cmd_clean def
+    -- echo_info "Cleaning build artifacts..."
+    > rm -rf src-tauri/target compositor/target dist blue rpmbuild staging
+    > rm -rf BEDM/bedm-daemon/target BEDM/bedm-ui/dist BEDM/bedm-greeter/target BEDM/bedm-greeter/dist
+    > rm -rf src-tauri/gen
+    ::green ✓ Clean complete.
+done
+
+;; ============================================
+;; MAIN — dispatch argumentów
+;; ============================================
+% action: str = @arg0
+
+? switch @action
+| 
+| help
+| -h
+| --help
+    -- cmd_help
+| desktop
+    -- cmd_build_desktop
+| android
+    -- cmd_build_android
+| tv
+    -- cmd_build_tv
+| BEDM
+| bedm
+    -- cmd_build_bedm
+| compositor
+    -- cmd_build_compositor
+| packages
+| pkg
+    -- cmd_build_packages @arg1
+| app
+    -- cmd_build_app @arg1
+| shell
+    -- cmd_build_shell @arg1
+| all
+    -- cmd_build_all
+| install
+    -- cmd_install
+| uninstall
+    -- cmd_uninstall
+| clean
+    -- cmd_clean
+| check
+    -- cmd_check_frontend
+    ? switch @ok
+    | false
+        > exit 1
+    done
+| doctor
+    -- cmd_doctor
+| *
+    ::red ✗ Unknown command: @action
+    ::yellow Run: hl build.hl
+    > exit 1
+done
