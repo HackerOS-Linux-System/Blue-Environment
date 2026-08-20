@@ -1,6 +1,8 @@
-#!/usr/bin/env hl
-/// Blue Environment Build System — Hacker Lang port
+#!/usr/bin/hl
 using <gen 2>
+
+;; install mising libs:
+;; ^> apt install libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev
 
 # <main/colors>
 # <main/sys>
