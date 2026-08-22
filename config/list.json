@@ -1,6 +1,0 @@
-{
-  "environment": "Blue Environment - addons apps",
-  "apps": {
-    "blue-virt": "https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.4/blue-virt.tar.gz",
-  }
-}
