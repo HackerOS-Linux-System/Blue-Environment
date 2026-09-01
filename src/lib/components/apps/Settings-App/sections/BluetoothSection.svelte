@@ -26,7 +26,7 @@
   </div>
   <div class="bg-slate-800 border border-white/5 rounded-2xl overflow-hidden">
     {#if devices.length === 0 && !scanning}
-      <div class="p-8 text-center text-slate-500 cursor-pointer hover:text-white" on:click={scan}>{$t('settings.bluetooth.no_devices')}</div>
+      <div class="p-8 text-center text-slate-500 cursor-pointer hover:text-white" on:click={scan} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); scan(); } }}>{$t('settings.bluetooth.no_devices')}</div>
     {/if}
     {#each devices as dev, i (i)}
       <div class="flex items-center justify-between p-4 border-b border-white/5 last:border-0 hover:bg-white/5">
