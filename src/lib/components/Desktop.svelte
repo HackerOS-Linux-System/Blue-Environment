@@ -217,7 +217,7 @@
   class="absolute inset-0 select-none z-[1]"
   style="padding-top:3rem;"
   on:mousedown={onContainerMouseDown}
-  on:click={onContainerClick}
+  on:click={onContainerClick} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onContainerClick(); } }}
   on:contextmenu={(e) => openMenu(e, null)}
 >
   <div class="flex flex-col flex-wrap content-start h-full py-2 pl-2 gap-0.5" style="align-content:flex-start;">
