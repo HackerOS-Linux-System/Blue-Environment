@@ -801,7 +801,7 @@ pub fn settings_get_system_info() -> SystemInfo {
         os_version: os_version.trim().to_string(),
         kernel: kernel.trim().to_string(),
         desktop: "Blue Environment".to_string(),
-        compositor: "Blue Compositor (Smithay)".to_string(),
+        compositor: "HackerOS-Comp (Smithay)".to_string(),
         cpu: cpu.trim().to_string(),
         cpu_cores,
         memory_total: mem_total * 1024,
@@ -935,7 +935,7 @@ pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult
     let socket_path = {
         let runtime = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
-        format!("{}/blue-compositor.sock", runtime)
+        format!("{}/hackeros-comp.sock", runtime)
     };
 
     let json = match serde_json::to_string(&command) {
