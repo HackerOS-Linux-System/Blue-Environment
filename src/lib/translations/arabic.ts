@@ -144,7 +144,7 @@ export const arabic: Translations = {
     'filemenu.properties': 'خصائص',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'تجريبي — يتفاوض على HDR مع التطبيقات؛ الصورة نفسها لم يُعَد تعيينها بعد.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const arabic: Translations = {
     // content is localized yet
     'settings.tab.display': 'الشاشة',
     'settings.tab.personalization': 'التخصيص',
+
+    'settings.tab.icons': 'الأيقونات',
     'settings.tab.night_light': 'الإضاءة الليلية',
     'settings.tab.panel': 'اللوحة',
     'settings.tab.weather': 'الطقس والودجات',
