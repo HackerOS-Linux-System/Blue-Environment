@@ -1,0 +1,11 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-web-report-meta"
+description = """
+Allows an embedded Blue Web content webview to report its own page's
+document.title and favicon URL back to the shell (for tab-strip
+display) via the web_report_meta command. Grants nothing else — no
+filesystem, shell, network, or any other command access.
+"""
+commands.allow = ["web_report_meta"]
