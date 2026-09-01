@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "build:tauri": "tauri build",
-    "build:compositor": "cargo build --release --manifest-path compositor/Cargo.toml && mkdir -p ~/.legendaryos/Blue-Environment/libs/ && cp compositor/target/release/blue-compositor ~/.legendaryos/Blue-Environment/libs/",
+    "build:compositor": "cargo build --release --manifest-path compositor/Cargo.toml && mkdir -p ~/.legendaryos/Blue-Environment/libs/ && cp compositor/target/release/hackeros-comp ~/.legendaryos/Blue-Environment/libs/",
     "build:all": "npm run build:compositor && npm run build:tauri && echo 'Full build OK'",
     "preview": "vite preview",
     "tauri": "tauri",
