@@ -96,7 +96,7 @@ pub fn embed_external_window(win_id: String, _parent_id: String) -> bool {
         }
         session::SessionType::WaylandClient => {
             // Previously called `swaymsg` here — sway's own IPC protocol,
-            // which Blue Compositor does not implement and never will
+            // which HackerOS-Comp does not implement and never will
             // (this whole project *is* the compositor, not a client of
             // someone else's). A `win_id` reaching this arm without the
             // `blue:` prefix means it came from an X11/XWayland source
