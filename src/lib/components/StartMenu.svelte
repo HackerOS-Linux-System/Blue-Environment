@@ -9,6 +9,8 @@
   } from 'lucide-svelte';
   import AppIconGlyph from './AppIconGlyph.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { openInBlueWeb } from '../utils/openInBlueWeb';
+  import { normalizeUrl } from './apps/Blue-Web/types';
 
   interface SystemApp { id: string; name: string; comment: string; icon: string; exec: string; categories: string[]; desktop_file: string; is_external: boolean; }
   interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; }
@@ -23,6 +25,10 @@
   export let zIndex = 9040;
   export let panelPosition: 'top' | 'bottom' = 'top';
   export let panelSize = 48;
+  /** See ShellThemeStyle.svelte / TopBar.svelte's `shellThemeId` prop —
+   * same convention, just here it drives a border/glow treatment on
+   * this menu's own panel rather than the taskbar's background. */
+  export let shellThemeId: string | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ openApp: { appId: string; isExternal?: boolean; exec?: string }; close: void; toggleFullScreen: void }>();
 
@@ -51,6 +57,9 @@
     [AppId.BLUE_PARTITION_MANAGER]: ['System'],
     [AppId.BLUE_PLAY]: ['Games'],
     [AppId.BLUE_TRANSLATE]: ['Utility'],
+    [AppId.BLUE_TASKS]: ['Office'], [AppId.BLUE_CALENDAR]: ['Office'],
+    [AppId.BLUE_NOTIFICATIONS]: ['Utility'], [AppId.BLUE_EMOJI]: ['Utility'],
+    [AppId.BLUE_NEWS]: ['Internet'],
   };
 
   function getCategory(app: AnyApp): string {
@@ -186,7 +195,7 @@
 </script>
 
 {#if isOpen && isFullScreen}
-  <div class="absolute inset-0 bg-slate-900/97 backdrop-blur-xl flex" style="z-index:{zIndex};" on:click={() => dispatch('close')}>
+  <div class="absolute inset-0 bg-slate-900/97 backdrop-blur-xl flex" style="z-index:{zIndex};" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}>
     <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" on:click|stopPropagation>
       <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
@@ -273,7 +282,7 @@
     </div>
   </div>
 {:else if isOpen}
-  <div class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl overflow-visible flex flex-col" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`}" on:click|stopPropagation>
+  <div class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
     <div class="p-4 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg">
@@ -352,7 +361,16 @@
           </button>
         {/each}
         {#if allApps.length === 0 && searchTerm}
-          <div class="px-3 py-4 text-center text-slate-500 text-xs">No results</div>
+          <button on:click={() => { openInBlueWeb(normalizeUrl(searchTerm)); dispatch('close'); }}
+            class="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-white/5 transition-colors group text-left">
+            <div class="w-8 h-8 bg-blue-500/15 rounded-xl flex items-center justify-center border border-blue-500/20 shrink-0">
+              <Globe size={16} class="text-blue-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">Search the web for "{searchTerm}"</div>
+              <div class="text-[10px] text-slate-500">No matching apps — open in Blue Web instead</div>
+            </div>
+          </button>
         {/if}
       {/if}
     </div>
@@ -365,7 +383,8 @@
         <Power size={15} />
       </button>
       {#if showPowerMenu}
-        <div class="absolute bottom-14 left-4 bg-slate-800 border border-white/10 rounded-xl shadow-2xl p-2 flex flex-col gap-1 w-48" style="z-index:{zIndex + 1};">
+        <div class="absolute bottom-14 left-4 border rounded-xl shadow-2xl p-2 flex flex-col gap-1 w-48 {shellThemeId === 'hydra' ? 'bg-slate-800 border-pink-500/30' : 'bg-slate-800 border-white/10'}"
+          style="z-index:{zIndex + 1}; {shellThemeId === 'hydra' ? 'box-shadow: 0 0 24px rgba(236,72,153,0.25);' : ''}">
           {#each POWER_ITEMS as { action, icon, label, cls } (action)}
             <button on:click={() => SystemBridge.powerAction(action)} class="flex items-center gap-3 p-2 {cls} rounded-lg transition-colors text-left text-sm text-slate-200">
               <svelte:component this={icon} size={16} /> {label}
