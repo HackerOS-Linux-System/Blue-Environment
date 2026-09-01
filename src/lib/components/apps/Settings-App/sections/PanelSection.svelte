@@ -78,13 +78,13 @@
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.panel.height').replace('{px}', String(config.panelSize ?? 48))}</label>
+        <span class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.panel.height').replace('{px}', String(config.panelSize ?? 48))}</span>
         <input type="range" min="36" max="64" step="1" value={config.panelSize ?? 48}
           on:change={(e) => onSave({ panelSize: parseInt(e.currentTarget.value, 10) })}
           class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.panel.opacity').replace('{pct}', String(Math.round((config.panelOpacity ?? 0.95) * 100)))}</label>
+        <span class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.panel.opacity').replace('{pct}', String(Math.round((config.panelOpacity ?? 0.95) * 100)))}</span>
         <input type="range" min="0.5" max="1" step="0.05" value={config.panelOpacity ?? 0.95}
           on:change={(e) => onSave({ panelOpacity: parseFloat(e.currentTarget.value) })}
           class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
@@ -125,7 +125,7 @@
         <Plus size={14} /> {$t('settings.panel.pin_an_app')}
       </button>
       {#if addPickerOpen}
-        <div class="fixed inset-0 z-10" on:click={() => (addPickerOpen = false)} />
+        <div class="fixed inset-0 z-10" on:click={() => (addPickerOpen = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (addPickerOpen = false))(); } }} />
         <div class="absolute left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-20 p-1">
           {#each availableToAdd as app (app.id)}
             {@const appId = String(app.id)}
