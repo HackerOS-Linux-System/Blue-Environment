@@ -33,7 +33,7 @@
   <h2 class="text-2xl font-bold text-white">{$t('settings.apps.title')}</h2>
 
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5">
-    <label class="block text-sm font-medium text-white mb-1">{$t('settings.apps.default_text_editor')}</label>
+    <span class="block text-sm font-medium text-white mb-1">{$t('settings.apps.default_text_editor')}</span>
     <p class="text-xs text-slate-500 mb-3">{$t('settings.apps.default_text_editor_desc')}</p>
     <div class="flex gap-2">
       <button on:click={() => onSave({ defaultTextEditor: 'notepad' })}
