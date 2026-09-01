@@ -144,7 +144,7 @@ export const dutch: Translations = {
     'filemenu.properties': 'Eigenschappen',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Experimenteel — onderhandelt HDR met apps; het beeld zelf wordt nog niet herschaald.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const dutch: Translations = {
     // content is localized yet
     'settings.tab.display': 'Beeldscherm',
     'settings.tab.personalization': 'Personalisatie',
+
+    'settings.tab.icons': 'Pictogrammen',
     'settings.tab.night_light': 'Nachtmodus',
     'settings.tab.panel': 'Paneel',
     'settings.tab.weather': 'Weer en widgets',
