@@ -20,6 +20,28 @@
 
   function iconFor(icon: string) { return icon === 'Zap' ? Zap : icon === 'Wind' ? Wind : Battery; }
 
+  // `p.name`/`p.description` from `SystemBridge.getPowerProfiles()` are
+  // stable identifiers, not display strings (see power.rs's doc comment
+  // on `get_power_profiles` — this used to display hardcoded Polish
+  // text to every user regardless of selected language, a real i18n
+  // bug). Known profile ids map through this app's own translation
+  // keys; an id this frontend doesn't recognize (a future
+  // powerprofilesctl profile) falls back to the backend's raw English
+  // label rather than showing nothing.
+  const KNOWN_PROFILE_KEYS: Record<string, { nameKey: string; descKey: string }> = {
+    'power-saver': { nameKey: 'settings.power.profile.power_saver.name', descKey: 'settings.power.profile.power_saver.desc' },
+    'balanced': { nameKey: 'settings.power.profile.balanced.name', descKey: 'settings.power.profile.balanced.desc' },
+    'performance': { nameKey: 'settings.power.profile.performance.name', descKey: 'settings.power.profile.performance.desc' },
+  };
+  function profileName(p: PowerProfile): string {
+    const k = KNOWN_PROFILE_KEYS[p.name];
+    return k ? $t(k.nameKey) : p.name;
+  }
+  function profileDesc(p: PowerProfile): string {
+    const k = KNOWN_PROFILE_KEYS[p.name];
+    return k ? $t(k.descKey) : p.description;
+  }
+
   async function selectProfile(p: PowerProfile) { profile = p.name; await SystemBridge.setPowerProfile(p.name); }
 </script>
 
@@ -46,8 +68,8 @@
           <div class="flex items-center gap-3">
             <svelte:component this={Icon} size={20} />
             <div class="text-left">
-              <div class="font-medium text-white">{p.name}</div>
-              <div class="text-xs text-slate-400">{p.description}</div>
+              <div class="font-medium text-white">{profileName(p)}</div>
+              <div class="text-xs text-slate-400">{profileDesc(p)}</div>
             </div>
           </div>
           {#if profile === p.name}<Check size={20} class="text-blue-400" />{/if}
