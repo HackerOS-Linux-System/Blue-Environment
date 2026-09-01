@@ -177,7 +177,7 @@
       {:else}
         <div class="space-y-2">
           {#each screenshots as ss (ss.id)}
-            <div on:click={() => (selected = ss)} class="rounded-xl overflow-hidden cursor-pointer border-2 transition-colors {selected?.id === ss.id ? 'border-blue-500' : 'border-transparent hover:border-white/20'}">
+            <div on:click={() => (selected = ss)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (selected = ss))(); } }} class="rounded-xl overflow-hidden cursor-pointer border-2 transition-colors {selected?.id === ss.id ? 'border-blue-500' : 'border-transparent hover:border-white/20'}">
               <img src={ss.dataUrl} alt="" class="w-full h-24 object-cover" />
               <div class="px-2 py-1 bg-slate-800 flex items-center justify-between">
                 <span class="text-[10px] text-slate-400">{ss.width}×{ss.height} · {ss.timestamp.toLocaleTimeString()}</span>
