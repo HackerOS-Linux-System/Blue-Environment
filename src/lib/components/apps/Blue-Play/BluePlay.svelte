@@ -312,26 +312,26 @@
 </div>
 
 {#if showAddDialog}
-  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" on:click={() => (showAddDialog = false)}>
+  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" on:click={() => (showAddDialog = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (showAddDialog = false))(); } }}>
     <div class="bg-slate-900 border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4" on:click|stopPropagation>
       <div class="flex items-center justify-between">
         <h3 class="font-semibold text-sm">Add {addKind === 'windows' ? 'Windows' : 'native Linux'} game</h3>
         <button on:click={() => (showAddDialog = false)} class="text-slate-500 hover:text-white"><X size={16} /></button>
       </div>
       <div>
-        <label class="text-xs text-slate-400 block mb-1">Executable</label>
+        <span class="text-xs text-slate-400 block mb-1">Executable</span>
         <button on:click={pickExecutable} class="w-full flex items-center gap-2 px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-left text-slate-300 hover:bg-slate-700">
           <FolderOpen size={14} class="shrink-0" />
           <span class="truncate">{addPath || 'Choose file…'}</span>
         </button>
       </div>
       <div>
-        <label class="text-xs text-slate-400 block mb-1">Name</label>
+        <span class="text-xs text-slate-400 block mb-1">Name</span>
         <input bind:value={addTitle} placeholder="Game title" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
       </div>
       {#if addKind === 'windows' && runtimes}
         <div>
-          <label class="text-xs text-slate-400 block mb-1">Run with</label>
+          <span class="text-xs text-slate-400 block mb-1">Run with</span>
           <select bind:value={addRuntime} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
             {#if runtimes.umu_available}<option value="umu">umu-run (recommended)</option>{/if}
             {#if runtimes.steam_proton_versions.length > 0 || runtimes.proton_available}<option value="proton">Proton</option>{/if}
