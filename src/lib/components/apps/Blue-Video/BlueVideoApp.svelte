@@ -89,7 +89,7 @@
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each $playlist as item, i (i)}
-            <div on:click={() => currentIdx.set(i)}
+            <div on:click={() => currentIdx.set(i)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => currentIdx.set(i))(); } }}
               class="flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-white/5 group {i === $currentIdx ? 'bg-blue-600/20 text-white' : 'text-slate-400 hover:bg-white/5'}">
               <span class="flex-1 text-xs truncate">{item.name}</span>
               <button on:click={(e) => { e.stopPropagation(); remove(i); }} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400">
