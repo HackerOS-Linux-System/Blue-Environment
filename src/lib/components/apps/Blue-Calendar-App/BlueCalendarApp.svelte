@@ -172,7 +172,7 @@
           <div class="text-center text-slate-600 text-xs py-6">{$t('cal.no_events')}</div>
         {:else}
           {#each selectedEvents as ev (ev.id)}
-            <div on:click={() => openEditEvent(ev)}
+            <div on:click={() => openEditEvent(ev)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => openEditEvent(ev))(); } }}
               class="group flex items-start gap-2 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors">
               <span class="w-1 self-stretch rounded-full shrink-0" style="background:{ev.color}" />
               <div class="min-w-0 flex-1">
@@ -214,11 +214,11 @@
         {#if !formAllDay}
           <div class="flex gap-2">
             <div class="flex-1">
-              <label class="block text-[10px] text-slate-500 mb-1">{$t('cal.time')}</label>
+              <span class="block text-[10px] text-slate-500 mb-1">{$t('cal.time')}</span>
               <input type="time" bind:value={formTime} class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white" />
             </div>
             <div class="flex-1">
-              <label class="block text-[10px] text-slate-500 mb-1">{$t('cal.duration_min')}</label>
+              <span class="block text-[10px] text-slate-500 mb-1">{$t('cal.duration_min')}</span>
               <input type="number" min="5" step="5" bind:value={formDuration} class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white" />
             </div>
           </div>
