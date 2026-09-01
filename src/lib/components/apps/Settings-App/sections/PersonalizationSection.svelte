@@ -1,22 +1,43 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, Palette as PaletteIcon } from 'lucide-svelte';
-  import type { ThemeDefinition } from '../../../../types';
+  import { Plus, Image as IconImageIcon, MousePointer2 } from 'lucide-svelte';
+  import type { ThemeDefinition, UserConfig } from '../../../../types';
   import { SystemBridge } from '../../../../utils/systemBridge';
   import { dialogPrompt } from '../../../../stores/dialog';
   import { t as translate } from '../../../../stores/language';
+  import { configStore } from '../../../../utils/configStore';
 
   let iconThemes: string[] = [];
   let selectedIconTheme = '';
+  let cursorThemes: string[] = [];
+  let iconSize = 48;
+  let cursorTheme = '';
 
   onMount(async () => {
     iconThemes = await SystemBridge.invokeCommand<string[]>('list_icon_themes').catch(() => []);
+    cursorThemes = await SystemBridge.invokeCommand<string[]>('list_cursor_themes').catch(() => []);
+    const cfg = await configStore.init();
+    iconSize = cfg.iconSize ?? 48;
+    cursorTheme = cfg.cursorTheme ?? '';
   });
 
   async function applyIconTheme(theme: string) {
     selectedIconTheme = theme;
     await SystemBridge.invokeCommand('set_icon_theme', { theme: theme || null }).catch(() => {});
   }
+
+  async function applyIconSize(size: number) {
+    iconSize = size;
+    await configStore.save({ iconSize: size });
+  }
+
+  async function applyCursorTheme(theme: string) {
+    cursorTheme = theme;
+    await configStore.save({ cursorTheme: theme });
+    if (theme) await SystemBridge.invokeCommand('set_cursor_theme', { theme }).catch(() => {});
+  }
+
+  const ICON_SIZES = [24, 32, 48, 64, 96];
 
   const PRESET_ACCENTS = [
     { label: 'Blue', accent: '#3b82f6', background: '#0f172a' },
@@ -58,29 +79,14 @@
   }
 </script>
 
-<div class="p-4 space-y-4">
-  <div class="flex items-center justify-between">
-    <h2 class="text-lg font-semibold text-white">{$translate('settings.personalization.title')}</h2>
-    <button on:click={createTheme} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white transition-colors"><Plus size={13} /> {$translate('settings.personalization.new_theme')}</button>
-  </div>
-  <div class="space-y-2">
-    {#each themes as t (t.id)}
-      <div class="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3 border border-white/5">
-        <span class="flex items-center gap-2 text-sm text-white">
-          {#if t.colors?.accent}<span class="w-3 h-3 rounded-full inline-block" style="background:{t.colors.accent};" />{/if}
-          {t.name}
-        </span>
-        <div class="flex gap-2">
-          <button on:click={() => handleSave(t)} class="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg">{$translate('settings.common.apply')}</button>
-          <button on:click={() => handleDelete(t.id)} class="px-3 py-1 text-xs bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg">{$translate('settings.common.delete')}</button>
-        </div>
-      </div>
-    {/each}
-    {#if themes.length === 0}<p class="text-slate-500 text-sm">{$translate('settings.personalization.no_themes')}</p>{/if}
+<div class="p-4 space-y-6">
+  <div>
+    <h2 class="text-lg font-semibold text-white">{$translate('settings.icons.title')}</h2>
   </div>
 
-  <div class="pt-4 border-t border-white/5">
-    <div class="flex items-center gap-2 mb-2"><PaletteIcon size={14} class="text-slate-400" /><h3 class="text-sm font-medium text-white">{$translate('settings.personalization.icon_theme')}</h3></div>
+  <!-- Icon theme -->
+  <div>
+    <div class="flex items-center gap-2 mb-2"><IconImageIcon size={14} class="text-slate-400" /><h3 class="text-sm font-medium text-white">{$translate('settings.personalization.icon_theme')}</h3></div>
     <p class="text-xs text-slate-500 mb-3">{$translate('settings.personalization.icon_theme_desc')}</p>
     {#if iconThemes.length === 0}
       <p class="text-xs text-slate-600">{$translate('settings.personalization.no_icon_themes')}</p>
@@ -89,12 +95,76 @@
         <button on:click={() => applyIconTheme('')} class="px-2.5 py-1 rounded-lg text-xs transition-colors {selectedIconTheme === '' ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
           {$translate('settings.personalization.icon_theme_auto')}
         </button>
-        {#each iconThemes as t (t)}
-          <button on:click={() => applyIconTheme(t)} class="px-2.5 py-1 rounded-lg text-xs transition-colors {selectedIconTheme === t ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
-            {t}
+        {#each iconThemes as th (th)}
+          <button on:click={() => applyIconTheme(th)} class="px-2.5 py-1 rounded-lg text-xs transition-colors {selectedIconTheme === th ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+            {th}
           </button>
         {/each}
       </div>
     {/if}
+  </div>
+
+  <!-- Icon size -->
+  <div class="pt-4 border-t border-white/5">
+    <h3 class="text-sm font-medium text-white mb-1">{$translate('settings.icons.icon_size')}</h3>
+    <p class="text-xs text-slate-500 mb-3">{$translate('settings.icons.icon_size_desc')}</p>
+    <div class="flex items-center gap-3">
+      <div class="flex gap-1.5">
+        {#each ICON_SIZES as size (size)}
+          <button
+            on:click={() => applyIconSize(size)}
+            class="px-3 py-1.5 rounded-lg text-xs transition-colors {iconSize === size ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}"
+          >
+            {size}px
+          </button>
+        {/each}
+      </div>
+      <div class="flex items-center gap-2 ml-2" style="opacity: 0.9;">
+        <span class="text-[10px] text-slate-600 uppercase tracking-wide">{$translate('settings.icons.preview')}</span>
+        <div class="rounded-lg bg-slate-800 flex items-center justify-center border border-white/5" style="width:{iconSize + 16}px; height:{iconSize + 16}px;">
+          <IconImageIcon size={iconSize} class="text-blue-400" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cursor theme -->
+  <div class="pt-4 border-t border-white/5">
+    <div class="flex items-center gap-2 mb-2"><MousePointer2 size={14} class="text-slate-400" /><h3 class="text-sm font-medium text-white">{$translate('settings.icons.cursor_theme')}</h3></div>
+    <p class="text-xs text-slate-500 mb-3">{$translate('settings.icons.cursor_theme_desc')}</p>
+    {#if cursorThemes.length === 0}
+      <p class="text-xs text-slate-600">{$translate('settings.icons.no_cursor_themes')}</p>
+    {:else}
+      <div class="flex flex-wrap gap-1.5">
+        {#each cursorThemes as th (th)}
+          <button on:click={() => applyCursorTheme(th)} class="px-2.5 py-1 rounded-lg text-xs transition-colors {cursorTheme === th ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+            {th}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Custom accent themes -->
+  <div class="pt-4 border-t border-white/5">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-medium text-white">{$translate('settings.icons.accent_themes_title')}</h3>
+      <button on:click={createTheme} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs text-white transition-colors"><Plus size={13} /> {$translate('settings.personalization.new_theme')}</button>
+    </div>
+    <div class="space-y-2">
+      {#each themes as t (t.id)}
+        <div class="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3 border border-white/5">
+          <span class="flex items-center gap-2 text-sm text-white">
+            {#if t.colors?.accent}<span class="w-3 h-3 rounded-full inline-block" style="background:{t.colors.accent};" />{/if}
+            {t.name}
+          </span>
+          <div class="flex gap-2">
+            <button on:click={() => handleSave(t)} class="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg">{$translate('settings.common.apply')}</button>
+            <button on:click={() => handleDelete(t.id)} class="px-3 py-1 text-xs bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg">{$translate('settings.common.delete')}</button>
+          </div>
+        </div>
+      {/each}
+      {#if themes.length === 0}<p class="text-slate-500 text-sm">{$translate('settings.personalization.no_themes')}</p>{/if}
+    </div>
   </div>
 </div>
