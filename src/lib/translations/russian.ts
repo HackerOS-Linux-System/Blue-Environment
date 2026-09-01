@@ -144,7 +144,7 @@ export const russian: Translations = {
     'filemenu.properties': 'Свойства',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Экспериментально — согласовывает HDR с приложениями; само изображение пока не перекодируется.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const russian: Translations = {
     // content is localized yet
     'settings.tab.display': 'Дисплей',
     'settings.tab.personalization': 'Персонализация',
+
+    'settings.tab.icons': 'Значки',
     'settings.tab.night_light': 'Ночной свет',
     'settings.tab.panel': 'Панель',
     'settings.tab.weather': 'Погода и виджеты',
