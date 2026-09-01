@@ -20,7 +20,7 @@
     {/each}
   </div>
   <div class="max-w-xl">
-    <label class="block text-xs text-slate-500 mb-1.5">Type here to test your layout</label>
+    <span class="block text-xs text-slate-500 mb-1.5">Type here to test your layout</span>
     <input bind:value={testInput} placeholder="Type something…" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50" />
   </div>
 </div>
