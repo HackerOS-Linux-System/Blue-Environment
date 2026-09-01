@@ -144,7 +144,7 @@ export const japanese: Translations = {
     'filemenu.properties': 'プロパティ',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': '実験的機能 — アプリとHDRをネゴシエートしますが、映像自体はまだ変換されません。',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const japanese: Translations = {
     // content is localized yet
     'settings.tab.display': 'ディスプレイ',
     'settings.tab.personalization': '個人設定',
+
+    'settings.tab.icons': 'アイコン',
     'settings.tab.night_light': 'ナイトライト',
     'settings.tab.panel': 'パネル',
     'settings.tab.weather': '天気とウィジェット',
