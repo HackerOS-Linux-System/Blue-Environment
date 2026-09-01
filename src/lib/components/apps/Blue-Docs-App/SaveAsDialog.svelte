@@ -48,7 +48,7 @@
     </div>
 
     <div class="mb-4">
-      <label class="block text-xs text-slate-500 mb-1.5">Location</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Location</span>
       <div class="flex gap-2">
         <div class="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono truncate">{dir}</div>
         <button on:click={pickDir} class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors">Browse</button>
@@ -62,12 +62,12 @@
     </div>
 
     <div class="mb-4">
-      <label class="block text-xs text-slate-500 mb-1.5">File name</label>
+      <span class="block text-xs text-slate-500 mb-1.5">File name</span>
       <input bind:value={name} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50" autofocus on:keydown={(e) => e.key === 'Enter' && handleSave()} />
     </div>
 
     <div class="mb-5">
-      <label class="block text-xs text-slate-500 mb-1.5">Format</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Format</span>
       <div class="flex flex-wrap gap-1.5">
         {#each formats as f (f.ext)}
           <button on:click={() => (ext = f.ext)} class="px-3 py-1.5 rounded-lg text-xs transition-colors {ext === f.ext ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">{f.label}</button>
