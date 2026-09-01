@@ -15,6 +15,52 @@ pub fn set_icon_theme(theme: Option<String>) {
     crate::icon_resolver::set_icon_theme(theme);
 }
 
+/// Lists installed X cursor themes by scanning for a `cursors/` subdir
+/// (the actual cursor bitmap/xcursor files) under each theme directory
+/// — same "only ever offer what's actually present" approach as
+/// `list_icon_themes` above, just for cursor themes' own directory
+/// layout instead of icon themes' `index.theme` marker file.
+#[tauri::command]
+pub fn list_cursor_themes() -> Vec<String> {
+    let mut themes = Vec::new();
+    let search_roots = [
+        PathBuf::from("/usr/share/icons"),
+        dirs::home_dir().unwrap_or_default().join(".local/share/icons"),
+        dirs::home_dir().unwrap_or_default().join(".icons"),
+    ];
+    for root in &search_roots {
+        let Ok(entries) = fs::read_dir(root) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("cursors").is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !themes.iter().any(|t: &String| t == name) {
+                        themes.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    themes.sort();
+    themes
+}
+
+/// Sets the cursor theme via the standard `~/.icons/default/index.theme`
+/// symlink-of-a-file convention every XCursor-reading toolkit (GTK, Qt,
+/// wlroots-based compositors including HackerOS-Comp) already respects
+/// — no compositor-specific IPC call needed for this one, unlike e.g.
+/// wallpaper (see BlueDocs/mod.rs's wallpaper-setting path for that
+/// comparison) since XCursor theme selection was already a
+/// filesystem-convention setting industry-wide, not a per-compositor
+/// protocol extension.
+#[tauri::command]
+pub fn set_cursor_theme(theme: String) -> Result<(), String> {
+    let default_dir = dirs::home_dir().ok_or("No home dir")?.join(".icons/default");
+    fs::create_dir_all(&default_dir).map_err(|e| e.to_string())?;
+    let index_path = default_dir.join("index.theme");
+    fs::write(&index_path, format!("[Icon Theme]\nInherits={theme}\n")).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn set_panel_enabled(enabled: bool) -> Result<(), String> {
     println!("Panel enabled: {}", enabled);
@@ -167,7 +213,7 @@ pub fn compositor_ipc_relay(app: tauri::AppHandle) {
     let socket_path = {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
-        std::path::PathBuf::from(runtime_dir).join("blue-compositor.sock")
+        std::path::PathBuf::from(runtime_dir).join("hackeros-comp.sock")
     };
 
     loop {
