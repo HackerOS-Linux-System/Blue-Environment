@@ -34,7 +34,7 @@
   </div>
   <div class="bg-slate-800 border border-white/5 rounded-2xl overflow-hidden">
     {#if networks.length === 0 && !scanning}
-      <div class="p-8 text-center text-slate-500 cursor-pointer hover:text-white" on:click={scan}>{$t('settings.wifi.no_networks')}</div>
+      <div class="p-8 text-center text-slate-500 cursor-pointer hover:text-white" on:click={scan} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); scan(); } }}>{$t('settings.wifi.no_networks')}</div>
     {/if}
     {#if scanning}<div class="p-4 text-center flex items-center justify-center gap-2 text-slate-500"><Loader2 size={16} class="animate-spin" /> {$t('settings.common.scanning')}</div>{/if}
     {#each networks as net, i (i)}
