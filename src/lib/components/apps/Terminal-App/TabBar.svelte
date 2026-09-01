@@ -11,7 +11,7 @@
 
 <div class="shrink-0 flex items-center bg-slate-900 border-b border-white/5 overflow-x-auto">
   {#each $tabs as tab (tab.id)}
-    <div on:click={() => activeTab.set(tab.id)}
+    <div on:click={() => activeTab.set(tab.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeTab.set(tab.id))(); } }}
       class="flex items-center gap-2 px-4 py-2.5 cursor-pointer shrink-0 border-r border-white/5 group transition-colors {$activeTab === tab.id ? 'bg-slate-950 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}"
       style="max-width:160px;">
       <span class="text-xs truncate">{tab.title}</span>
