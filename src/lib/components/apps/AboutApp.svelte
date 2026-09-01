@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { SystemBridge, toAssetUrl } from '../../utils/systemBridge';
+  import { openInBlueWeb } from '../../utils/openInBlueWeb';
   import { RefreshCw, Cpu, CircuitBoard, HardDrive, Monitor, Server, Globe, Bug, ExternalLink } from 'lucide-svelte';
 
   interface DistroInfo { name: string; version: string; logoPath?: string; website?: string; copyright?: string; bugReportUrl?: string; variantName?: string; description?: string; supportUrl?: string; }
@@ -98,7 +99,11 @@
 
   onMount(load);
 
-  function openUrl(url?: string) { if (url) SystemBridge.launchApp(`xdg-open "${url}"`); }
+  // Opens inside Blue Web rather than shelling out to `xdg-open` (the
+  // OS default browser) — see openInBlueWeb.ts's doc comment. A minimal
+  // or live-boot environment may not even have a default browser
+  // installed at all; Blue Web always is one.
+  function openUrl(url?: string) { if (url) openInBlueWeb(url); }
 
   $: hwRows = [
     { icon: Cpu, label: 'Processor', value: hw?.cpuModel, sub: hw ? `${hw.cpu}% usage` : undefined },
