@@ -86,11 +86,11 @@
 
     <div class="space-y-3 mb-4">
       <div>
-        <label class="block text-xs text-slate-500 mb-1.5">Archive name</label>
+        <span class="block text-xs text-slate-500 mb-1.5">Archive name</span>
         <input bind:value={name} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
       </div>
       <div>
-        <label class="block text-xs text-slate-500 mb-1.5">Save to</label>
+        <span class="block text-xs text-slate-500 mb-1.5">Save to</span>
         <div class="flex gap-2">
           <div class="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono truncate">{dir}</div>
         </div>
@@ -105,7 +105,7 @@
     </div>
 
     <div class="mb-4">
-      <label class="block text-xs text-slate-500 mb-1.5">Format</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Format</span>
       <div class="grid grid-cols-3 gap-1.5">
         {#each FORMATS as f (f.id)}
           <button on:click={() => (format = f.id)} class="px-2 py-2 rounded-xl text-xs text-left transition-colors {format === f.id ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
@@ -118,7 +118,7 @@
 
     <div class="mb-4">
       <div class="flex items-center justify-between mb-1.5">
-        <label class="text-xs text-slate-500">Files to compress ({files.length})</label>
+        <span class="text-xs text-slate-500">Files to compress ({files.length})</span>
         <div class="flex gap-1.5">
           <button on:click={addFiles} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><Plus size={11} /> Files</button>
           <button on:click={addFolder} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><FolderOpen size={11} /> Folder</button>
