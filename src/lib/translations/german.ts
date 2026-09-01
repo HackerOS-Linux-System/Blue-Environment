@@ -169,7 +169,7 @@ export const german: Translations = {
     'filemenu.properties': 'Eigenschaften',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Experimentell — handelt HDR mit Apps aus; das Bild selbst wird noch nicht umgerechnet.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -181,6 +181,8 @@ export const german: Translations = {
     // content is localized yet
     'settings.tab.display': 'Anzeige',
     'settings.tab.personalization': 'Personalisierung',
+
+    'settings.tab.icons': 'Symbole',
     'settings.tab.night_light': 'Nachtmodus',
     'settings.tab.panel': 'Panel',
     'settings.tab.weather': 'Wetter & Widgets',
