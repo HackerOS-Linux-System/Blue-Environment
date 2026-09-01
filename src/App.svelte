@@ -10,6 +10,9 @@
     startParentalControlsUsageTracking, stopParentalControlsUsageTracking,
   } from './lib/stores/windowManager';
   import { initKeyboardShortcuts } from './lib/stores/keyboardShortcuts';
+  import { shellOverlayOpen } from './lib/stores/overlayState';
+  import { hasCompletedWelcome } from './lib/components/apps/Blue-Welcome-App/welcome';
+  import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
   import { APPS } from './lib/constants';
   import { AppId } from './lib/types';
   import TopBar from './lib/components/TopBar.svelte';
@@ -25,11 +28,25 @@
   import ToastContainer from './lib/components/ToastContainer.svelte';
   import WorkspaceSwitcher from './lib/components/WorkspaceSwitcher.svelte';
   import DialogHost from './lib/components/DialogHost.svelte';
+  import ShellThemeStyle from './lib/components/ShellThemeStyle.svelte';
+  import SystemThemeStyle from './lib/components/SystemThemeStyle.svelte';
   import BlueInstallerApp from './lib/components/apps/Blue-Installer/BlueInstallerApp.svelte';
   import { isLiveMode, liveModeChecked, checkLiveMode } from './lib/utils/liveMode';
+  import { resolveActiveShellTheme } from './lib/data/builtinThemes';
   import { SystemBridge, toAssetUrl } from './lib/utils/systemBridge';
 
-  let wallpaper = 'file:///usr/share/Blue-Environment/wallpapers/default.png';
+  // Empty on purpose (was: a hardcoded `file:///usr/share/Blue-
+  // Environment/wallpapers/default.png` path used unconditionally,
+  // regardless of whether that file actually existed on the running
+  // system — confirmed as a real, reproduced bug: a 404 for exactly
+  // this asset:// path, persisting for the whole session whenever
+  // `resolveDefaultWallpaper()` doesn't resolve to something real
+  // before this initial value is ever overwritten below). An empty
+  // string here means `background-image: url()` — CSS quietly no-ops
+  // on an empty url(), so the `background: linear-gradient(...)`
+  // fallback in this element's own style (see below) shows through
+  // instead of a broken-image icon.
+  let wallpaper = '';
   let theme = 'dark';
   let desktopPath = 'HOME/Desktop';
   let appsEnabled: Record<string, boolean> = {};
@@ -44,6 +61,25 @@
   let panelPosition: 'top' | 'bottom' = 'top';
   let panelSize = 48;
   $: barHeight = panelEnabled ? panelSize : 0;
+  let shellThemeId: string | undefined;
+  let systemThemeId: string | null | undefined;
+
+  // Active shell theme (Hydra etc. — see builtinThemes.ts) overrides the
+  // person's own wallpaper/panel-position choices while selected, same
+  // way `data-shell-theme`'s CSS overrides work in ShellThemeStyle.svelte
+  // — `resolveActiveShellTheme` is the single shared source of truth
+  // both use for "is there a real override active right now".
+  $: activeShellTheme = resolveActiveShellTheme(shellThemeId);
+  $: effectiveWallpaper = activeShellTheme?.wallpaper || wallpaper;
+  // Theme layout's panelPosition can in principle be 'left'/'right' too
+  // (richer future themes) — TopBar only understands 'top'/'bottom'
+  // today, so only override with the theme's own choice when it's one
+  // of those two; otherwise fall back to the person's setting rather
+  // than silently doing nothing with a 'left'/'right' theme value.
+  $: effectivePanelPosition =
+    activeShellTheme && (activeShellTheme.layout.panelPosition === 'top' || activeShellTheme.layout.panelPosition === 'bottom')
+      ? activeShellTheme.layout.panelPosition
+      : panelPosition;
 
   function getAppDef(appId: string) {
     return APPS[appId as AppId];
@@ -59,6 +95,16 @@
   let switcherVisible = false;
   let switcherIndex = 0;
 
+  // Mirrors the overlay booleans above into `shellOverlayOpen` — see
+  // `overlayState.ts`'s doc comment for why (BlueWebApp.svelte's
+  // embedded-webview visibility gating needs to observe this from
+  // outside App.svelte, and a plain component-local `let` can't be
+  // imported elsewhere).
+  $: shellOverlayOpen.set(
+    isStartMenuOpen || isClipboardOpen || isControlCenterOpen ||
+    isNotificationsOpen || showPowerMenu || switcherVisible
+  );
+
   let cleanupKeyboard: () => void;
 
   onMount(() => {
@@ -66,6 +112,22 @@
     initLanguage();
     startExternalWindowPolling();
     startParentalControlsUsageTracking();
+
+    // First-run wizard — see welcome.ts's doc comment. Deferred one tick
+    // (not called synchronously before anything else) so it opens as an
+    // ordinary window on top of an already-initializing desktop rather
+    // than racing window-manager/config setup that hasn't run yet.
+    if (!hasCompletedWelcome()) {
+      setTimeout(() => openApp(AppId.BLUE_WELCOME), 300);
+    }
+
+    // Blue Notifications' feed-watcher polling — starts once here,
+    // unconditionally, independent of whether a Blue Notifications
+    // window is ever opened this session. See notificationsStore.ts's
+    // `startPolling` doc comment for exactly what "background" does and
+    // doesn't mean (no OS daemon, just timers living as long as this
+    // shell process does).
+    createNotificationsStore().startPolling();
 
     configStore.init().then((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -75,6 +137,8 @@
       if (typeof cfg.panelEnabled === 'boolean') panelEnabled = cfg.panelEnabled;
       if (cfg.panelPosition === 'top' || cfg.panelPosition === 'bottom') panelPosition = cfg.panelPosition;
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
+      shellThemeId = cfg.shellThemeId;
+      systemThemeId = cfg.systemThemeId;
     });
     const unsubConfig = configStore.subscribe((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -84,6 +148,8 @@
       if (typeof cfg.panelEnabled === 'boolean') panelEnabled = cfg.panelEnabled;
       if (cfg.panelPosition === 'top' || cfg.panelPosition === 'bottom') panelPosition = cfg.panelPosition;
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
+      shellThemeId = cfg.shellThemeId;
+      systemThemeId = cfg.systemThemeId;
     });
 
     cleanupKeyboard = initKeyboardShortcuts({
@@ -148,10 +214,12 @@
 {#if $liveModeChecked && $isLiveMode}
   <BlueInstallerApp />
 {:else if $liveModeChecked}
+<ShellThemeStyle {shellThemeId} />
+<SystemThemeStyle {systemThemeId} />
 <div
   class="relative w-full h-full overflow-hidden select-none"
   data-theme={theme}
-  style="background-image:url({toAssetUrl(wallpaper)}); background-size:cover; background-position:center;"
+  style="background-size:cover; background-position:center; background-color:#0f172a; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}linear-gradient(160deg, #0f172a, #1e293b);"
   on:click|self={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; }}
 >
   <Desktop {desktopPath} on:closeMenus={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; }} />
@@ -163,7 +231,8 @@
     {isStartMenuOpen}
     {isClipboardOpen}
     enabled={panelEnabled}
-    position={panelPosition}
+    position={effectivePanelPosition}
+    shellThemeId={activeShellTheme?.id}
     on:openApp={(e) => openApp(e.detail)}
     on:toggleWindow={(e) => toggleWindowFromTaskbar(e.detail)}
     on:startClick={() => (isStartMenuOpen = !isStartMenuOpen)}
@@ -179,8 +248,9 @@
     isFullScreen={isStartMenuFullScreen}
     {appsEnabled}
     zIndex={startMenuZIndex}
-    {panelPosition}
+    panelPosition={effectivePanelPosition}
     panelSize={barHeight}
+    shellThemeId={activeShellTheme?.id}
     on:openApp={(e) => openApp(e.detail.appId, e.detail.isExternal, e.detail.exec)}
     on:close={() => { isStartMenuOpen = false; isStartMenuFullScreen = false; }}
     on:toggleFullScreen={() => (isStartMenuFullScreen = !isStartMenuFullScreen)}
@@ -192,7 +262,8 @@
       {win}
       isActive={win.id === $activeWindowId}
       {barHeight}
-      {panelPosition}
+      panelPosition={effectivePanelPosition}
+      shellThemeId={activeShellTheme?.id}
       on:close={(e) => closeWindow(e.detail)}
       on:minimize={(e) => minimizeWindow(e.detail)}
       on:maximize={(e) => maximizeWindow(e.detail)}
@@ -214,14 +285,14 @@
   <WindowSwitcher windows={$windows} selectedIndex={switcherIndex} isVisible={switcherVisible} />
   <WorkspaceSwitcher currentWorkspace={$currentWorkspace} workspaceCount={$workspaceCount} {windowCounts} />
 
-  <ControlCenter isOpen={isControlCenterOpen} on:openSettings={() => { openApp(AppId.SETTINGS); isControlCenterOpen = false; }} />
-  <NotificationCenter isOpen={isNotificationsOpen} on:close={() => (isNotificationsOpen = false)} />
+  <ControlCenter isOpen={isControlCenterOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:openSettings={() => { openApp(AppId.SETTINGS); isControlCenterOpen = false; }} />
+  <NotificationCenter isOpen={isNotificationsOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:close={() => (isNotificationsOpen = false)} />
   {#if isClipboardOpen}
     <ClipboardPanel on:close={() => (isClipboardOpen = false)} />
   {/if}
 
   {#if showPowerMenu}
-    <PowerMenu on:action={handlePower} on:close={() => (showPowerMenu = false)} />
+    <PowerMenu shellThemeId={activeShellTheme?.id} on:action={handlePower} on:close={() => (showPowerMenu = false)} />
   {/if}
 
   <ToastContainer />
