@@ -22,19 +22,38 @@ fn log_file_path() -> PathBuf {
 /// writer, so binding it to `_` or letting it go out of scope early
 /// silently truncates the log.
 pub fn init() -> tracing_appender::non_blocking::WorkerGuard {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+
     let log_dir = log_file_path();
     let using_system_path = log_dir.starts_with("/var/log");
 
     let file_appender = tracing_appender::rolling::never(&log_dir, "blue-environment.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
+    // Dual-write: file *and* stdout — was file-only before, which is
+    // why running this binary from a terminal (as opposed to a desktop
+    // launcher, where stdout goes nowhere anyone looks anyway) showed
+    // nothing from this app's own `tracing::info!`/`warn!`/`error!`
+    // calls at all, only unrelated C-library stderr noise (libva/
+    // pipewire/GStreamer). `MakeWriterExt::and` (real
+    // `tracing-subscriber` API — combines two `MakeWriter`s so every
+    // event goes to both) is the fix; file logging behavior is
+    // unchanged, this only adds the second destination.
+    let writer = non_blocking.and(std::io::stdout);
+
     let subscriber = fmt::Subscriber::builder()
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| EnvFilter::new("blue_environment=info,tao=warn,wry=warn")),
         )
-        .with_writer(non_blocking)
-        .with_ansi(false)
+        .with_writer(writer)
+        // `true` now (was `false`) — trades a slightly noisier log
+        // *file* (ANSI color escape codes end up in it too, since
+        // `MakeWriterExt::and` shares one `with_ansi` setting across
+        // both destinations, there's no simple way to color the
+        // terminal copy only) for an actually readable terminal copy,
+        // which is the whole point of adding the terminal copy at all.
+        .with_ansi(true)
         .finish();
 
     if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
