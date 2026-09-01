@@ -15,6 +15,7 @@ mod weather;
 mod parental_controls;
 mod packages;
 mod icon_resolver;
+mod feed_parser;
 #[path = "CameraApp/mod.rs"]
 mod camera_app;
 #[path = "BlueWebApp/mod.rs"]
@@ -50,15 +51,46 @@ mod mail_app;
 mod blue_translate_app;
 #[path = "BlueInstallerApp/mod.rs"]
 mod blue_installer_app;
+#[path = "BlueTasksApp/mod.rs"]
+mod blue_tasks_app;
+#[path = "BlueNotificationsApp/mod.rs"]
+mod blue_notifications_app;
+#[path = "BlueNewsApp/mod.rs"]
+mod blue_news_app;
+#[path = "BlueMessagesApp/mod.rs"]
+mod blue_messages_app;
+#[path = "BlueConnect/mod.rs"]
+mod blue_connect;
+#[path = "BlueAccounts/mod.rs"]
+mod blue_accounts;
+#[path = "BlueVirt/mod.rs"]
+mod blue_virt;
+mod themes;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
 use blue_web_app::{
     web_open_native, web_fetch_site_info,
     web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
     web_view_set_visible, web_view_close, WebViewRegistry,
+    web_view_set_zoom, web_view_find, web_view_clear_find,
+    web_downloads_list, web_download_remove, web_download_reveal, DownloadRegistry,
+    web_set_blocklist, BlockList, web_report_meta,
 };
-use blue_code_app::{start_language_server, stop_language_server};
-use blue_calendar_app::{calendar_load_events, calendar_save_event, calendar_delete_event};
+use blue_code_app::{start_language_server, stop_language_server, lsp_send_message, lsp_is_running};
+use blue_calendar_app::{
+    calendar_load_events, calendar_save_event, calendar_delete_event,
+    calendar_list_subscriptions, calendar_add_subscription, calendar_remove_subscription,
+    calendar_set_subscription_enabled, calendar_cached_subscription_events, calendar_sync_subscription,
+};
+use blue_tasks_app::{
+    tasks_load_lists, tasks_save_list, tasks_delete_list,
+    tasks_load_tasks, tasks_upsert, tasks_delete, tasks_set_done,
+};
+use blue_notifications_app::{notif_rules_load, notif_rules_save, notif_rules_delete, notif_check_feed};
+use blue_news_app::{
+    news_load_sources, news_add_source, news_remove_source, news_set_source_enabled,
+    news_fetch_source, news_fetch_all,
+};
 use blue_translate_app::translate_text;
 use blue_installer_app::{installer_list_disks, installer_run};
 
@@ -112,6 +144,8 @@ fn main() {
     tauri::Builder::default()
     .manage(terminal_app::new_pty_sessions())
     .manage(WebViewRegistry::default())
+    .manage(DownloadRegistry::default())
+    .manage(BlockList::default())
     // These 6 plugins were never registered in the old main.rs (it had
     // ZERO .plugin() calls despite the frontend depending on several of
     // them directly — e.g. every SystemBridge.pickFile/pickDirectory call
@@ -119,6 +153,11 @@ fn main() {
     // Cargo.toml: all 6 crates were already dependencies, just unused.
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_shell::init())
+    // For `web_download_reveal` — see Cargo.toml's dependency comment
+    // and that command's own doc for why this replaces
+    // `tauri_plugin_shell::Shell::open` specifically (deprecated),
+    // without removing the shell plugin itself.
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_http::init())
     .plugin(tauri_plugin_notification::init())
@@ -142,7 +181,22 @@ fn main() {
         system_monitor_app::kill_process,
         system_monitor_app::renice_process,
         read_config_file, write_config_file, read_cache_file, write_cache_file,
-        blue_screenshot::take_screenshot, blue_screenshot::default_screenshot_path, get_wallpapers, get_wallpaper_preview, load_distro_info, system_power,
+        themes::list_system_themes, themes::load_system_theme,
+        blue_messages_app::messages_load_conversations, blue_messages_app::messages_create_conversation,
+        blue_messages_app::messages_delete_conversation, blue_messages_app::messages_set_pinned,
+        blue_messages_app::messages_load_thread, blue_messages_app::messages_send, blue_messages_app::messages_mark_read,
+        blue_messages_app::matrix::matrix_has_session, blue_messages_app::matrix::matrix_login, blue_messages_app::matrix::matrix_logout,
+        blue_messages_app::matrix::matrix_list_rooms, blue_messages_app::matrix::matrix_import_room, blue_messages_app::matrix::matrix_refresh_thread,
+        blue_messages_app::storage::messages_get_retention_settings, blue_messages_app::storage::messages_set_retention_settings,
+        blue_connect::bc_start_discovery, blue_connect::bc_get_devices, blue_connect::bc_forget_device,
+        blue_connect::bc_request_pairing, blue_connect::bc_listen_for_pairing,
+        blue_accounts::accounts_vault_exists, blue_accounts::accounts_is_unlocked, blue_accounts::accounts_create_vault,
+        blue_accounts::accounts_unlock, blue_accounts::accounts_lock, blue_accounts::accounts_list_entries,
+        blue_accounts::accounts_add_entry, blue_accounts::accounts_update_entry, blue_accounts::accounts_delete_entry,
+        blue_accounts::accounts_change_master_password, blue_accounts::accounts_generate_password,
+        blue_virt::bv_is_kvm_available, blue_virt::bv_list_vms, blue_virt::bv_create_vm,
+        blue_virt::bv_delete_vm, blue_virt::bv_start_vm, blue_virt::bv_stop_vm,
+        blue_screenshot::take_screenshot, blue_screenshot::default_screenshot_path, get_wallpapers, get_wallpaper_preview, resolve_default_wallpaper, load_distro_info, system_power,
         get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
         get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi,
         get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair,
@@ -184,15 +238,25 @@ fn main() {
         blue_partition_manager::bpm_set_label,
         blue_partition_manager::bpm_smart_status, blue_partition_manager::bpm_benchmark_read,
         blue_play_app::bpg_detect_runtimes, blue_play_app::bpg_launch_native, blue_play_app::bpg_launch_windows,
-        list_icon_themes, set_icon_theme,
+        list_icon_themes, set_icon_theme, list_cursor_themes, set_cursor_theme,
         has_cellular_modem, get_cellular_status, set_cellular_enabled,
         save_pattern_lock, delete_pattern_lock, pattern_is_configured, has_fingerprint,
         camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video,
         web_open_native, web_fetch_site_info,
         web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
         web_view_set_visible, web_view_close,
-        start_language_server, stop_language_server,
+        web_view_set_zoom, web_view_find, web_view_clear_find,
+        web_downloads_list, web_download_remove, web_download_reveal,
+        web_set_blocklist, web_report_meta,
+        start_language_server, stop_language_server, lsp_send_message, lsp_is_running,
         calendar_load_events, calendar_save_event, calendar_delete_event,
+        calendar_list_subscriptions, calendar_add_subscription, calendar_remove_subscription,
+        calendar_set_subscription_enabled, calendar_cached_subscription_events, calendar_sync_subscription,
+        tasks_load_lists, tasks_save_list, tasks_delete_list,
+        tasks_load_tasks, tasks_upsert, tasks_delete, tasks_set_done,
+        notif_rules_load, notif_rules_save, notif_rules_delete, notif_check_feed,
+        news_load_sources, news_add_source, news_remove_source, news_set_source_enabled,
+        news_fetch_source, news_fetch_all,
         blue_archive_app::archive_list, blue_archive_app::archive_extract, blue_archive_app::archive_create,
         mail_app::mail_get_accounts, mail_app::mail_save_account, mail_app::mail_delete_account,
         mail_app::mail_fetch_inbox, mail_app::mail_fetch_body, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
@@ -256,6 +320,32 @@ fn main() {
         std::thread::spawn(move || {
             compositor_ipc_relay(app_handle);
         });
+
+        // Debug-only — verifies the web-* capability scoping
+        // content_blocking.rs/the title-favicon bridge rely on actually
+        // denies what it's supposed to. See
+        // BlueWebApp/capability_selftest.rs's module doc for exactly
+        // what this does and doesn't prove.
+        blue_web_app::capability_selftest::run(&app.handle());
+
+        // ── DevTools, gated behind a `--dev` CLI flag ───────────────────
+        // Was unconditional (opened on every launch, including a
+        // production release binary) — switched to opt-in via `--dev`
+        // instead, per explicit request: no context-menu "Inspect
+        // Element" exists in a `tauri build` release binary (the
+        // `devtools` Cargo feature only compiles in the *capability* to
+        // open an inspector programmatically, it doesn't add the
+        // WebKitGTK context-menu entry), so `--dev` is now the
+        // supported way to get a DevTools window on a real release
+        // build without needing a separate debug build at all — run as
+        // `blue-environment --dev`.
+        if std::env::args().any(|a| a == "--dev") {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+            }
+        }
+
         Ok(())
     })
     .run(tauri::generate_context!())
