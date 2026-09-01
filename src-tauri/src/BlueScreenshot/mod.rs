@@ -25,7 +25,7 @@ pub fn default_screenshot_path() -> String {
 /// when the compositor IPC path (`CompositorBridge.takeScreenshot`, which
 /// now goes through the `wlr-screencopy-v1` protocol implemented in
 /// `compositor/src/protocols/screencopy.rs`) doesn't respond in time —
-/// i.e. sessions where Blue Compositor isn't actually running the show
+/// i.e. sessions where HackerOS-Comp isn't actually running the show
 /// (X11, or a different Wayland compositor), where these external tools
 /// are the only option anyway.
 #[tauri::command]
