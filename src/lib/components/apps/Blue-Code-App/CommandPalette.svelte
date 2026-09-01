@@ -13,7 +13,7 @@
 </script>
 
 {#if visible}
-  <div class="absolute inset-0 bg-black/50 flex items-start justify-center z-50 pt-20" on:click={() => dispatch('close')}>
+  <div class="absolute inset-0 bg-black/50 flex items-start justify-center z-50 pt-20" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}>
     <div class="bg-slate-800 rounded-xl w-96 p-4 shadow-2xl" on:click|stopPropagation>
       <div class="flex items-center gap-2 mb-3">
         <Command size={14} class="text-slate-500" />
