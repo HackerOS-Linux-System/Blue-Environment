@@ -72,3 +72,187 @@ body {
 .theme-accent-text   { color: var(--accent); }
 .theme-border        { border-color: rgba(255,255,255,0.1); }
 [data-theme='light-glass'] .theme-border { border-color: rgba(0,0,0,0.1); }
+
+/* Hydra shell theme — panel icon glow. Scoped two ways at once,
+   deliberately: `[data-shell-theme='hydra']` (set on documentElement by
+   ShellThemeStyle.svelte only while Hydra is active) *and* the
+   `.panel-icon-btn` marker class (only used inside TopBar.svelte) — so
+   this never leaks into ordinary app-window buttons elsewhere in the
+   shell, which a theme applying to `documentElement` could otherwise
+   easily do with a less specific selector. See TopBar.svelte for where
+   `.panel-icon-btn` is applied. */
+[data-shell-theme='hydra'] .panel-icon-btn:hover {
+  box-shadow: 0 0 14px var(--accent, #ec4899);
+  color: var(--accent, #ec4899) !important;
+}
+
+/* `iconStyle: 'filled'` hook — see ShellThemeStyle.svelte's own comment
+   for why this is a CSS-only "soft fill" (a tinted background disc
+   behind the glyph) rather than true filled icon glyphs (this app's
+   icon set, lucide-svelte, is outline-only, no separate filled variant
+   asset exists to swap to). Only applies to `.panel-icon-btn`s (not
+   every icon everywhere) so it reads as a deliberate panel treatment,
+   not a random inconsistent fill applied app-wide. */
+[data-shell-theme='hydra'][data-icon-style='filled'] .panel-icon-btn {
+  background: rgba(236, 72, 153, 0.12);
+  border-radius: 9999px;
+}
+[data-shell-theme='hydra'][data-icon-style='filled'] .panel-icon-btn:hover {
+  background: rgba(236, 72, 153, 0.22);
+}
+
+/* AppIconGlyph's Hydra glow — see that component's own comment for why
+   this is a systemic per-icon treatment rather than custom art. Uses a
+   CSS filter (drop-shadow, which respects transparent PNG/SVG edges
+   unlike box-shadow on the element's bounding box) so it works
+   correctly for non-square icon images too, not just the solid-color
+   initial-letter badge fallback. */
+.hydra-icon-glow {
+  filter: drop-shadow(0 0 6px rgba(236, 72, 153, 0.5));
+}
+/* Hydra shell theme — systemic app-content retint.
+   Scoped to `.app-content-area` (the wrapper Window.svelte puts around
+   every app's rendered content — see that file) combined with
+   `[data-shell-theme='hydra']` on documentElement, so this can never
+   affect anything outside an actual app window, regardless of how broad
+   the class list below is.
+
+   Real, deliberate limitation, not an oversight: this overrides Tailwind
+   utility classes by *color value*, not by editing each of this app's ~25
+   components individually (~24 files, hundreds of individual class
+   occurrences — surveyed via a real grep count, not guessed). That means
+   coverage is exactly as good as "does this component use one of the
+   specific slate/blue shades listed below" — the handful of components
+   already hand-retouched directly (ExplorerApp.svelte, TopBar.svelte,
+   StartMenu.svelte, etc. — see those files) don't need this at all since
+   they read `$activeShellThemeId` themselves; this block is what gives
+   every *other* app at least a real, working, non-placeholder Hydra look
+   without individually touching each one. Any component using a Tailwind
+   shade *not* listed here (an uncommon one) simply won't be retinted —
+   real, narrower per-app work (like the Explorer.svelte retrofit) is the
+   follow-up for full fidelity, not a fifth attempt at a longer generated
+   list here. */
+
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950 { background-color: rgb(10, 4, 19) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950\/30 { background-color: rgba(10, 4, 19, 0.3) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950\/40 { background-color: rgba(10, 4, 19, 0.4) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950\/50 { background-color: rgba(10, 4, 19, 0.5) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950\/60 { background-color: rgba(10, 4, 19, 0.6) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-950\/70 { background-color: rgba(10, 4, 19, 0.7) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-900 { background-color: rgb(18, 7, 31) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-900\/40 { background-color: rgba(18, 7, 31, 0.4) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-900\/50 { background-color: rgba(18, 7, 31, 0.5) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-900\/70 { background-color: rgba(18, 7, 31, 0.7) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-900\/95 { background-color: rgba(18, 7, 31, 0.95) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-800 { background-color: rgb(29, 15, 46) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-800\/30 { background-color: rgba(29, 15, 46, 0.3) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-800\/50 { background-color: rgba(29, 15, 46, 0.5) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-800\/60 { background-color: rgba(29, 15, 46, 0.6) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-800\/80 { background-color: rgba(29, 15, 46, 0.8) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-700 { background-color: rgb(42, 22, 66) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-700\/50 { background-color: rgba(42, 22, 66, 0.5) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-700\/90 { background-color: rgba(42, 22, 66, 0.9) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-slate-600 { background-color: rgb(61, 33, 89) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-white\/5 { border-color: rgba(236, 72, 153, 0.100) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-white\/10 { border-color: rgba(236, 72, 153, 0.140) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-white\/20 { border-color: rgba(236, 72, 153, 0.220) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600 { background-color: rgb(219, 39, 119) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600\/10 { background-color: rgba(219, 39, 119, 0.1) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600\/15 { background-color: rgba(219, 39, 119, 0.15) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600\/20 { background-color: rgba(219, 39, 119, 0.2) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600\/25 { background-color: rgba(219, 39, 119, 0.25) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-600\/30 { background-color: rgba(219, 39, 119, 0.3) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500 { background-color: rgb(236, 72, 153) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500\/10 { background-color: rgba(236, 72, 153, 0.1) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500\/15 { background-color: rgba(236, 72, 153, 0.15) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500\/20 { background-color: rgba(236, 72, 153, 0.2) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500\/60 { background-color: rgba(236, 72, 153, 0.6) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-500\/80 { background-color: rgba(236, 72, 153, 0.8) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-blue-400 { background-color: rgb(244, 114, 182) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-blue-300 { color: rgb(240, 171, 252) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-blue-400 { color: rgb(244, 114, 182) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-blue-500 { color: rgb(236, 72, 153) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-blue-500 { border-color: rgb(236, 72, 153) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-blue-500\/30 { border-color: rgba(236, 72, 153, 0.3) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-blue-500\/40 { border-color: rgba(236, 72, 153, 0.4) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-blue-500\/50 { border-color: rgba(236, 72, 153, 0.5) !important; }
+[data-shell-theme='hydra'] .app-content-area .border-blue-500\/60 { border-color: rgba(236, 72, 153, 0.6) !important; }
+[data-shell-theme='hydra'] .app-content-area .ring-blue-500\/60 { --tw-ring-color: rgba(236, 72, 153, 0.6) !important; }
+
+/* HDE shell theme — HackerOS Desktop Environment's signature terminal
+   look. Same two-tier strategy as Hydra above: a small set of
+   `.panel-icon-btn`/icon-glow rules for the shell chrome itself, plus
+   an `.app-content-area` retint block for the same fixed list of
+   Tailwind slate/blue shades so ordinary apps inherit the look too
+   without per-component changes (see Hydra's block above for the
+   honest scope/coverage caveat — it applies identically here). */
+[data-shell-theme='hde'] {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+[data-shell-theme='hde'] .panel-icon-btn:hover {
+  box-shadow: 0 0 10px var(--accent, #22c55e);
+  color: var(--accent, #22c55e) !important;
+}
+[data-shell-theme='hde'][data-icon-style='filled'] .panel-icon-btn {
+  background: rgba(34, 197, 94, 0.10);
+  border-radius: 2px; /* sharp corners, unlike Hydra's pill fill */
+}
+[data-shell-theme='hde'][data-icon-style='filled'] .panel-icon-btn:hover {
+  background: rgba(34, 197, 94, 0.20);
+}
+.hde-icon-glow {
+  filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.55));
+}
+/* Terminal-style hairline borders instead of soft rounded panels —
+   `--shell-radius: 0px` (set by ShellThemeStyle.svelte for every
+   `cornerStyle: 'sharp'` theme) already kills border-radius app-wide;
+   this adds the green hairline that reads as "terminal window" rather
+   than just "square corners". */
+[data-shell-theme='hde'] .app-content-area {
+  border: 1px solid rgba(34, 197, 94, 0.18);
+}
+[data-shell-theme='hde'] .app-content-area .bg-slate-950 { background-color: rgb(5, 8, 5) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-950\/30 { background-color: rgba(5, 8, 5, 0.3) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-950\/40 { background-color: rgba(5, 8, 5, 0.4) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-950\/50 { background-color: rgba(5, 8, 5, 0.5) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-950\/60 { background-color: rgba(5, 8, 5, 0.6) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-950\/70 { background-color: rgba(5, 8, 5, 0.7) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-900 { background-color: rgb(10, 18, 10) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-900\/40 { background-color: rgba(10, 18, 10, 0.4) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-900\/50 { background-color: rgba(10, 18, 10, 0.5) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-900\/70 { background-color: rgba(10, 18, 10, 0.7) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-900\/95 { background-color: rgba(10, 18, 10, 0.95) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-800 { background-color: rgb(15, 28, 15) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-800\/30 { background-color: rgba(15, 28, 15, 0.3) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-800\/50 { background-color: rgba(15, 28, 15, 0.5) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-800\/60 { background-color: rgba(15, 28, 15, 0.6) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-800\/80 { background-color: rgba(15, 28, 15, 0.8) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-700 { background-color: rgb(20, 38, 20) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-700\/50 { background-color: rgba(20, 38, 20, 0.5) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-700\/90 { background-color: rgba(20, 38, 20, 0.9) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-slate-600 { background-color: rgb(27, 51, 27) !important; }
+[data-shell-theme='hde'] .app-content-area .border-white\/5 { border-color: rgba(34, 197, 94, 0.100) !important; }
+[data-shell-theme='hde'] .app-content-area .border-white\/10 { border-color: rgba(34, 197, 94, 0.140) !important; }
+[data-shell-theme='hde'] .app-content-area .border-white\/20 { border-color: rgba(34, 197, 94, 0.220) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600 { background-color: rgb(21, 128, 61) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600\/10 { background-color: rgba(21, 128, 61, 0.1) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600\/15 { background-color: rgba(21, 128, 61, 0.15) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600\/20 { background-color: rgba(21, 128, 61, 0.2) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600\/25 { background-color: rgba(21, 128, 61, 0.25) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-600\/30 { background-color: rgba(21, 128, 61, 0.3) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500 { background-color: rgb(34, 197, 94) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500\/10 { background-color: rgba(34, 197, 94, 0.1) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500\/15 { background-color: rgba(34, 197, 94, 0.15) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500\/20 { background-color: rgba(34, 197, 94, 0.2) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500\/60 { background-color: rgba(34, 197, 94, 0.6) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-500\/80 { background-color: rgba(34, 197, 94, 0.8) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-blue-400 { background-color: rgb(74, 222, 128) !important; }
+[data-shell-theme='hde'] .app-content-area .text-blue-300 { color: rgb(134, 239, 172) !important; }
+[data-shell-theme='hde'] .app-content-area .text-blue-400 { color: rgb(74, 222, 128) !important; }
+[data-shell-theme='hde'] .app-content-area .text-blue-500 { color: rgb(34, 197, 94) !important; }
+[data-shell-theme='hde'] .app-content-area .border-blue-500 { border-color: rgb(34, 197, 94) !important; }
+[data-shell-theme='hde'] .app-content-area .border-blue-500\/30 { border-color: rgba(34, 197, 94, 0.3) !important; }
+[data-shell-theme='hde'] .app-content-area .border-blue-500\/40 { border-color: rgba(34, 197, 94, 0.4) !important; }
+[data-shell-theme='hde'] .app-content-area .border-blue-500\/50 { border-color: rgba(34, 197, 94, 0.5) !important; }
+[data-shell-theme='hde'] .app-content-area .border-blue-500\/60 { border-color: rgba(34, 197, 94, 0.6) !important; }
+[data-shell-theme='hde'] .app-content-area .ring-blue-500\/60 { --tw-ring-color: rgba(34, 197, 94, 0.6) !important; }
