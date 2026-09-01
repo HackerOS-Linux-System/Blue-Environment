@@ -15,14 +15,20 @@ export function createHistory() {
   const navStack = writable<string[]>([]);
   const navIdx = writable(-1);
 
-  function addHistory(url: string, title: string) {
+  function addHistory(url: string, title: string, opts?: { record?: boolean; favicon?: string }) {
     navStack.update((prev) => {
       const next = [...prev.slice(0, get(navIdx) + 1), url];
       navIdx.set(next.length - 1);
       return next;
     });
+    // `record: false` (private tabs — see tabs.ts) still needs the
+    // navStack update above for that tab's own back/forward to work;
+    // it's only the persisted, cross-session `history` list that a
+    // private tab must never touch. Default `true` — every existing
+    // caller (public tabs) keeps working unchanged.
+    if (opts?.record === false) return;
     history.update((prev) => {
-      const next = [{ url, title, time: Date.now() }, ...prev.filter((h) => h.url !== url)].slice(0, MAX_HISTORY);
+      const next = [{ url, title, time: Date.now(), favicon: opts?.favicon }, ...prev.filter((h) => h.url !== url)].slice(0, MAX_HISTORY);
       localStorage.setItem(LS_HISTORY, JSON.stringify(next));
       return next;
     });
@@ -30,9 +36,9 @@ export function createHistory() {
 
   function clearHistory() { history.set([]); localStorage.removeItem(LS_HISTORY); }
 
-  function toggleBookmark(url: string, title: string) {
+  function toggleBookmark(url: string, title: string, favicon?: string) {
     bookmarks.update((prev) => {
-      const next = prev.some((b) => b.url === url) ? prev.filter((b) => b.url !== url) : [{ url, title }, ...prev];
+      const next = prev.some((b) => b.url === url) ? prev.filter((b) => b.url !== url) : [{ url, title, favicon }, ...prev];
       localStorage.setItem(LS_BOOKMARKS, JSON.stringify(next));
       return next;
     });
