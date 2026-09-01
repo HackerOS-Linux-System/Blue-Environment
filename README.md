@@ -1,7 +1,35 @@
-# ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/LegendaryOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
-# Blue Environment v0.6
+# ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
+# Blue Environment v0.7
 
-Production-grade Wayland desktop environment for LegendaryOS.
+Production-grade Wayland desktop environment for LegendaryOS, built on
+[Smithay](https://github.com/Smithay/smithay) (compositor) and
+[Tauri](https://tauri.app) + Svelte (desktop shell).
+
+## Features
+
+- **Wayland compositor** (`compositor/`) — xdg-shell, layer-shell,
+  XWayland, session-lock, idle/idle-inhibit, cursor-shape,
+  fractional-scale, data-device/primary-selection, pointer-constraints
+  and relative-pointer (pointer lock for games), tablet input,
+  text-input/input-method (IME), `wlr-foreign-toplevel-management` (native
+  window list for the panel/switcher — no `wmctrl`/`xdotool` needed when
+  running under HackerOS-Comp), `wlr-output-management` (multi-monitor
+  configuration as a protocol), `wlr-screencopy` (native screenshot
+  support). Both a nested/dev backend (winit) and a bare-metal
+  DRM/KMS/libseat backend for TTY sessions.
+- **Desktop shell** (`src/` + `src-tauri/`) — panel, launcher, window
+  switcher, workspaces, notification center, control center, and a suite
+  of first-party apps: Mail (IMAP/SMTP), Web, Docs (with PDF/DOCX
+  import/export), Code editor, Terminal, File explorer, Camera, Archive
+  manager, System Monitor, Partition Manager, Settings (including
+  **Parental Controls**: PIN-protected app blocking, daily time limits,
+  allowed-hours windows).
+- **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
+  openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
+  Void as submission-ready templates — see `packaging/`).
+
+See [`ROADMAP.md`](./ROADMAP.md) for exactly what's implemented, what's
+best-effort/needs on-hardware verification, and what's still planned.
 
 ## Build Instructions
 
@@ -17,7 +45,15 @@ sudo apt install \
     libgtk-3-dev libwebkit2gtk-4.0-dev \
     libayatana-appindicator3-dev \
     librsvg2-dev pkg-config \
-    seatd wmctrl xdotool
+    seatd
+
+# wmctrl/xdotool are OPTIONAL — only used as a fallback when the shell
+# isn't actually running under HackerOS-Comp (e.g. a nested dev session
+# under a different desktop environment). Under a real HackerOS-Comp
+# session, window listing/focus/close/minimize all go through the
+# compositor's own IPC and the wlr-foreign-toplevel-management protocol,
+# so these packages aren't required for normal use.
+# sudo apt install wmctrl xdotool
 
 # Node.js 18+
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -48,7 +84,7 @@ npm run build:tauri
 
 ```bash
 npm run build:compositor
-# Output: ~/.hackeros/Blue-Environment/libs/blue-compositor
+# Output: ~/.hackeros/Blue-Environment/libs/hackeros-comp
 ```
 
 ### Build everything
@@ -132,19 +168,24 @@ blue-environment/
 │   └── src/
 │       ├── main.rs                ← Tauri commands
 │       ├── ai.rs                  ← AI API proxy
+│       ├── weather.rs             ← Weather widget backend (IP geolocation + Open-Meteo)
+│       ├── parental_controls.rs   ← PIN-protected app blocking, time limits
 │       ├── apps.rs                ← .desktop scanner
 │       ├── cache.rs               ← Config/cache
 │       ├── session.rs             ← Session detection
-│       └── window_tracker.rs     ← External windows
-└── src-tauri/lib/blue-compositor/ ← Smithay compositor
+│       └── window_tracker.rs     ← External windows (compositor IPC first, wmctrl/xdotool fallback)
+└── compositor/                    ← Smithay compositor (separate crate)
     ├── Cargo.toml
     └── src/
         ├── main.rs
-        ├── state.rs
-        ├── input.rs
-        ├── render.rs
-        ├── xwayland.rs
-        └── ipc.rs
+        ├── state/                 ← BlueState + protocol handler impls
+        ├── input/                 ← libinput dispatch, move/resize grabs
+        ├── render/                ← winit (nested) + DRM/KMS (bare-metal) backends
+        ├── xwayland/               ← XWayland integration
+        ├── ipc/                   ← Unix socket protocol to the shell
+        └── protocols/              ← idle, session-lock, decoration, cursor-shape,
+                                       foreign-toplevel-management, output-management,
+                                       screencopy
 ```
 
 ## Keyboard Shortcuts
@@ -197,4 +238,4 @@ sudo usermod -aG seat $USER
 # Then re-login
 ```
 
-© 2026 LegendaryOS Team
+© 2026 HackerOS Team
