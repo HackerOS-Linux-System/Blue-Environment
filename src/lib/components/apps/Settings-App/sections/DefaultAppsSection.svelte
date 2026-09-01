@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Check, ChevronDown, FileText, Globe, Mail, Music, Film, Image, Archive, Code2, Terminal } from 'lucide-svelte';
+  import { Check, ChevronDown, FileText, Globe, Mail, Music, Film, Image, Archive, Code2, Terminal, FileDown, CalendarDays } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
   import { t } from '../../../../stores/language';
 
@@ -17,6 +17,8 @@
     { id: 'archive', labelKey: 'settings.defaultapps.role_archive', descKey: 'settings.defaultapps.role_archive_desc', icon: Archive, mimeTypes: ['application/zip', 'application/x-tar'] },
     { id: 'code', labelKey: 'settings.defaultapps.role_code', descKey: 'settings.defaultapps.role_code_desc', icon: Code2, mimeTypes: ['text/x-python', 'text/x-csrc', 'text/x-script'] },
     { id: 'terminal', labelKey: 'settings.defaultapps.role_terminal', descKey: 'settings.defaultapps.role_terminal_desc', icon: Terminal, mimeTypes: [] },
+    { id: 'pdf', labelKey: 'settings.defaultapps.role_pdf', descKey: 'settings.defaultapps.role_pdf_desc', icon: FileDown, mimeTypes: ['application/pdf'] },
+    { id: 'calendar', labelKey: 'settings.defaultapps.role_calendar', descKey: 'settings.defaultapps.role_calendar_desc', icon: CalendarDays, mimeTypes: ['text/calendar', 'x-scheme-handler/webcal'] },
   ];
 
   const BLUE_ALTS: Record<string, AppOption[]> = {
@@ -27,6 +29,7 @@
     image: [{ id: 'blue_images', name: 'Blue Images', exec: 'blue-environment --app blue_images' }],
     video: [{ id: 'blue_video', name: 'Blue Video', exec: 'blue-environment --app blue_video' }],
     web: [{ id: 'blue_web', name: 'Blue Browser', exec: 'blue-environment --app blue_web' }],
+    calendar: [{ id: 'blue_calendar', name: 'Blue Calendar', exec: 'blue-environment --app blue_calendar' }],
   };
 
   function out(r: any): string { return typeof r === 'string' ? r : r?.stdout ?? ''; }
