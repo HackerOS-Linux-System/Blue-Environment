@@ -19,6 +19,14 @@
   export let isClipboardOpen = false;
   export let enabled = true;
   export let position: 'top' | 'bottom' = 'top';
+  /** Active shell theme id (see builtinThemes.ts / App.svelte's
+   * `activeShellTheme`) — `undefined`/anything other than `'hydra'`
+   * today just means "normal panel look", same as before this prop
+   * existed. Not a general theming hook; add more `{#if shellThemeId
+   * === '...'}` branches here if/when another theme needs its own
+   * panel treatment, rather than trying to generalize prematurely for
+   * a single data point. */
+  export let shellThemeId: string | undefined = undefined;
 
   const dispatch = createEventDispatcher<{
     openApp: string;
@@ -263,14 +271,16 @@
 
 {#if enabled}
 <div
-  class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} border-white/5"
-  style="height:{panelHeight}px; background-color:rgba(15, 23, 42, {panelOpacity}); z-index:50;"
+  class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
+  style="height:{panelHeight}px; z-index:50; {shellThemeId === 'hydra'
+    ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
+    : `background-color:rgba(15, 23, 42, ${panelOpacity});`}"
 >
   <!-- Left: Start + search -->
   <div class="flex items-center gap-3 w-1/3">
     <button
       on:click={handleStartClick}
-      class="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
+      class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
       title="Start (double-click for full screen)"
     >
       <div class="relative">
@@ -281,7 +291,7 @@
     </button>
     <div
       class="hidden md:flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 rounded-full px-3 py-1 text-xs text-slate-400 cursor-text transition-colors w-44"
-      on:click={() => dispatch('startClick')}
+      on:click={() => dispatch('startClick')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('startClick'))(); } }}
     >
       <Search size={12} />
       <span>Search apps...</span>
@@ -341,7 +351,7 @@
       <div class="hidden lg:block relative">
         <button
           on:click={() => (showWeatherPopover = !showWeatherPopover)}
-          class="flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors {showWeatherPopover ? 'bg-white/10' : ''}"
+          class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors {showWeatherPopover ? 'bg-white/10' : ''}"
           title="{weather.city}: {weather.temp} — click for details"
         >
           <svelte:component this={wi.Icon} size={14} class={wi.cls} />
@@ -349,7 +359,7 @@
         </button>
 
         {#if showWeatherPopover}
-          <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} />
+          <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (showWeatherPopover = false))(); } }} />
           <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
             <div class="flex items-center justify-between mb-3">
               <div>
@@ -376,7 +386,7 @@
 
     <div class="relative" on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
       <button on:click={() => dispatch('toggleClipboard')}
-        class="relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
+        class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
         title="Clipboard history">
         <Clipboard size={15} class="group-hover:text-white" />
         {#if hasClipboardContent}
@@ -401,7 +411,7 @@
 
     <div class="relative" on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
       <button on:click={() => dispatch('toggleControlCenter')}
-        class="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
+        class="panel-icon-btn flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
         <Wifi size={13} class="text-slate-300" />
         <span class="text-xs font-medium text-slate-200 tabular-nums">
           {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
