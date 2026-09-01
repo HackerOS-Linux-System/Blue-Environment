@@ -226,13 +226,13 @@
 
         {#if setupServiceDef?.kind === 'cloud'}
           <div>
-            <label class="text-xs text-slate-400 block mb-1">Model</label>
+            <span class="text-xs text-slate-400 block mb-1">Model</span>
             <select bind:value={setupModel} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
               {#each setupModelOptions as m (m)}<option value={m}>{m}</option>{/each}
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400 block mb-1">API Key</label>
+            <span class="text-xs text-slate-400 block mb-1">API Key</span>
             <input type="password" bind:value={setupApiKey} placeholder="sk-..."
               class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
             {#if setupServiceDef?.keyHint}
@@ -310,13 +310,13 @@
     <div class="shrink-0 border-b border-white/5 bg-slate-800/80 p-4 space-y-3">
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="text-xs text-slate-400 block mb-1">Service</label>
+          <span class="text-xs text-slate-400 block mb-1">Service</span>
           <select value={config.service} on:change={handleServiceChange} class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
             {#each AI_SERVICES as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
           </select>
         </div>
         <div>
-          <label class="text-xs text-slate-400 block mb-1">Model</label>
+          <span class="text-xs text-slate-400 block mb-1">Model</span>
           <select value={config.model} on:change={handleModelChange} class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
             {#each currentService?.models ?? [] as m (m)}<option value={m}>{m}</option>{/each}
           </select>
@@ -324,7 +324,7 @@
       </div>
       {#if config.service !== 'local'}
         <div>
-          <label class="text-xs text-slate-400 block mb-1">API Key</label>
+          <span class="text-xs text-slate-400 block mb-1">API Key</span>
           <div class="flex gap-2">
             <input type="password" bind:value={apiKeyInput} placeholder="sk-..." class="flex-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none" />
             <button on:click={saveApiKey} class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm">Save</button>
