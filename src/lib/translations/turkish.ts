@@ -144,7 +144,7 @@ export const turkish: Translations = {
     'filemenu.properties': 'Özellikler',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Deneysel — uygulamalarla HDR görüşmesi yapar; görüntünün kendisi henüz yeniden eşlenmiyor.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const turkish: Translations = {
     // content is localized yet
     'settings.tab.display': 'Ekran',
     'settings.tab.personalization': 'Kişiselleştirme',
+
+    'settings.tab.icons': 'Simgeler',
     'settings.tab.night_light': 'Gece Işığı',
     'settings.tab.panel': 'Panel',
     'settings.tab.weather': 'Hava Durumu ve Widget’lar',
