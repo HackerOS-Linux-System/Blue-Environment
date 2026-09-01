@@ -74,7 +74,7 @@
   {#if !distraction}
     <div class="shrink-0 flex bg-slate-900 border-b border-white/5 overflow-x-auto scrollbar-hide">
       {#each $docs as d (d.id)}
-        <div on:click={() => activeId.set(d.id)}
+        <div on:click={() => activeId.set(d.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeId.set(d.id))(); } }}
           class="flex items-center gap-1.5 px-4 py-2.5 cursor-pointer shrink-0 border-r border-white/5 text-sm group max-w-[180px] transition-colors {$activeId === d.id ? 'bg-slate-950 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800/50'}">
           <FileText size={13} class="shrink-0" />
           <span class="truncate">{d.name}</span>
