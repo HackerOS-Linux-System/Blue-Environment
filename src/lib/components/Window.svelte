@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { X, Minus, Maximize2, Square, PictureInPicture2 } from 'lucide-svelte';
   import type { WindowState } from '../types';
   import { createEventDispatcher, onDestroy } from 'svelte';
+  import WindowControls from './WindowControls.svelte';
+  import { resolveActiveShellTheme } from '../data/builtinThemes';
 
   export let win: WindowState;
   export let isActive: boolean;
@@ -11,6 +12,21 @@
   // slider). `panelPosition` decides which screen edge is reserved.
   export let barHeight = 48;
   export let panelPosition: 'top' | 'bottom' = 'top';
+  /** See WindowControls.svelte's module doc — this is what actually
+   * makes `windowControlsStyle`/`windowControlsPosition` (previously
+   * dead data on every theme) do something. `undefined`/default theme
+   * both resolve to the same 'windows'/'right' look this component
+   * already had hardcoded before, so nothing changes for anyone not
+   * using a theme that sets these. */
+  export let shellThemeId: string | undefined = undefined;
+
+  $: activeTheme = resolveActiveShellTheme(shellThemeId);
+  $: controlsStyle = activeTheme?.layout.windowControlsStyle ?? 'windows';
+  $: controlsPosition = activeTheme?.layout.windowControlsPosition ?? 'right';
+  // Only Hydra sets this today (its pink accent) — see
+  // WindowControls.svelte's doc for why this is a separate prop rather
+  // than its own `windowControlsStyle` value.
+  $: controlsGlow = activeTheme?.id === 'hydra' ? activeTheme.colors.accent : undefined;
 
   const dispatch = createEventDispatcher<{
     close: string; minimize: string; maximize: string; focus: string; pip: string;
@@ -143,8 +159,8 @@
     class="absolute flex flex-col overflow-hidden shadow-2xl border transition-shadow duration-150 theme-bg-primary
       {isActive ? 'border-blue-500/60 shadow-blue-500/20' : 'theme-border shadow-black/60'}
       {isDragging ? 'cursor-grabbing select-none' : ''}
-      {win.isPiP ? 'rounded-2xl ring-2 ring-blue-500/50 shadow-blue-500/30' : win.isMaximized ? '' : 'rounded-xl'}"
-    {style}
+      {win.isPiP ? 'ring-2 ring-blue-500/50 shadow-blue-500/30' : ''}"
+    style="{style} border-radius: {win.isPiP ? 'var(--shell-radius, 1rem)' : win.isMaximized ? '0px' : 'var(--shell-radius, 0.75rem)'};"
     on:mousedown={() => dispatch('focus', win.id)}
   >
     <div
@@ -152,38 +168,29 @@
       on:mousedown={handleTitleMouseDown}
       on:dblclick={() => dispatch('maximize', win.id)}
     >
-      <div class="flex items-center gap-2 text-sm font-medium theme-text-primary min-w-0">
+      <div class="flex items-center gap-2 text-sm font-medium theme-text-primary min-w-0 {controlsPosition === 'left' ? 'order-last' : 'order-first'}">
         <div class="w-2 h-2 rounded-full shrink-0 transition-colors {isActive ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]' : 'bg-slate-600'}" />
         <span class="truncate">{win.title}</span>
         {#if win.isExternal}
           <span class="text-[10px] text-slate-500 bg-slate-700/50 px-1.5 rounded">ext</span>
         {/if}
       </div>
-      <div class="flex items-center gap-0.5 shrink-0" on:mousedown={(e) => e.stopPropagation()}>
-        <button on:click={() => dispatch('minimize', win.id)}
-          class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary hover:text-yellow-400 transition-colors"
-          title="Minimize (Super+↓)">
-          <Minus size={13} />
-        </button>
-        <button on:click={() => dispatch('pip', win.id)}
-          class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary transition-colors {win.isPiP ? 'text-blue-400' : 'hover:text-blue-400'}"
-          title="Picture-in-Picture">
-          <PictureInPicture2 size={12} />
-        </button>
-        <button on:click={() => dispatch('maximize', win.id)}
-          class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary hover:text-green-400 transition-colors"
-          title="Maximize (Super+↑)">
-          {#if win.isMaximized}<Square size={11} />{:else}<Maximize2 size={11} />{/if}
-        </button>
-        <button on:click={() => dispatch('close', win.id)}
-          class="w-7 h-7 flex items-center justify-center hover:bg-red-500/80 rounded-md theme-text-secondary hover:text-white transition-colors"
-          title="Close (Alt+F4)">
-          <X size={13} />
-        </button>
+      <div class="shrink-0 {controlsPosition === 'left' ? 'order-first' : 'order-last'}" on:mousedown={(e) => e.stopPropagation()}>
+        <WindowControls
+          isMaximized={win.isMaximized}
+          isPiP={win.isPiP}
+          style={controlsStyle}
+          position={controlsPosition}
+          accentGlow={controlsGlow}
+          on:minimize={() => dispatch('minimize', win.id)}
+          on:pip={() => dispatch('pip', win.id)}
+          on:maximize={() => dispatch('maximize', win.id)}
+          on:close={() => dispatch('close', win.id)}
+        />
       </div>
     </div>
 
-    <div class="flex-1 overflow-auto relative theme-bg-primary theme-text-primary select-text cursor-auto">
+    <div class="app-content-area flex-1 overflow-auto relative theme-bg-primary theme-text-primary select-text cursor-auto">
       <slot />
     </div>
 
