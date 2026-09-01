@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "web-content",
+  "description": "Capability for embedded Blue Web content webviews (arbitrary external pages, label pattern web-*) — grants ONLY the scoped title/favicon report command, none of what the main shell webview (see default.json) can do. See BlueWebApp/mod.rs's module doc for the full reasoning and one real open caveat (Tauri child-webview capability scoping has a history of bugs; verify against this project's actual pinned Tauri version before treating this as a hard boundary).",
+  "windows": ["main"],
+  "webviews": ["web-*"],
+  "permissions": [
+    "allow-web-report-meta"
+  ],
+  "local": true,
+  "remote": {
+    "urls": []
+  }
+}
