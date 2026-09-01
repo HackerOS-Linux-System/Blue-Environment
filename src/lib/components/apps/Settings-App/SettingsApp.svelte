@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    Image as ImageIcon, Palette, Wifi, Bluetooth, BatteryCharging, PanelTop,
+    Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
+    Sparkles, Puzzle, Layers,
   } from 'lucide-svelte';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
@@ -13,6 +14,8 @@
 
   import DisplaySection from './sections/DisplaySection.svelte';
   import PersonalizationSection from './sections/PersonalizationSection.svelte';
+  import ThemesSection from './sections/ThemesSection.svelte';
+  import PluginsSection from './sections/PluginsSection.svelte';
   import NetworkSection from './sections/NetworkSection.svelte';
   import PowerSection from './sections/PowerSection.svelte';
   import PanelSection from './sections/PanelSection.svelte';
@@ -33,7 +36,9 @@
 
   const TABS: TabEntry[] = [
     { id: 'display', labelKey: 'settings.tab.display', icon: ImageIcon, group: 'Appearance' },
-    { id: 'personalization', labelKey: 'settings.tab.personalization', icon: Palette, group: 'Appearance' },
+    { id: 'personalization', labelKey: 'settings.tab.icons', icon: Layers, group: 'Appearance' },
+    { id: 'themes', labelKey: 'settings.tab.themes', icon: Sparkles, group: 'Appearance' },
+    { id: 'plugins', labelKey: 'settings.tab.plugins', icon: Puzzle, group: 'System' },
     { id: 'nightLight', labelKey: 'settings.tab.night_light', icon: Moon, group: 'Appearance' },
     { id: 'panel', labelKey: 'settings.tab.panel', icon: PanelTop, group: 'Appearance' },
     { id: 'weather', labelKey: 'settings.tab.weather', icon: Globe, group: 'Appearance' },
@@ -66,6 +71,7 @@
 
   let wallpapers: string[] = [];
   let wallpaperPreviews = new Map<string, string>();
+  let wallpaperPreviewsLoading = new Set<string>();
   let brightness = 80;
   let resolution = '1920x1080';
   let refreshRate = 60;
@@ -91,12 +97,46 @@
 
   async function onSave(patch: Partial<UserConfig>) { await configStore.save(patch); }
 
+  /// Loads the wallpaper grid's thumbnails with **bounded** concurrency
+  /// (a handful at a time) instead of firing every preview request at
+  /// once via an unbounded `Promise.all` — the backend now generates
+  /// real small thumbnails with disk caching (see
+  /// `get_wallpaper_preview` in commands/display.rs), so this isn't
+  /// covering for a slow backend anymore, but flooding dozens of
+  /// concurrent Tauri IPC calls the instant Settings opens is still
+  /// unnecessary load on the webview's IPC channel for no benefit — a
+  /// person can only look at a few tiles at once anyway. Each tile
+  /// shows its own spinner (`wallpaperPreviewsLoading`) while its
+  /// specific preview is in flight, so a slow one (an uncached, huge
+  /// original) can't make the *whole* grid look stuck — see
+  /// DisplaySection.svelte's `{#if wallpaperPreviewsLoading.has(wp)}`.
   async function loadWallpapers() {
     const list = await SystemBridge.getWallpapers();
     wallpapers = list;
+
     const previews = new Map<string, string>();
-    await Promise.all(list.map(async (wp) => { const data = await SystemBridge.getWallpaperPreview(wp); if (data) previews.set(wp, data); }));
-    wallpaperPreviews = previews;
+    const CONCURRENCY = 4;
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < list.length) {
+        const wp = list[cursor++];
+        wallpaperPreviewsLoading = new Set(wallpaperPreviewsLoading).add(wp);
+        try {
+          const data = await SystemBridge.getWallpaperPreview(wp);
+          if (data) {
+            previews.set(wp, data);
+            wallpaperPreviews = new Map(previews); // update incrementally so tiles fill in as they arrive, not all-at-once at the end
+          }
+        } finally {
+          const next = new Set(wallpaperPreviewsLoading);
+          next.delete(wp);
+          wallpaperPreviewsLoading = next;
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker));
   }
 
   $: resolutionList = modes.map((m) => m.resolution);
@@ -136,9 +176,11 @@
 
     <div class="flex-1 overflow-y-auto p-6">
       {#if activeTab === 'display'}
-        <DisplaySection {config} {onSave} {wallpapers} {wallpaperPreviews} onReloadWallpapers={loadWallpapers}
+        <DisplaySection {config} {onSave} {wallpapers} {wallpaperPreviews} {wallpaperPreviewsLoading} onReloadWallpapers={loadWallpapers}
           bind:brightness bind:resolution bind:refreshRate {resolutionList} {rateList} />
       {:else if activeTab === 'personalization'}<PersonalizationSection />
+      {:else if activeTab === 'themes'}<ThemesSection {config} {onSave} />
+      {:else if activeTab === 'plugins'}<PluginsSection {config} {onSave} />
       {:else if activeTab === 'nightLight'}<NightLightSection {config} {onSave} />
       {:else if activeTab === 'panel'}<PanelSection {config} {onSave} />
       {:else if activeTab === 'weather'}<WeatherSection {config} {onSave} />
