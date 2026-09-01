@@ -120,7 +120,7 @@
     <div class="flex-1 flex flex-col overflow-hidden">
       <div class="flex bg-slate-800 border-b border-white/5 overflow-x-auto shrink-0">
         {#each $openFiles as file, idx (idx)}
-          <div on:click={() => activeIdx.set(idx)}
+          <div on:click={() => activeIdx.set(idx)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeIdx.set(idx))(); } }}
             class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-b-2 shrink-0 group max-w-[160px] {$activeIdx === idx ? 'border-blue-500 text-white bg-slate-900' : 'border-transparent text-slate-400 hover:text-white'}">
             <FileCode size={13} />
             <span class="text-xs truncate">{file.path.split('/').pop()}</span>
