@@ -16,20 +16,20 @@
 
   <div class="max-w-md space-y-4">
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">Full name</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Full name</span>
       <input bind:value={$config.fullName} placeholder="Jane Doe" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50" />
     </div>
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">Username</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Username</span>
       <input bind:value={$config.username} placeholder="jane" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50"
         on:input={() => (config.update((c) => ({ ...c, username: c.username.toLowerCase().replace(/[^a-z0-9_-]/g, '') })))} />
     </div>
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">Computer name</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Computer name</span>
       <input bind:value={$config.hostname} placeholder="blue-pc" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50" />
     </div>
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">Password</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Password</span>
       <div class="relative">
         {#if showPassword}
           <input type="text" bind:value={$config.password} placeholder="Choose a password"
@@ -49,7 +49,7 @@
       {/if}
     </div>
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">Confirm password</label>
+      <span class="block text-xs text-slate-500 mb-1.5">Confirm password</span>
       {#if showPassword}
         <input type="text" bind:value={confirmPassword} placeholder="Re-enter password"
           class="w-full bg-slate-800 border rounded-xl px-4 py-2.5 text-white focus:outline-none {confirmPassword && !passwordsMatch ? 'border-red-500/50' : 'border-white/10 focus:border-blue-500/50'}" />
