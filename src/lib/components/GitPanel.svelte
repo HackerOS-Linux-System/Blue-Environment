@@ -154,7 +154,7 @@
           <div>
             <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Staged ({staged.length})</div>
             {#each staged as f (f.path)}
-              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)}>
+              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
                 <span class="text-[10px] font-bold w-4 {STATUS_COLOR[f.status] || 'text-slate-400'}">{f.status}</span>
                 <span class="text-xs text-slate-300 flex-1 truncate">{f.path}</span>
                 <button on:click={(e) => { e.stopPropagation(); unstageFile(f.path); }} class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-yellow-400 text-slate-600"><Minus size={11} /></button>
@@ -167,7 +167,7 @@
           <div>
             <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Changes ({unstaged.length})</div>
             {#each unstaged as f (f.path)}
-              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)}>
+              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
                 <span class="text-[10px] font-bold w-4 {STATUS_COLOR[f.status] || 'text-slate-400'}">{f.status}</span>
                 <span class="text-xs text-slate-300 flex-1 truncate">{f.path}</span>
                 <div class="flex gap-0.5 opacity-0 group-hover:opacity-100">
@@ -191,7 +191,7 @@
       <div class="flex-1 overflow-y-auto">
         {#each commits as c (c.hash)}
           <div class="px-3 py-2.5 border-b border-white/5 hover:bg-white/5 cursor-pointer"
-            on:click={() => run(`git show ${c.hash}`).then((d) => { diff = d; tab = 'diff'; })}>
+            on:click={() => run(`git show ${c.hash}`).then((d) => { diff = d; tab = 'diff'; })} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => run(`git show ${c.hash}`).then((d) => { diff = d; tab = 'diff'; }))(); } }}>
             <div class="flex items-center gap-2 mb-0.5">
               <code class="text-blue-400 text-[10px] font-mono">{c.hash}</code>
               <span class="text-[10px] text-slate-500 ml-auto">{c.date}</span>
