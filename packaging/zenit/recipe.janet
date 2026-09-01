@@ -62,7 +62,14 @@
     false
     (let [sudo (sudo-)]
       (case pm
-        :apt (try-run (string sudo "apt-get update && " sudo "env DEBIAN_FRONTEND=noninteractive apt-get install -y " pkgs))
+        :apt (do
+               # `apt-get update` bywa niezerowy, jeśli JEDNO skonfigurowane
+               # źródło (np. martwe stare repo firmy trzeciej) nie odpowiada
+               # -- reszta list pakietów i tak się odświeża. Nie łączymy tego
+               # przez `&&` z `install`, żeby zepsute jedno źródło nie blokowało
+               # instalacji z pozostałych, działających repozytoriów.
+               (try-run (string sudo "apt-get update"))
+               (try-run (string sudo "env DEBIAN_FRONTEND=noninteractive apt-get install -y " pkgs)))
         :dnf (try-run (string sudo "dnf install -y " pkgs))
         :pacman (try-run (string sudo "pacman -Sy --noconfirm " pkgs))
         :zypper (try-run (string sudo "zypper --non-interactive install " pkgs))
@@ -85,8 +92,9 @@
 
 (if (and prebuilt (> (length prebuilt) 0))
   # CI/operator już zbudował powłokę wcześniej w tym samym biegu (np.
-  # `npm run tauri build` jako osobny krok) -- nie buduj drugi raz.
-  # Pomijamy też poniższą logikę instalowania npm/cargo/gtk.
+  # `cargo build --release --manifest-path src-tauri/Cargo.toml` jako
+  # osobny krok) -- nie buduj drugi raz. Pomijamy też poniższą logikę
+  # instalowania npm/cargo/gtk.
   (set bin-path prebuilt)
   (do
     # -----------------------------------------------------------
@@ -97,8 +105,9 @@
     # -----------------------------------------------------------
     (unless (have? "npm")
       (eprint "recipe.janet: brak 'npm' -- próbuję zainstalować (" (detect-pm) ")...")
-      (unless (pm-install {:apt "nodejs npm" :dnf "nodejs npm" :pacman "nodejs npm" :zypper "nodejs npm" :apk "nodejs npm" :brew "node"})
-        (eprint "recipe.janet: menedżer pakietów nie dał Node.js -- próbuję NodeSource (setup_22.x)...")
+      (pm-install {:apt "nodejs npm" :dnf "nodejs npm" :pacman "nodejs npm" :zypper "nodejs npm" :apk "nodejs npm" :brew "node"})
+      (unless (have? "npm")
+        (eprint "recipe.janet: 'npm' nadal niedostępne -- próbuję NodeSource (setup_22.x)...")
         (when (try-run "curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/zpk-nodesource.sh")
           (try-run (string (sudo-) "bash /tmp/zpk-nodesource.sh"))
           (pm-install {:apt "nodejs" :dnf "nodejs" :zypper "nodejs"}))))
@@ -111,8 +120,9 @@
     # -----------------------------------------------------------
     (unless (have? "cargo")
       (eprint "recipe.janet: brak 'cargo' -- próbuję zainstalować (" (detect-pm) ")...")
-      (unless (pm-install {:apt "cargo" :dnf "cargo" :pacman "rust" :zypper "cargo" :apk "cargo" :brew "rust"})
-        (eprint "recipe.janet: menedżer pakietów nie ma 'cargo' -- próbuję rustup (oficjalny instalator)...")
+      (pm-install {:apt "cargo" :dnf "cargo" :pacman "rust" :zypper "cargo" :apk "cargo" :brew "rust"})
+      (unless (have? "cargo")
+        (eprint "recipe.janet: 'cargo' nadal niedostępne -- próbuję rustup (oficjalny instalator)...")
         (try-run "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
         (def cargo-bin-dir (string (os/getenv "HOME") "/.cargo/bin"))
         (when (os/stat (string cargo-bin-dir "/cargo") :mode)
@@ -136,29 +146,29 @@
                    :apk "gtk+3.0-dev libsoup3-dev webkit2gtk-4.1-dev libappindicator-dev librsvg-dev patchelf"
                    :brew nil})
       (unless (try-run "pkg-config --exists webkit2gtk-4.1 gtk+-3.0 libsoup-3.0")
-        (eprint "recipe.janet: uwaga -- nadal nie widzę webkit2gtk-4.1/gtk+-3.0/libsoup-3.0 przez pkg-config; jeśli build `cargo`/`tauri` zaraz padnie, doinstaluj je ręcznie dla swojej dystrybucji")))
+        (eprint "recipe.janet: uwaga -- nadal nie widzę webkit2gtk-4.1/gtk+-3.0/libsoup-3.0 przez pkg-config; jeśli build `cargo` zaraz padnie, doinstaluj je ręcznie dla swojej dystrybucji")))
 
     (run (string "cd " repo-root " && npm install"))
-    # tauri.conf.json's beforeBuildCommand kopiuje ikonę i woła
-    # `npm run build` (svelte-check + vite) samo, ale `npm run tauri
-    # build` i tak wywołuje ten hook -- jawne kopiowanie tu jest tylko
-    # zabezpieczeniem, gdyby ktoś kiedyś odpiął beforeBuildCommand.
-    (run (string "cd " repo-root " && mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png"))
 
-    # Bez `--bundles none` -- ta flaga nie jest wspierana przez każdą
-    # wersję Tauri CLI (na niektórych `[possible values: deb, rpm,
-    # appimage]`, "none" nie istnieje). `npm run tauri build` to
-    # dokładnie to samo polecenie co `cmd_build_shell` w build.hl --
-    # samo zbuduje też natywne bundle (.deb/.rpm/.AppImage) jako efekt
-    # uboczny, jeśli znajdzie odpowiednie narzędzia (dpkg-deb/rpmbuild/
-    # linuxdeploy); nas to nie obchodzi, bierzemy tylko surową
-    # binarkę. Kompilacja Rustem (cargo) dzieje się PRZED etapem
-    # bundlowania, więc nawet jeśli bundlery zawiodą z braku narzędzi
-    # (częste poza Debianem/Ubuntu), binarka zwykle i tak już powstała
-    # -- dlatego `try-run` zamiast `run`: prawdziwą porażkę i tak
-    # złapie poniższe sprawdzenie `os/stat bin-path`.
-    (unless (try-run (string "cd " repo-root " && npm run tauri build"))
-      (eprint "recipe.janet: uwaga -- 'npm run tauri build' zwróciło błąd (możliwe, że to tylko etap bundlowania .deb/.rpm/.AppImage, nie kompilacja) -- sprawdzam, czy binarka mimo to powstała..."))))
+    # Budujemy binarkę BEZPOŚREDNIO cargo, z pominięciem CLI Tauri
+    # (`tauri build` / `npm run tauri build`) -- to CELOWA zmiana, nie
+    # tylko kwestia flagi `--bundles`. `tauri build` po skompilowaniu
+    # binarki (widocznej już wtedy w target/release/) przechodzi do
+    # etapu bundlowania natywnych paczek (.deb/.rpm/.AppImage), który
+    # potrafi WISIEĆ W NIESKOŃCZONOŚĆ (np. próba pobrania
+    # linuxdeploy/AppImage tooling, brak odpowiedzi sieci w
+    # danym środowisku) -- obserwowane w praniu. Pomijając CLI Tauri
+    # całkowicie, ten etap w ogóle się nie odpala: nic tu nie może
+    # zawiesić builda dłużej niż sama kompilacja Rustem.
+    #
+    # Musimy więc ręcznie odtworzyć to, co normalnie robi
+    # `beforeBuildCommand` z tauri.conf.json (bo teraz nie ma go kto
+    # wywołać): skopiować ikonę i zbudować frontend (`npm run build`
+    # -- svelte-check + vite -> dist/, czytane przez src-tauri przez
+    # `frontendDist: "../dist"`), a dopiero potem `cargo build`.
+    (run (string "cd " repo-root " && mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png"))
+    (run (string "cd " repo-root " && npm run build"))
+    (run (string "cd " repo-root " && cargo build --release --manifest-path src-tauri/Cargo.toml"))))
 
 (unless (os/stat bin-path :mode)
   (fail (string "nie znaleziono zbudowanej binarki: " bin-path)))
