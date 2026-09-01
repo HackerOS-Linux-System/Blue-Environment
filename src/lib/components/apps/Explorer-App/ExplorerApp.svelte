@@ -11,6 +11,23 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm } from '../../../stores/dialog';
   import { configStore } from '../../../utils/configStore';
+  import { activeShellThemeId } from '../../../stores/shellTheme';
+
+  // Real (if partial — see this app's own comment further down for the
+  // honest scope) Hydra retrofit: this app previously had zero
+  // shell-theme awareness like every other app in this codebase (see
+  // `src/lib/stores/shellTheme.ts`'s own doc on why apps don't get a
+  // theme id prop-drilled in at all) — root background, sidebar, and
+  // the selection-highlight color (the single most-repeated themed
+  // surface in this file, appearing in bookmarks/tree/grid/list views)
+  // now follow the active theme; the many *other* hardcoded
+  // `bg-slate-800`/`border-white/5` surfaces throughout this file
+  // (toolbar, tabs, context menu, properties panel, ...) do not yet —
+  // retrofitting all of them individually is real, valuable, separate
+  // follow-up work, not attempted exhaustively here.
+  $: isHydra = $activeShellThemeId === 'hydra';
+  $: selClass = isHydra ? 'bg-pink-600/30 ring-2 ring-pink-500/60' : 'bg-blue-600/30 ring-2 ring-blue-500/60';
+  $: selClassSubtle = isHydra ? 'bg-pink-600/20 text-pink-400' : 'bg-blue-600/20 text-blue-400';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
@@ -339,7 +356,7 @@
   }));
 </script>
 
-<div class="flex h-full bg-slate-900 text-white overflow-hidden" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
+<div class="flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
   <div class="fixed top-16 right-4 z-50 flex flex-col gap-2 pointer-events-none">
     {#each notifs as n (n.id)}
       <div class="flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg text-sm {n.type === 'success' ? 'bg-green-600/90' : n.type === 'error' ? 'bg-red-600/90' : 'bg-slate-700/90'}">
@@ -349,7 +366,7 @@
     {/each}
   </div>
 
-  <div class="w-44 bg-slate-800/50 border-r border-white/5 flex flex-col shrink-0">
+  <div class="w-44 border-r flex flex-col shrink-0 {isHydra ? 'bg-[#1d0f2e]/60 border-pink-500/10' : 'bg-slate-800/50 border-white/5'}">
     <div class="p-3 border-b border-white/5 flex items-center justify-between">
       <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Places</span>
       <button on:click={() => toggleCustomBookmark(activeTab.path)} title="Bookmark current folder" class="p-0.5 hover:text-yellow-400 text-slate-500">
@@ -358,7 +375,7 @@
     </div>
     <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
       {#each BOOKMARKS_WITH_ICONS as bm (bm.path)}
-        <button on:click={() => navigateTo(bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+        <button on:click={() => navigateTo(bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <svelte:component this={bm.icon} size={14} />{bm.name}
         </button>
       {/each}
@@ -370,7 +387,7 @@
         <div class="h-px bg-white/5 my-2" />
         <div class="px-2 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
         {#each customBookmarks as path (path)}
-          <div class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          <div class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
             <button on:click={() => navigateTo(path)} class="flex items-center gap-2 flex-1 min-w-0 text-left">
               <Folder size={14} class="shrink-0" /><span class="truncate">{path.split('/').pop()}</span>
             </button>
@@ -384,7 +401,7 @@
   <div class="flex-1 flex flex-col min-w-0">
     <div class="flex items-center bg-slate-800/80 border-b border-white/5 overflow-x-auto shrink-0">
       {#each tabs as t (t.id)}
-        <div on:click={() => { activeTabId = t.id; loadFiles(t.path); }}
+        <div on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
           class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-r border-white/5 shrink-0 group max-w-[140px] {t.id === activeTabId ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
           <Folder size={12} />
           <span class="text-xs truncate">{t.path === 'HOME' ? '~' : t.path.split('/').pop()}</span>
@@ -435,7 +452,7 @@
     {/if}
 
     <div class="flex-1 flex overflow-hidden">
-      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:click={(e) => { if (e.target === gridEl) selected = new Set(); }}>
+      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:click={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
         {#if loading}
           <div class="flex items-center justify-center h-full"><Loader2 size={22} class="animate-spin text-blue-400" /></div>
         {:else if sorted.length === 0}
@@ -451,7 +468,7 @@
                 on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                 on:drop={(e) => file.is_dir && onDrop(e, file)}
                 on:dragleave={() => (dragOver = null)}
-                class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? 'bg-blue-600/30 ring-2 ring-blue-500/60' : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''} {isCut ? 'opacity-50' : ''}"
+                class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? selClass : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''} {isCut ? 'opacity-50' : ''}"
                 on:click|stopPropagation={(e) => toggleSelect(file.path, e)}
                 on:dblclick={() => !renaming && handleOpen(file)}
                 on:contextmenu|stopPropagation={(e) => openContextMenu(e, file)}>
@@ -495,7 +512,7 @@
                   on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                   on:drop={(e) => file.is_dir && onDrop(e, file)}
                   on:dragleave={() => (dragOver = null)}
-                  class="border-b border-white/5 cursor-pointer group {isSel ? 'bg-blue-600/20' : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/15' : ''} {isCut ? 'opacity-50' : ''}"
+                  class="border-b border-white/5 cursor-pointer group {isSel ? selClassSubtle : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/15' : ''} {isCut ? 'opacity-50' : ''}"
                   on:click={(e) => toggleSelect(file.path, e)}
                   on:dblclick={() => handleOpen(file)}
                   on:contextmenu|preventDefault={(e) => openContextMenu(e, file)}>
@@ -610,7 +627,7 @@
 
       {#if propertiesFile}
         {@const pf = propertiesFile}
-        <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties}>
+        <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
           <div class="w-80 bg-slate-800 border border-white/10 rounded-xl shadow-2xl p-4" on:click|stopPropagation>
             <div class="flex items-center gap-2 mb-3">
               <FileIcon file={pf} size={28} />
