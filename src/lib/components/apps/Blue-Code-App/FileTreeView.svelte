@@ -16,7 +16,7 @@
       class="flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-white/5 group text-sm {node.type === 'directory' && node.path === selectedDir ? 'bg-blue-600/10' : ''}"
       style="padding-left:{level * 12 + 4}px;"
       on:dblclick={() => node.type === 'file' && dispatch('openFile', node.path)}
-      on:click={() => node.type === 'directory' && dispatch('toggleDir', node)}>
+      on:click={() => node.type === 'directory' && dispatch('toggleDir', node)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => node.type === 'directory' && dispatch('toggleDir', node))(); } }}>
       {#if node.type === 'directory'}
         <span class="text-slate-500 w-4 shrink-0">{#if node.expanded}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
       {/if}
