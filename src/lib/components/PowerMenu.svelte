@@ -5,6 +5,11 @@
 
   const dispatch = createEventDispatcher<{ action: PowerAction; close: void }>();
 
+  /** Same convention as StartMenu/ControlCenter's `shellThemeId` prop —
+   * this menu is a centered modal (not taskbar-anchored), so it doesn't
+   * need their `panelPosition` fix, just the Hydra glow/border accent. */
+  export let shellThemeId: string | undefined = undefined;
+
   const ACTIONS = [
     { action: 'shutdown' as PowerAction, label: 'Shut Down', Icon: Power, color: '#ef4444', glow: 'rgba(239,68,68,0.3)', description: 'Power off the system' },
     { action: 'reboot' as PowerAction, label: 'Restart', Icon: RefreshCcw, color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', description: 'Reboot the system' },
@@ -56,12 +61,12 @@
 <div
   class="fixed inset-0 z-50 flex items-center justify-center"
   style="background:rgba(2,8,18,0.8); backdrop-filter:blur(20px);"
-  on:click={() => dispatch('close')}
+  on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}
 >
   <div
     class="relative glass-card rounded-3xl p-8 w-96 animate-scale-in"
     on:click|stopPropagation
-    style="border:1px solid rgba(59,130,246,0.2);"
+    style="border:1px solid {shellThemeId === 'hydra' ? 'rgba(236,72,153,0.3)' : 'rgba(59,130,246,0.2)'}; {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25);' : ''}"
   >
     <button on:click={() => dispatch('close')} class="absolute top-4 right-4 p-2 bedm-btn-ghost rounded-xl">
       <X size={16} />
