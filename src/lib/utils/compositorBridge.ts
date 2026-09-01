@@ -127,7 +127,7 @@ export default CompositorBridge;
 // does (see `compositor/src/protocols/screencopy.rs`), so route through
 // the compositor path first since it's the one that can be IPC-driven
 // without a `sh -c` round trip, and only fall back to the Tauri
-// CLI-fallback command for sessions where Blue Compositor plainly isn't
+// CLI-fallback command for sessions where HackerOS-Comp plainly isn't
 // running the show (X11, or a different Wayland compositor).
 export async function takeScreenshotUnified(mode: 'full' | 'focused' = 'full'): Promise<string | null> {
     const path: string = await invoke('default_screenshot_path').catch(() => '');
@@ -158,7 +158,7 @@ export async function takeScreenshotUnified(mode: 'full' | 'focused' = 'full'): 
     if (compositorResult) return compositorResult;
 
     // Fallback: CLI-based Tauri command (works under X11 or a
-    // non-Blue-Compositor Wayland session).
+    // non-HackerOS-Comp Wayland session).
     try {
         const cliPath: string = await invoke('take_screenshot');
         return cliPath || null;
