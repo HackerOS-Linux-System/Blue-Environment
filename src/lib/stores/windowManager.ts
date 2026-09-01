@@ -19,6 +19,29 @@ export const visibleWindows = derived(
   ([$windows, $currentWorkspace]) => $windows.filter((w) => w.workspace === $currentWorkspace || w.workspace === undefined)
 );
 
+/**
+ * Which window is visually topmost right now, among windows actually
+ * showing on the current workspace — accounting for `isPiP`, which
+ * (per `Window.svelte`) always renders at a fixed CSS `z-index: 9998`
+ * regardless of the window's own numeric `zIndex`, overriding the
+ * normal stacking order. `null` when nothing is visible at all.
+ *
+ * Exists for `BlueWebApp.svelte`'s embedded-webview visibility gating:
+ * a native child webview always paints on top of this window's own DOM
+ * (see that file's module doc), so it needs to know explicitly whether
+ * it's actually the topmost thing on screen right now, not just
+ * whether it's "focused" in the usual sense — a window can be
+ * `activeWindowId` and still be visually covered by a PiP window, for
+ * instance.
+ */
+export const topmostVisibleWindowId = derived(visibleWindows, ($visible) => {
+  const showing = $visible.filter((w) => !w.isMinimized);
+  if (showing.length === 0) return null;
+  const pip = showing.filter((w) => w.isPiP);
+  const pool = pip.length > 0 ? pip : showing;
+  return pool.reduce((top, w) => (w.zIndex > top.zIndex ? w : top)).id;
+});
+
 export function startExternalWindowPolling() {
   if (pollTimer) return;
   const poll = async () => {
