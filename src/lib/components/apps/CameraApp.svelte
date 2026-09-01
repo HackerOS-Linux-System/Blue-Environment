@@ -293,7 +293,7 @@
       {#if showSettings}
         <div class="absolute top-14 right-3 bg-slate-900/95 backdrop-blur-sm rounded-xl border border-white/10 p-4 w-56 space-y-3">
           <div>
-            <label class="text-xs text-slate-400 block mb-1">Camera</label>
+            <span class="text-xs text-slate-400 block mb-1">Camera</span>
             <select value={deviceIdx} on:change={handleDeviceChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
               {#if nativeMode}
                 {#each nativeDevices as d, i (d.path)}<option value={i}>{d.name}</option>{/each}
@@ -304,7 +304,7 @@
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400 block mb-1">Resolution</label>
+            <span class="text-xs text-slate-400 block mb-1">Resolution</span>
             <select value="{resolution.w}x{resolution.h}" on:change={handleResolutionChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
               <option value="1920x1080">FHD (1920x1080)</option>
               <option value="1280x720">HD (1280x720)</option>
