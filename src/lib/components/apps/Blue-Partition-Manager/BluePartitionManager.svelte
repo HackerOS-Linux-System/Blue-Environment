@@ -273,7 +273,7 @@
               {#each disk.children as p (p.path)}
                 <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 {selected?.path === p.path ? 'bg-blue-600/10' : ''}">
                   <ChevronRight size={12} class="text-slate-600 shrink-0" />
-                  <div class="min-w-0 flex-1 cursor-pointer" on:click={() => select(p)}>
+                  <div class="min-w-0 flex-1 cursor-pointer" on:click={() => select(p)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => select(p))(); } }}>
                     <div class="text-sm truncate flex items-center gap-2">
                       <span class="font-mono text-slate-300">{p.path}</span>
                       {#if p.label}<span class="text-slate-500">"{p.label}"</span>{/if}
@@ -310,7 +310,7 @@
   </div>
 
   {#if showFormatDialog && selected}
-    <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={() => (showFormatDialog = false)}>
+    <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={() => (showFormatDialog = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (showFormatDialog = false))(); } }}>
       <div class="w-96 bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" on:click|stopPropagation>
         <div class="flex items-center gap-2 mb-3 text-red-400">
           <AlertTriangle size={16} />
@@ -318,12 +318,12 @@
         </div>
         <p class="text-xs text-slate-400 mb-4">All data on this partition will be permanently erased.</p>
 
-        <label class="block text-xs text-slate-500 mb-1.5">Filesystem</label>
+        <span class="block text-xs text-slate-500 mb-1.5">Filesystem</span>
         <select bind:value={formatFs} class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white mb-4 focus:outline-none">
           {#each FS_OPTIONS as fs (fs)}<option value={fs}>{fs}</option>{/each}
         </select>
 
-        <label class="block text-xs text-slate-500 mb-1.5">Label (optional)</label>
+        <span class="block text-xs text-slate-500 mb-1.5">Label (optional)</span>
         <input bind:value={formatLabel} placeholder="e.g. DATA"
           class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white mb-5 focus:outline-none focus:border-blue-500/50" />
 
