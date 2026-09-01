@@ -8,6 +8,27 @@ export interface DesktopEntry {
     noDisplay?: boolean;
 }
 
+/** A filesystem theme package (`/usr/share/themes/<id>/`) as returned by
+ * `list_system_themes`/`load_system_theme` — see src-tauri/src/themes.rs.
+ * Distinct from `ShellTheme` in builtinThemes.ts (an app-bundled theme). */
+export interface SystemTheme {
+    id: string;
+    name: string;
+    author: string;
+    version: string;
+    description: string;
+    effects: {
+        blur: boolean;
+        transparency: boolean;
+        animations: boolean;
+        cornerStyle: string;
+        accentColor?: string;
+    };
+    css: string;
+    previewDataUrl?: string;
+}
+
+
 export interface UserConfig {
     wallpaper: string;
     theme: string;
@@ -29,6 +50,20 @@ export interface UserConfig {
     accounts: Record<string, any>;
     aiConfig?: AIConfig;
     customThemes?: ThemeDefinition[];
+    /** Active *shell* theme (window controls/layout/full palette — see
+     * builtinThemes.ts) — distinct from the older `theme`/`themeName`/
+     * `accentColor` trio above, which only ever controlled a single
+     * live-applied accent color and dark/light mode. Defaults to
+     * `'azure'` (DEFAULT_SHELL_THEME_ID) when unset, matching a fresh
+     * install. Changing this alone does *not* re-render the shell —
+     * see ThemesSection.svelte, applying a shell theme always goes
+     * through a "restart required" prompt. */
+    shellThemeId?: string;
+    /** Manually "installed" plugins (see builtinPlugins.ts's own doc for
+     * what that currently means in practice — very little). Store-
+     * installed and manually-added plugins both end up here; there is
+     * no other persistence layer for them. */
+    installedPlugins?: import('../data/builtinPlugins').InstalledPlugin[];
     /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
     customBookmarks?: string[];
     /** Show the weather widget in the TopBar (auto-detected via IP geolocation unless weatherCity is set). */
@@ -50,6 +85,17 @@ export interface UserConfig {
     blueGames?: Record<string, { highScore: number; playCount: number; lastPlayed?: string; playtimeSeconds?: number }>;
     /** User-added external games (native or Windows via Wine/Proton/umu). */
     blueGamesLibrary?: BlueGameLibraryEntry[];
+    /** Desktop/file-manager icon size in pixels — see the Icons settings
+     * section (formerly "Personalization"). */
+    iconSize?: number;
+    /** X cursor theme name, applied via `set_cursor_theme` (writes
+     * `~/.icons/default/index.theme`) — system-wide, not just Blue
+     * Environment's own UI. */
+    cursorTheme?: string;
+    /** Selected filesystem theme package id (`/usr/share/themes/<id>/`),
+     * applied globally by SystemThemeStyle.svelte — independent of
+     * `shellThemeId` (an app-bundled theme), see that component's doc. */
+    systemThemeId?: string | null;
 }
 
 export interface BlueGameLibraryEntry {
@@ -663,10 +709,13 @@ export const SystemBridge = {
                 if (wps.length > 0) return wps.map(wp => wp.startsWith('file://') ? wp : `file://${wp}`);
             } catch {}
         }
-        return [
-            'file:///usr/share/Blue-Environment/wallpapers/default.png',
-            'file:///usr/share/wallpapers/default.png',
-        ];
+        // Empty (was: two hardcoded paths that might not exist on the
+        // running system — same class of bug as App.svelte's old
+        // hardcoded initial wallpaper value, see that file's fix) — a
+        // wallpaper picker showing zero options when the backend call
+        // fails is honest; showing two options that 404 when clicked
+        // isn't better than that.
+        return [];
     },
 
     getWallpaperPreview: async (path: string): Promise<string | null> => {
@@ -676,6 +725,23 @@ export const SystemBridge = {
                 const data = await invoke('get_wallpaper_preview', { path: cleanPath });
                 if (data && typeof data === 'string') return data;
             } catch (e) { console.error('Wallpaper preview error:', e); }
+        }
+        return null;
+    },
+
+    // Resolves the wallpaper to use before the person has ever picked
+    // one themselves — see `resolve_default_wallpaper`'s doc comment in
+    // display.rs for exactly what changed (previously a single path was
+    // hardcoded into `configStore.ts`'s `DEFAULT_CONFIG`, used
+    // regardless of whether that file actually existed on the running
+    // system). Returns `null` if literally nothing was found (caller
+    // falls back to a plain color, not a guessed path).
+    resolveDefaultWallpaper: async (): Promise<string | null> => {
+        if (isTauri) {
+            try {
+                const wp = await invoke('resolve_default_wallpaper');
+                if (wp && typeof wp === 'string') return wp;
+            } catch (e) { console.error('resolveDefaultWallpaper error:', e); }
         }
         return null;
     },
@@ -703,8 +769,17 @@ export const SystemBridge = {
         const local = localStorage.getItem('blue_user_config');
         if (local) { try { return JSON.parse(local); } catch {} }
         return {
-            wallpaper: 'file:///usr/share/Blue-Environment/wallpapers/default.png',
+            // Empty (not a hardcoded, possibly-nonexistent path) — see
+            // App.svelte's fix and this function's sibling
+            // `getWallpapers()` above for the same reasoning. This
+            // specific fallback object is what's used when *both*
+            // Tauri's `load_config` and localStorage come back empty —
+            // i.e. exactly the "something is already broken" case,
+            // which is the worst possible place to also hand back a
+            // wallpaper path that 404s.
+            wallpaper: '',
             theme: 'dark', themeName: 'blue-default', accentColor: 'blue', displayScale: 1,
+            shellThemeId: 'azure', installedPlugins: [],
             desktopPath: 'HOME/Desktop', panelEnabled: true, panelPosition: 'top',
             panelSize: 40, panelOpacity: 0.9, language: 'en',
             nightLightEnabled: false, nightLightTemperature: 4000,
@@ -796,10 +871,17 @@ export const SystemBridge = {
     // --- Power profiles ---
     async getPowerProfiles(): Promise<PowerProfile[]> {
         if (isTauri) return await invoke('get_power_profiles') ?? [];
+        // Dev-preview fallback (no Tauri backend) — English labels only;
+        // the frontend maps known ids through its own i18n system (see
+        // PowerSection.svelte's `KNOWN_PROFILE_KEYS`), so these
+        // `description` strings are just the same "raw label" fallback
+        // the real backend now sends, not meant to be displayed
+        // directly to a non-English user. (Previously hardcoded in
+        // Polish here — a real i18n bug, same one fixed in `power.rs`.)
         return [
-            { name: 'power-saver',  active: false, icon: 'Battery', description: 'Oszczędzanie energii' },
-            { name: 'balanced',     active: true,  icon: 'Wind',    description: 'Zrównoważony' },
-            { name: 'performance',  active: false, icon: 'Zap',     description: 'Wydajność' },
+            { name: 'power-saver',  active: false, icon: 'Battery', description: 'Power Saver' },
+            { name: 'balanced',     active: true,  icon: 'Wind',    description: 'Balanced' },
+            { name: 'performance',  active: false, icon: 'Zap',     description: 'Performance' },
         ];
     },
 
@@ -859,6 +941,16 @@ export const SystemBridge = {
         return false;
     },
 
+    async lspSendMessage(language: string, rootPath: string, message: unknown): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('lsp_send_message', { language, rootPath, message }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    async lspIsRunning(language: string, rootPath: string): Promise<boolean> {
+        if (isTauri) { try { return await invoke('lsp_is_running', { language, rootPath }); } catch { return false; } }
+        return false;
+    },
+
     // --- Blue Calendar ---
     async calendarLoadEvents(): Promise<import('../components/apps/Blue-Calendar-App/types').CalendarEvent[]> {
         if (isTauri) { try { return await invoke('calendar_load_events'); } catch { return []; } }
@@ -871,6 +963,255 @@ export const SystemBridge = {
     async calendarDeleteEvent(id: string): Promise<{ ok: boolean; error?: string }> {
         if (isTauri) { try { await invoke('calendar_delete_event', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Tasks ---
+    async tasksLoadLists(): Promise<import('../components/apps/Blue-Tasks-App/types').TaskList[]> {
+        if (isTauri) { try { return await invoke('tasks_load_lists'); } catch { return []; } }
+        return [{ id: 'inbox', name: 'Inbox', color: '#3b82f6' }];
+    },
+    async tasksSaveList(list: import('../components/apps/Blue-Tasks-App/types').TaskList): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('tasks_save_list', { list }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async tasksDeleteList(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('tasks_delete_list', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async tasksLoadTasks(): Promise<import('../components/apps/Blue-Tasks-App/types').Task[]> {
+        if (isTauri) { try { return await invoke('tasks_load_tasks'); } catch { return []; } }
+        return [];
+    },
+    async tasksUpsert(task: import('../components/apps/Blue-Tasks-App/types').Task): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('tasks_upsert', { task }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async tasksDelete(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('tasks_delete', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async tasksSetDone(id: string, done: boolean): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('tasks_set_done', { id, done }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Notifications ---
+    async notifRulesLoad(): Promise<import('../components/apps/Blue-Notifications-App/types').NotificationRule[]> {
+        if (isTauri) { try { return await invoke('notif_rules_load'); } catch { return []; } }
+        return [];
+    },
+    async notifRulesSave(rule: import('../components/apps/Blue-Notifications-App/types').NotificationRule): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('notif_rules_save', { rule }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async notifRulesDelete(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('notif_rules_delete', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async notifCheckFeed(rule: import('../components/apps/Blue-Notifications-App/types').NotificationRule): Promise<{ ok: boolean; newItems: { guid: string; title: string; link: string }[]; error?: string }> {
+        if (!isTauri) return { ok: false, newItems: [], error: 'Only in Tauri environment' };
+        try { const res: any = await invoke('notif_check_feed', { rule }); return { ok: true, newItems: res.new_items ?? [] }; }
+        catch (e) { return { ok: false, newItems: [], error: String(e) }; }
+    },
+
+    // --- Blue News ---
+    async newsLoadSources(): Promise<import('../components/apps/Blue-News-App/types').NewsSource[]> {
+        if (isTauri) { try { return await invoke('news_load_sources'); } catch { return []; } }
+        return [];
+    },
+    async newsAddSource(name: string, url: string, category: string): Promise<{ ok: boolean; source?: import('../components/apps/Blue-News-App/types').NewsSource; error?: string }> {
+        if (isTauri) { try { const source = await invoke('news_add_source', { name, url, category }); return { ok: true, source: source as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async newsRemoveSource(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('news_remove_source', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async newsSetSourceEnabled(id: string, enabled: boolean): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('news_set_source_enabled', { id, enabled }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Messages ---
+    async messagesLoadConversations(): Promise<import('../components/apps/Blue-Messages-App/types').Conversation[]> {
+        if (isTauri) { try { return await invoke('messages_load_conversations'); } catch { return []; } }
+        return [];
+    },
+    async messagesCreateConversation(title: string, participant: string, channel: import('../components/apps/Blue-Messages-App/types').Channel): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
+        if (isTauri) { try { const conversation = await invoke('messages_create_conversation', { title, participant, channel }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async messagesDeleteConversation(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('messages_delete_conversation', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async messagesSetPinned(id: string, pinned: boolean): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('messages_set_pinned', { id, pinned }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async messagesLoadThread(conversationId: string): Promise<import('../components/apps/Blue-Messages-App/types').Message[]> {
+        if (isTauri) { try { return await invoke('messages_load_thread', { conversationId }); } catch { return []; } }
+        return [];
+    },
+    async messagesSend(conversationId: string, body: string): Promise<{ ok: boolean; message?: import('../components/apps/Blue-Messages-App/types').Message; error?: string }> {
+        if (isTauri) { try { const message = await invoke('messages_send', { conversationId, body }); return { ok: true, message: message as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async messagesMarkRead(conversationId: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('messages_mark_read', { conversationId }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Messages: Matrix transport (src-tauri/src/BlueMessagesApp/matrix.rs) ---
+    async matrixHasSession(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('matrix_has_session'); } catch { return false; } }
+        return false;
+    },
+    async matrixLogin(homeserver: string, username: string, password: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('matrix_login', { homeserver, username, password }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async matrixLogout(): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('matrix_logout'); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async matrixListRooms(): Promise<{ roomId: string; name: string }[]> {
+        if (isTauri) {
+            try {
+                const rooms: any[] = await invoke('matrix_list_rooms');
+                return rooms.map((r) => ({ roomId: r.room_id ?? r.roomId, name: r.name }));
+            } catch { return []; }
+        }
+        return [];
+    },
+    async matrixImportRoom(roomId: string, name: string): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
+        if (isTauri) { try { const conversation = await invoke('matrix_import_room', { roomId, name }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async matrixRefreshThread(conversationId: string): Promise<import('../components/apps/Blue-Messages-App/types').Message[]> {
+        if (isTauri) { try { return await invoke('matrix_refresh_thread', { conversationId }); } catch { return []; } }
+        return [];
+    },
+    async messagesGetRetentionSettings(): Promise<[number, number]> {
+        if (isTauri) { try { return await invoke('messages_get_retention_settings'); } catch { return [10000, 365]; } }
+        return [10000, 365];
+    },
+    async messagesSetRetentionSettings(maxPerConversation: number, maxAgeDays: number): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('messages_set_retention_settings', { maxPerConversation, maxAgeDays }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Connect (src-tauri/src/BlueConnect/mod.rs) ---
+    async bcStartDiscovery(timeoutSecs: number = 3): Promise<import('../components/apps/Blue-Connect/default/types').DiscoveredDevice[]> {
+        if (isTauri) { try { return await invoke('bc_start_discovery', { timeoutSecs }); } catch { return []; } }
+        return [];
+    },
+    async bcGetDevices(): Promise<import('../components/apps/Blue-Connect/default/types').DiscoveredDevice[]> {
+        if (isTauri) { try { return await invoke('bc_get_devices'); } catch { return []; } }
+        return [];
+    },
+    async bcForgetDevice(deviceId: string): Promise<void> {
+        if (isTauri) { try { await invoke('bc_forget_device', { deviceId }); } catch { /* best-effort */ } }
+    },
+    async bcRequestPairing(deviceId: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bc_request_pairing', { deviceId }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async bcListenForPairing(timeoutSecs: number = 30): Promise<string | null> {
+        if (isTauri) { try { return await invoke('bc_listen_for_pairing', { timeoutSecs }); } catch { return null; } }
+        return null;
+    },
+
+    // --- Blue Accounts (src-tauri/src/BlueAccounts/) ---
+    async accountsVaultExists(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('accounts_vault_exists'); } catch { return false; } }
+        return false;
+    },
+    async accountsIsUnlocked(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('accounts_is_unlocked'); } catch { return false; } }
+        return false;
+    },
+    async accountsCreateVault(masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('accounts_create_vault', { masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsUnlock(masterPassword: string): Promise<{ ok: boolean; count?: number; error?: string }> {
+        if (isTauri) { try { const count = await invoke<number>('accounts_unlock', { masterPassword }); return { ok: true, count }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsLock(): Promise<void> {
+        if (isTauri) { try { await invoke('accounts_lock'); } catch { /* best-effort */ } }
+    },
+    async accountsListEntries(): Promise<{ ok: boolean; entries?: import('../components/apps/Blue-Accounts/default/types').VaultEntry[]; error?: string }> {
+        if (isTauri) { try { const entries = await invoke('accounts_list_entries'); return { ok: true, entries: entries as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsAddEntry(entry: import('../components/apps/Blue-Accounts/default/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('accounts_add_entry', { entry, masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsUpdateEntry(entry: import('../components/apps/Blue-Accounts/default/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('accounts_update_entry', { entry, masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsDeleteEntry(id: string, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('accounts_delete_entry', { id, masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsChangeMasterPassword(newPassword: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('accounts_change_master_password', { newPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async accountsGeneratePassword(length: number, useSymbols: boolean, useDigits: boolean, useUppercase: boolean): Promise<string> {
+        if (isTauri) { try { return await invoke('accounts_generate_password', { length, useSymbols, useDigits, useUppercase }); } catch { return ''; } }
+        return '';
+    },
+
+    // --- Blue Virt (src-tauri/src/BlueVirt/) ---
+    async bvIsKvmAvailable(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('bv_is_kvm_available'); } catch { return false; } }
+        return false;
+    },
+    async bvListVms(): Promise<import('../components/apps/Blue-Virt/default/types').VmSummary[]> {
+        if (isTauri) { try { return await invoke('bv_list_vms'); } catch { return []; } }
+        return [];
+    },
+    async bvCreateVm(
+        name: string, osType: import('../components/apps/Blue-Virt/default/types').OsType,
+        cpuCores: number, memoryMb: number, diskSizeGb: number, isoPath: string | null
+    ): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bv_create_vm', { name, osType, cpuCores, memoryMb, diskSizeGb, isoPath }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async bvDeleteVm(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bv_delete_vm', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async bvStartVm(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bv_start_vm', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async bvStopVm(id: string, force: boolean = false): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bv_stop_vm', { id, force }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Filesystem theme packages (/usr/share/themes) ---
+    async listSystemThemes(): Promise<SystemTheme[]> {
+        if (isTauri) { try { return await invoke('list_system_themes'); } catch { return []; } }
+        return [];
+    },
+    async loadSystemTheme(id: string): Promise<SystemTheme | null> {
+        if (isTauri) { try { return await invoke('load_system_theme', { id }); } catch { return null; } }
+        return null;
+    },
+    async newsFetchAll(): Promise<import('../components/apps/Blue-News-App/types').NewsArticle[]> {
+        if (isTauri) { try { return await invoke('news_fetch_all'); } catch { return []; } }
+        return [];
+    },
+    async newsFetchSource(source: import('../components/apps/Blue-News-App/types').NewsSource): Promise<{ ok: boolean; articles: import('../components/apps/Blue-News-App/types').NewsArticle[]; error?: string }> {
+        if (isTauri) { try { const articles = await invoke('news_fetch_source', { source }); return { ok: true, articles: articles as any }; } catch (e) { return { ok: false, articles: [], error: String(e) }; } }
+        return { ok: false, articles: [], error: 'Only in Tauri environment' };
     },
 
     // --- Google sign-in (mock) ---
