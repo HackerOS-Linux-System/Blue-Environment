@@ -144,7 +144,7 @@ export const czech: Translations = {
     'filemenu.properties': 'Vlastnosti',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Experimentální — vyjednává HDR s aplikacemi; samotný obraz zatím není přemapován.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const czech: Translations = {
     // content is localized yet
     'settings.tab.display': 'Zobrazení',
     'settings.tab.personalization': 'Přizpůsobení',
+
+    'settings.tab.icons': 'Ikony',
     'settings.tab.night_light': 'Noční režim',
     'settings.tab.panel': 'Panel',
     'settings.tab.weather': 'Počasí a widgety',
