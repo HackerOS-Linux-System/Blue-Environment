@@ -5,6 +5,14 @@
   import { createEventDispatcher } from 'svelte';
 
   export let isOpen = false;
+  // Same hardcoded-`top-14` bug ControlCenter.svelte had (found while
+  // fixing that one, for the same reason — a bottom-positioned panel,
+  // e.g. the Hydra shell theme, needs this popup to open from the
+  // bottom instead) — fixed here too rather than leaving one sibling
+  // popup correct and the other still broken.
+  export let panelPosition: 'top' | 'bottom' = 'top';
+  export let panelSize = 48;
+  export let shellThemeId: string | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -25,7 +33,9 @@
 </script>
 
 {#if isOpen}
-  <div class="absolute top-14 right-4 bottom-4 w-96 bg-slate-900 border border-white/10 rounded-3xl shadow-2xl z-40 flex flex-col overflow-hidden">
+  <div class="absolute right-4 w-96 border rounded-3xl shadow-2xl z-40 flex flex-col overflow-hidden {shellThemeId === 'hydra' ? 'bg-slate-900 border-pink-500/30' : 'bg-slate-900 border-white/10'}"
+    style="{panelPosition === 'top' ? `top:${panelSize + 8}px; bottom:16px;` : `top:16px; bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.2);' : ''}"
+  >
     <div class="p-5 border-b border-white/5 flex items-center justify-between">
       <h2 class="font-semibold text-lg text-white flex items-center gap-2">
         <Bell size={18} /> Notifications
