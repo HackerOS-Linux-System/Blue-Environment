@@ -12,7 +12,21 @@ import { loadXterm, getXtermClasses } from './xtermLoader';
 export function createTerminalSession() {
   const tabs = writable<Tab[]>([]);
   const activeTab = writable<string | null>(null);
-  const themeName = writable<ThemeName>('Blue Dark');
+  // Defaults to the Hydra terminal palette when the Hydra shell theme is
+  // active (see `ShellThemeStyle.svelte`, which sets
+  // `data-shell-theme` on `documentElement` — read directly here rather
+  // than prop-drilling the active theme id into this standalone session
+  // module, or duplicating configStore's own persistence logic just to
+  // peek at one field), 'Blue Dark' otherwise — same as before. This
+  // app's own theme picker (SettingsPanel.svelte) is untouched by this:
+  // there's no persistence for an explicit choice to check against yet
+  // (`themeName` has always just reset to a hardcoded default on every
+  // launch), so there's nothing to accidentally override.
+  const themeName = writable<ThemeName>(
+    typeof document !== 'undefined' && document.documentElement.dataset.shellTheme === 'hydra'
+      ? 'Hydra'
+      : 'Blue Dark'
+  );
   const fontSize = writable(14);
   const loaded = writable(false);
 
