@@ -1,6 +1,19 @@
 use crate::types::*;
 use std::process::Command;
 
+/// `name`/`icon` are stable identifiers (`powerprofilesctl`'s own
+/// profile names, or the fixed "balanced" fallback) — the frontend maps
+/// these through its i18n system for display (see `PowerSection.svelte`
+/// `KNOWN_PROFILE_KEYS`). `description` used to be hardcoded Polish text
+/// baked in here and sent to *every* user regardless of their selected
+/// UI language — a real, previously-shipped i18n bug: an English- or
+/// German-language install would still show "Oszczędzanie energii" for
+/// the power-saver profile, because that string never went through
+/// `$t()` at all, it was just backend-authored prose displayed as-is.
+/// `description` is now just an English fallback label (for the rare
+/// case a future profile id the frontend doesn't recognize shows up —
+/// see that same `KNOWN_PROFILE_KEYS` fallback path), not the
+/// authoritative display string.
 #[tauri::command]
 pub fn get_power_profiles() -> Vec<PowerProfile> {
     let mut profiles = Vec::new();
@@ -14,11 +27,11 @@ pub fn get_power_profiles() -> Vec<PowerProfile> {
     } else { (false, false, false, "balanced".to_string()) };
 
     if has_saver || !has_balanced {
-        profiles.push(PowerProfile { name: "power-saver".to_string(), active: active == "power-saver", icon: Some("Battery".to_string()), description: "Oszczędzanie energii".to_string() });
+        profiles.push(PowerProfile { name: "power-saver".to_string(), active: active == "power-saver", icon: Some("Battery".to_string()), description: "Power Saver".to_string() });
     }
-    profiles.push(PowerProfile { name: "balanced".to_string(), active: active == "balanced" || active.is_empty(), icon: Some("Wind".to_string()), description: "Zrównoważony".to_string() });
+    profiles.push(PowerProfile { name: "balanced".to_string(), active: active == "balanced" || active.is_empty(), icon: Some("Wind".to_string()), description: "Balanced".to_string() });
     if has_perf {
-        profiles.push(PowerProfile { name: "performance".to_string(), active: active == "performance", icon: Some("Zap".to_string()), description: "Wydajność".to_string() });
+        profiles.push(PowerProfile { name: "performance".to_string(), active: active == "performance", icon: Some("Zap".to_string()), description: "Performance".to_string() });
     }
     profiles
 }
