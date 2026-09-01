@@ -144,7 +144,7 @@ export const swedish: Translations = {
     'filemenu.properties': 'Egenskaper',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Experimentellt — förhandlar HDR med appar; själva bilden mappas inte om ännu.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const swedish: Translations = {
     // content is localized yet
     'settings.tab.display': 'Skärm',
     'settings.tab.personalization': 'Anpassning',
+
+    'settings.tab.icons': 'Ikoner',
     'settings.tab.night_light': 'Nattbelysning',
     'settings.tab.panel': 'Panel',
     'settings.tab.weather': 'Väder och widgetar',
