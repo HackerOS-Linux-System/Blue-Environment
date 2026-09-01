@@ -46,7 +46,7 @@
 
     <div class="p-5 space-y-4">
       <div>
-        <label class="block text-xs text-slate-400 mb-2">Quick setup</label>
+        <span class="block text-xs text-slate-400 mb-2">Quick setup</span>
         <div class="flex gap-2 flex-wrap">
           {#each Object.keys(PRESETS) as p (p)}
             <button on:click={() => applyPreset(p)} class="px-3 py-1.5 rounded-lg text-xs capitalize transition-colors {preset === p ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">{p}</button>
@@ -56,22 +56,22 @@
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Display name</label>
+          <span class="block text-xs text-slate-400 mb-1">Display name</span>
           <input bind:value={form.name} placeholder="Your Name" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Email address</label>
+          <span class="block text-xs text-slate-400 mb-1">Email address</span>
           <input type="email" bind:value={form.email} placeholder="you@example.com" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Login username</label>
+          <span class="block text-xs text-slate-400 mb-1">Login username</span>
           <input bind:value={form.username} placeholder="same as email" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Password</label>
+          <span class="block text-xs text-slate-400 mb-1">Password</span>
           <div class="relative">
             {#if showPass}
               <input type="text" bind:value={form.password} placeholder="App password / token"
@@ -91,11 +91,11 @@
         <div class="flex items-center gap-2 text-xs text-slate-400 mb-3"><Server size={12} /> Incoming (IMAP)</div>
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block text-xs text-slate-400 mb-1">Host</label>
+            <span class="block text-xs text-slate-400 mb-1">Host</span>
             <input bind:value={form.imapHost} placeholder="imap.example.com" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Port</label>
+            <span class="block text-xs text-slate-400 mb-1">Port</span>
             <input type="number" bind:value={form.imapPort} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
           </div>
         </div>
@@ -105,11 +105,11 @@
         <div class="flex items-center gap-2 text-xs text-slate-400 mb-3"><Mail size={12} /> Outgoing (SMTP)</div>
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block text-xs text-slate-400 mb-1">Host</label>
+            <span class="block text-xs text-slate-400 mb-1">Host</span>
             <input bind:value={form.smtpHost} placeholder="smtp.example.com" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Port</label>
+            <span class="block text-xs text-slate-400 mb-1">Port</span>
             <input type="number" bind:value={form.smtpPort} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
           </div>
         </div>
