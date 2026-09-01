@@ -31,7 +31,7 @@
       </div>
     {/if}
     {#each $displayEmails as email (email.id)}
-      <div on:click={() => selectEmail(email)}
+      <div on:click={() => selectEmail(email)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => selectEmail(email))(); } }}
         class="p-3 border-b border-white/5 cursor-pointer transition-colors group {$selectedEmail?.id === email.id ? 'bg-blue-600/20 border-l-2 border-l-blue-500' : !email.read ? 'bg-slate-800/30 hover:bg-white/5' : 'hover:bg-white/5'}">
         <div class="flex items-start gap-2">
           <input type="checkbox" checked={$selectedIds.includes(email.id)}
