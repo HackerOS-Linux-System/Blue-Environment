@@ -51,13 +51,13 @@
   <h2 class="text-2xl font-bold text-white">{$t('settings.nightlight.title')}</h2>
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-5">
     <div class="flex items-center justify-between">
-      <label class="text-sm font-medium text-slate-400">{$t('settings.nightlight.title')}</label>
+      <span class="text-sm font-medium text-slate-400">{$t('settings.nightlight.title')}</span>
       <input type="checkbox" checked={config.nightLightEnabled ?? false} on:change={toggle} class="w-4 h-4 accent-blue-500" />
     </div>
 
     {#if config.nightLightEnabled}
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.nightlight.temperature')}</label>
+        <span class="block text-sm font-medium text-slate-400 mb-1">{$t('settings.nightlight.temperature')}</span>
         <input type="range" min="1000" max="10000" step="100" value={config.nightLightTemperature ?? 4000} on:change={changeTemp}
           class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-orange-400" />
         <div class="flex justify-between text-xs text-slate-500 mt-1">
@@ -68,7 +68,7 @@
       </div>
 
       <div>
-        <label class="block text-sm font-medium text-slate-400 mb-2">{$t('settings.nightlight.schedule')}</label>
+        <span class="block text-sm font-medium text-slate-400 mb-2">{$t('settings.nightlight.schedule')}</span>
         <div class="flex gap-2">
           <button on:click={() => changeSchedule('manual')}
             class="flex-1 py-2 rounded-lg text-sm border {schedule === 'manual' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'border-white/10 text-slate-400 hover:bg-white/5'}">
@@ -97,14 +97,14 @@
       {:else}
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.start_hour')}</label>
+            <span class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.start_hour')}</span>
             <select value={config.nightLightStartHour ?? 20} on:change={(e) => changeHour('nightLightStartHour', e)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm">
               {#each Array(24) as _, h}<option value={h}>{String(h).padStart(2, '0')}:00</option>{/each}
             </select>
           </div>
           <div>
-            <label class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.end_hour')}</label>
+            <span class="block text-xs text-slate-500 mb-1">{$t('settings.nightlight.end_hour')}</span>
             <select value={config.nightLightEndHour ?? 6} on:change={(e) => changeHour('nightLightEndHour', e)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm">
               {#each Array(24) as _, h}<option value={h}>{String(h).padStart(2, '0')}:00</option>{/each}
