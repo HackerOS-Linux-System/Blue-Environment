@@ -1,1 +1,24 @@
-
+{
+  "$schema": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/stores/plugins-store.schema.json",
+  "storeVersion": 1,
+  "updated": "2026-08-27T00:00:00Z",
+  "description": "Downloadable plugins for Blue Environment, fetched at runtime by PluginsSection.svelte. Live source hosted at https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/config/stores/plugins-store.json, fetched over the network (raw.githubusercontent.com) each time the Store tab is opened, with the local copy shipped inside the app used only as an offline fallback. See PluginsSection.svelte's module doc for the fallback logic, the plugin-entry schema (PluginManifest in src/lib/data/builtinPlugins.ts), and — importantly — what 'installing' a plugin actually does today (registers the manifest in local config; no sandboxed runtime yet).",
+  "plugins": [
+    {
+      "id": "blue-weather-widget",
+      "name": "Weather Widget",
+      "description": "Adds a small current-conditions widget (temperature, icon, short forecast on hover) to the top panel. Reuses the same weather data source as BlueWeatherApp — this is a lightweight, always-visible panel presence for it rather than a separate weather backend.",
+      "author": "Blue Environment",
+      "version": "1.0.0",
+      "icon": "CloudSun",
+      "kind": "panel-widget",
+      "downloadUrl": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/plugins/blue-weather-widget/manifest.json",
+      "homepage": "https://github.com/HackerOS-Linux-System/Blue-Environment",
+      "permissions": [
+        "Read your approximate location (for local weather)",
+        "Network access (to fetch forecast data)",
+        "Show a widget in the top panel"
+      ]
+    }
+  ]
+}
