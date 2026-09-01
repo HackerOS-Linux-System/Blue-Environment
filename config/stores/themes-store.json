@@ -1,1 +1,7 @@
-
+{
+  "$schema": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/stores/themes-store.schema.json",
+  "storeVersion": 1,
+  "updated": "2026-01-01T00:00:00Z",
+  "description": "Downloadable shell themes for Blue Environment, fetched at runtime by ThemesSection.svelte. Empty for now — this file is the live source, hosted at https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/config/stores/themes-store.json, that the running shell fetches over the network (raw.githubusercontent.com) each time the Store tab is opened, with the local copy of this same file (shipped inside the app) used only if that fetch fails (offline, GitHub unreachable, ...). See ThemesSection.svelte's module doc for that fallback logic and the full theme-entry schema (same shape as the 10 built-in themes in builtinThemes.ts, minus the 'builtin'/'placeholder' fields, plus a required 'downloadUrl').",
+  "themes": []
+}
