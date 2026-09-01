@@ -20,11 +20,11 @@ pub struct ExternalWindow {
 }
 
 pub fn get_external_windows() -> Vec<ExternalWindow> {
-    // Blue Compositor's own `window_meta` tracks *every* mapped window —
+    // HackerOS-Comp's own `window_meta` tracks *every* mapped window —
     // native Wayland toplevels AND XWayland-backed X11 windows alike (see
     // `xwayland/mod.rs`'s `mapped_window`/`new_window`, which insert into
     // the same `window_meta` map as the native xdg-shell path). That
-    // means when actually running under Blue Compositor, the compositor's
+    // means when actually running under HackerOS-Comp, the compositor's
     // IPC is a *complete* window list on its own — wmctrl/xdotool add
     // nothing in that case, they just duplicate what IPC already reports
     // (with worse identity: an X11 window id that our own `focus_window`/
@@ -33,7 +33,7 @@ pub fn get_external_windows() -> Vec<ExternalWindow> {
     //
     // So: ask the compositor first. Only fall back to wmctrl/xdotool if
     // the compositor doesn't answer at all — meaning we're not actually
-    // running under Blue Compositor (e.g. this shell running nested for
+    // running under HackerOS-Comp (e.g. this shell running nested for
     // development inside a different desktop environment/X11 session),
     // which is the only scenario where those tools still pull their
     // weight.
@@ -158,7 +158,7 @@ fn try_xdotool() -> Option<Vec<ExternalWindow>> {
 /// `embed_external_window` in `commands/session.rs` resorted to shelling
 /// out to `swaymsg`, a *different compositor's* IPC protocol, for these).
 ///
-/// This now asks Blue Compositor directly over its own IPC socket for the
+/// This now asks HackerOS-Comp directly over its own IPC socket for the
 /// real, authoritative window list — the same `WindowInfo` data the
 /// panel/window-switcher already receives, just via a one-shot
 /// request/response instead of `compositor_ipc_relay`'s long-lived
@@ -238,7 +238,7 @@ fn get_wayland_windows_via_compositor_ipc() -> Option<Vec<ExternalWindow>> {
 fn compositor_socket_path() -> std::path::PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .unwrap_or_else(|_| format!("/run/user/{}", get_uid()));
-    std::path::PathBuf::from(runtime_dir).join("blue-compositor.sock")
+    std::path::PathBuf::from(runtime_dir).join("hackeros-comp.sock")
 }
 
 /// Fire-and-forget command to the compositor, mirroring the pattern
