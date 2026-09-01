@@ -2,7 +2,7 @@
 name = "blue-environment"
 version = "0.7.0"
 description = "Blue Environment Desktop Shell"
-authors = ["LegendaryOS Team <legendaryos.linux.system@gmail.com>"]
+authors = ["HackerOS Team <hackeros068@gmail.com>"]
 edition = "2021"
 rust-version = "1.77"
 
@@ -27,6 +27,15 @@ tauri                          = { version = "2", features = [
 ] }
 tauri-plugin-fs                = "2"
 tauri-plugin-shell             = "2"
+# `tauri_plugin_shell::Shell::open` is deprecated in favor of this
+# plugin (real deprecation warning from a `cargo build`, not a
+# proactive guess) — used by `web_download_reveal` to open a
+# downloaded file's containing folder. `tauri-plugin-shell` itself is
+# left in place rather than removed: other commands in this codebase
+# may still use its process-spawning capabilities for reasons unrelated
+# to "open this path/URL with the OS default handler", which is
+# specifically what `tauri-plugin-opener` replaces.
+tauri-plugin-opener             = "2"
 tauri-plugin-dialog            = "2"
 tauri-plugin-http              = "2"
 tauri-plugin-notification      = "2"
@@ -36,7 +45,36 @@ tauri-plugin-global-shortcut   = "2"
 tauri-plugin-clipboard-manager = "2"
 serde                          = { version = "1", features = ["derive"] }
 serde_json                     = "1"
+# Filesystem theme packages (`/usr/share/themes/<name>/config.hk`) — see
+# src/themes.rs. Same crate/format as HackerOS-Comp's own
+# `~/.config/HackerOS-Comp/config.hk` (hk-parser 0.3.2, verified
+# directly against the real published crate).
+hk-parser                      = "0.3.2"
+# Blue Messages' message-history storage — see
+# src/BlueMessagesApp/storage.rs's module doc for why this is the one
+# dataset in this app that graduates from JSON to a real database
+# (this project's own small-.hk / medium-.json / large-database
+# storage-tiering convention: conversations stay a small JSON list,
+# but message history is unbounded over a person's lifetime of using
+# the app). "bundled" compiles SQLite from source instead of requiring
+# a system libsqlite3 — this app already ships its own bundled Node/
+# webview runtime via Tauri, so one more bundled C dependency doesn't
+# add a new class of "did the target system happen to have this"
+# packaging risk that wasn't already accepted.
+rusqlite                       = { version = "0.31", features = ["bundled"] }
 tokio                          = { version = "1", features = ["full"] }
+# Real wallpaper-thumbnail generation (see commands/display.rs's
+# `get_wallpaper_preview`) — decodes + downscales instead of the
+# previous "base64-encode the entire original file" approach, which is
+# what made opening Settings' wallpaper section visibly stall the whole
+# shell on a folder of multi-megabyte 4K wallpapers (every tile firing
+# that in parallel via the frontend's `Promise.all`). Pinned to 0.24
+# rather than 0.25 — 0.25's default feature set (specifically its webp
+# decode path) pulls a transitive dependency requiring a newer Cargo
+# edition-2024-aware toolchain than this project otherwise needs; 0.24
+# covers PNG/JPEG (the two formats `get_wallpapers` actually looks for)
+# without that requirement.
+image                          = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
 tracing                        = "0.1"
 tracing-subscriber             = { version = "0.3", features = ["env-filter"] }
 # Added alongside the new src/logging.rs — `tracing`/`tracing-subscriber`
@@ -47,6 +85,33 @@ tracing-subscriber             = { version = "0.3", features = ["env-filter"] }
 # crate the compositor already uses for its own logging.
 tracing-appender               = "0.2"
 dirs                           = "5.0"
+# Blue Connect (src/BlueConnect/mod.rs) — device name to advertise in
+# discovery identity packets. `sys-info`/`whoami` were both already
+# candidates elsewhere in this dependency tree; `hostname` is the
+# smallest crate that does exactly this one thing.
+hostname                       = "0.4"
+# Blue Accounts (src-tauri/src/BlueAccounts/) — real vault encryption.
+# See crypto.rs's module doc for the actual scheme (Argon2id + AES-256-GCM).
+# base64ct pinned below 1.7 for the same edition2024-toolchain reason
+# every other crate pin in this file already documents.
+argon2                         = "0.5"
+aes-gcm                        = "0.10"
+rand                           = "0.8"
+# Used by BlueAccounts/crypto.rs's VaultCryptoError — mistakenly
+# assumed to already be a dependency here in an earlier pass (it
+# wasn't, which is exactly what produced the "cannot find crate
+# `thiserror`" build error this comment is now next to).
+thiserror                      = "1"
+# `argon2`'s `password-hash` dependency chain transitively pulls
+# `base64ct`, whose 1.7+ releases require Cargo's `edition2024` feature
+# (stable only on Rust 1.85+ — this project otherwise only needs
+# edition 2021). Declaring it directly here, pinned to the last 1.6.x
+# release, makes Cargo's resolver unify the whole dependency graph onto
+# that version instead of whatever `argon2`'s own loose `^1.0`-style
+# constraint would otherwise resolve to on a fresh `cargo update`. Not
+# used directly by any of this crate's own code — this entry exists
+# purely to pin a transitive dependency's version.
+base64ct                       = "=1.6.0"
 sha2                           = "0.10"
 blue-auth                      = { path = "../auth" }
 chrono                         = { version = "0.4", features = ["serde"] }
@@ -65,6 +130,64 @@ libc                           = "0.2"
 portable-pty                   = "0.8"
 lazy_static                    = "1"
 sysinfo                        = "0.30"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# For real subresource-level content blocking (see
+# BlueWebApp/content_blocking.rs) — the same crate Tauri's own
+# `Webview::with_webview` docs use to reach the platform-native webview
+# handle on Linux (`webview.inner()` there returns exactly this crate's
+# `webkit2gtk::WebView`), so this isn't a new dependency family for the
+# project, just the same one Tauri's docs already point at, actually
+# added to Cargo.toml.
+#
+# `v2_24` feature: a real `cargo build` failed with `UserContentFilterStore`/
+# `UserContentFilterStoreExt` not existing in the crate root at all
+# (not merely behind a feature gate we forgot — the compiler's own
+# "help: a similar name exists: UserContentFilterError" suggestion
+# confirms the symbol genuinely wasn't in scope). `webkit2gtk`'s own
+# published feature list (lib.rs) gates newer WebKitGTK API surface
+# behind per-version features (`v2_6` through `v2_40`), and
+# `WebKitUserContentFilterStore` was added in WebKitGTK 2.24 upstream —
+# `v2_24` is the evidence-based fix for the missing-symbol error, but
+# not independently confirmed against this exact crate version's
+# generated bindings (no compiler available in this environment to
+# verify the fix actually resolves it — see content_blocking.rs's own
+# module doc for the matching caveat). If this specific feature flag
+# doesn't fix it, the next thing to check is whether this binding was
+# ever generated for this crate at all, feature flag or not.
+webkit2gtk = { version = "2.0", features = ["v2_24"] }
+# `glib::Bytes`/`gio::Cancellable` — types `UserContentFilterStore::save`
+# takes/returns per the underlying GObject API (checked against
+# webkitgtk.org's own reference docs for `WebKitUserContentFilterStore`,
+# not assumed); `webkit2gtk` re-exports neither, both are its own
+# transitive dependencies that need to be direct ones here too to name
+# their types in `content_blocking.rs`.
+glib = "0.18"
+gio = "0.18"
+
+[target.'cfg(windows)'.dependencies]
+# Same reasoning as the linux block above — WebView2's
+# `AddWebResourceRequestedFilter`/`WebResourceRequested` (used for
+# subresource blocking on Windows, see content_blocking.rs) needs these
+# raw COM bindings; `webview2-com`/`windows` are the same crates
+# Tauri's own with_webview docs reach for on this platform. `windows`
+# needs the `Win32_UI_Shell` feature too now, for `SHCreateMemStream`
+# (building the empty-body 403 response — see `install_windows`'s doc).
+webview2-com = "0.19"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# WKContentRuleList subresource blocking (see content_blocking.rs's
+# `install_macos`) — same `objc2` family Tauri's own `with_webview`
+# macOS example already depends on for simpler synchronous calls
+# (`objc2_web_kit::WKWebView`/`WKUserContentController`); `block2` adds
+# safe(r) Objective-C block construction for
+# `compileContentRuleList`'s asynchronous completion handler, which
+# none of Tauri's own examples needed (they're all synchronous calls).
+objc2 = "0.5"
+objc2-foundation = "0.2"
+objc2-web-kit = "0.2"
+block2 = "0.5"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
