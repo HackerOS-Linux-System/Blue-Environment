@@ -23,6 +23,26 @@ export const THEMES = {
         brightYellow: '#657b83', brightBlue: '#839496', brightMagenta: '#6c71c4',
         brightCyan: '#93a1a1', brightWhite: '#fdf6e3',
     },
+    // Matches the Hydra shell theme's palette (see
+    // src/lib/data/builtinThemes.ts) — not auto-selected by picking a
+    // shell theme (this app's own theme picker in SettingsPanel.svelte
+    // is a fully separate, person-controlled setting; silently
+    // overriding someone's chosen terminal color scheme just because
+    // they picked a shell theme would be surprising, same reasoning as
+    // why Window.svelte's `--shell-radius` only overrides Tailwind's
+    // *fallback* value, never forces a specific look on content that
+    // already has its own explicit choice). `terminalSession.ts`
+    // defaults new installs to this when no theme has ever been chosen
+    // *and* Hydra is the active shell theme — see that file's
+    // `defaultThemeFor` — but never overrides an explicit pick.
+    'Hydra': {
+        background: '#12071f', foreground: '#fdf2ff', cursor: '#ec4899',
+        black: '#1d0f2e', red: '#f43f5e', green: '#22d3ee', yellow: '#fbbf24',
+        blue: '#3b82f6', magenta: '#ec4899', cyan: '#22d3ee', white: '#d8b4fe',
+        brightBlack: '#2a1642', brightRed: '#fb7185', brightGreen: '#67e8f9',
+        brightYellow: '#fde047', brightBlue: '#60a5fa', brightMagenta: '#f472b6',
+        brightCyan: '#67e8f9', brightWhite: '#fdf2ff',
+    },
 } as const;
 
 export type ThemeName = keyof typeof THEMES;
