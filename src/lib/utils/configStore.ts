@@ -2,7 +2,15 @@ import { SystemBridge } from './systemBridge';
 import type { UserConfig, AIConfig } from './systemBridge';
 
 const DEFAULT_CONFIG: UserConfig = {
-    wallpaper: 'file:///usr/share/Blue-Environment/wallpapers/default.png',
+    // Empty until resolved — see `load()` below. Previously this was a
+    // single hardcoded path (`file:///usr/share/Blue-Environment/
+    // wallpapers/default.png`) used verbatim even on installs where it
+    // didn't exist, since nothing ever checked. Real resolution now
+    // happens once, dynamically, via `resolve_default_wallpaper` (see
+    // that command's doc comment in display.rs for the exact fallback
+    // order: the standard `/usr/share/wallpapers/default.png` first,
+    // then whatever `get_wallpapers()` finds anywhere it already scans).
+    wallpaper: '',
     theme: 'dark',
     themeName: 'blue-default',
     accentColor: 'blue',
@@ -55,6 +63,21 @@ class ConfigStore {
         } catch {
             this.config = { ...DEFAULT_CONFIG };
         }
+
+        // First-ever run on this machine (nothing persisted a wallpaper
+        // choice yet, and `DEFAULT_CONFIG.wallpaper` is deliberately
+        // empty — see that field's doc comment): resolve a real one
+        // dynamically instead of trusting a hardcoded path that might
+        // not exist. Persisted immediately so this resolution only ever
+        // has to run once per install, not on every single startup.
+        if (!this.config.wallpaper) {
+            const resolved = await SystemBridge.resolveDefaultWallpaper();
+            if (resolved) {
+                this.config.wallpaper = resolved;
+                try { await SystemBridge.saveConfig(this.config); } catch { /* best effort — still usable this session even if persisting fails */ }
+            }
+        }
+
         this.loaded = true;
         return this.config;
     }
