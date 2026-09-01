@@ -29,7 +29,7 @@
     </div>
 
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">{$t('settings.weather.city_override')}</label>
+      <span class="block text-xs text-slate-500 mb-1.5">{$t('settings.weather.city_override')}</span>
       <div class="flex gap-2">
         <input bind:value={cityDraft} placeholder={$t('settings.weather.city_placeholder')}
           class="flex-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
@@ -39,7 +39,7 @@
     </div>
 
     <div>
-      <label class="block text-xs text-slate-500 mb-1.5">{$t('settings.weather.temp_unit')}</label>
+      <span class="block text-xs text-slate-500 mb-1.5">{$t('settings.weather.temp_unit')}</span>
       <div class="flex gap-2">
         <button on:click={() => onSave({ weatherUnit: 'celsius' })}
           class="px-3 py-1.5 rounded-lg text-sm {((config.weatherUnit ?? 'celsius') === 'celsius') ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400 hover:text-white'}">{$t('settings.weather.celsius')}</button>
