@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import { SystemBridge } from '../../utils/systemBridge';
+  import { SystemBridge } from '../../../utils/systemBridge';
   import {
     Save, FolderOpen, Plus, X, FileText, Download,
-    Bold, Italic, Hash, Search,
+    Bold, Italic, Hash, Search, SpellCheck,
   } from 'lucide-svelte';
   import SaveAsDialog from './SaveAsDialog.svelte';
+  import { autocorrectAt } from '../../../utils/autocorrect';
 
   /** Set when launched from Explorer with "open this file" — see
    * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
@@ -24,6 +25,7 @@
   let textareaEl: HTMLTextAreaElement;
   let autosaveTimer: ReturnType<typeof setInterval>;
   let findInputEl: HTMLInputElement;
+  let autocorrectEnabled = true;
 
   $: activeTab = tabs.find((t) => t.id === activeId) ?? null;
 
@@ -72,6 +74,41 @@
     const lines = content.split('\n');
     lineCount = lines.length;
     wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  }
+
+  /**
+   * Textarea `input` handler — replaces the old inline
+   * `updateContent(activeTab.id, e.currentTarget.value)` arrow so
+   * autocorrect (see `utils/autocorrect.ts`) can run in the same
+   * synchronous handler, on the DOM element's live value/cursor,
+   * before Svelte's own reactivity re-renders anything. Doing the
+   * correction here (rather than via a second, independently-attached
+   * `input` listener) avoids a real ordering hazard: a second listener
+   * reading `activeTab.content` could see a stale value, since Svelte
+   * reactive statements don't recompute synchronously mid-event.
+   */
+  function handleInput(e: Event) {
+    if (!activeTab) return;
+    const ta = e.currentTarget as HTMLTextAreaElement;
+    let content = ta.value;
+    let cursor = ta.selectionStart;
+    if (autocorrectEnabled) {
+      const result = autocorrectAt(content, cursor);
+      if (result) {
+        content = result.newText;
+        cursor = result.newCursor;
+        // The textarea's own DOM value already reflects the keystroke;
+        // writing the corrected text back into it directly (rather
+        // than waiting for Svelte's `value={activeTab.content}` to
+        // re-render on the next tick) keeps what's on screen and the
+        // cursor position in sync with `content` immediately — a
+        // visible one-frame lag here would look like the correction
+        // "flickering in" late.
+        ta.value = content;
+        ta.setSelectionRange(cursor, cursor);
+      }
+    }
+    updateContent(activeTab.id, content);
   }
 
   function newTab() {
@@ -221,6 +258,11 @@
     <button on:click={() => (find = { ...find, show: !find.show })} class="p-1.5 rounded-lg {find.show ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-400'}" title="Find (Ctrl+F)">
       <Search size={15} />
     </button>
+    <button on:click={() => (autocorrectEnabled = !autocorrectEnabled)}
+      class="p-1.5 rounded-lg text-xs font-medium {autocorrectEnabled ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-500'}"
+      title={autocorrectEnabled ? 'Autocorrect: on — fixes common typos as you type' : 'Autocorrect: off'}>
+      <SpellCheck size={15} />
+    </button>
     {#if activeTab?.path}
       <div class="ml-auto text-xs text-slate-600 truncate max-w-[200px] font-mono" title={activeTab.path}>{activeTab.path}</div>
     {/if}
@@ -228,7 +270,7 @@
 
   <div class="shrink-0 flex bg-slate-800/50 border-b border-white/5 overflow-x-auto scrollbar-hide">
     {#each tabs as tab (tab.id)}
-      <div on:click={() => (activeId = tab.id)}
+      <div on:click={() => (activeId = tab.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (activeId = tab.id))(); } }}
         class="flex items-center gap-1.5 px-4 py-2 cursor-pointer shrink-0 border-r border-white/5 text-sm group max-w-[150px] {activeId === tab.id ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
         <FileText size={13} class="shrink-0" />
         <span class="truncate">{tab.title}</span>
@@ -262,7 +304,7 @@
       <textarea
         bind:this={textareaEl}
         value={activeTab.content}
-        on:input={(e) => updateContent(activeTab.id, e.currentTarget.value)}
+        on:input={handleInput}
         on:keydown={handleKeyDown}
         on:keyup={handleCursorMove}
         on:click={handleCursorMove}
