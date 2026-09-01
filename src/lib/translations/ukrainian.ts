@@ -144,7 +144,7 @@ export const ukrainian: Translations = {
     'filemenu.properties': 'Властивості',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': 'Експериментально — узгоджує HDR із застосунками; саме зображення ще не перетворюється.',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const ukrainian: Translations = {
     // content is localized yet
     'settings.tab.display': 'Дисплей',
     'settings.tab.personalization': 'Персоналізація',
+
+    'settings.tab.icons': 'Значки',
     'settings.tab.night_light': 'Нічне світло',
     'settings.tab.panel': 'Панель',
     'settings.tab.weather': 'Погода і віджети',
