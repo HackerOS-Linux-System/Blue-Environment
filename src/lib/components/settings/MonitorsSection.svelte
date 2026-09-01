@@ -120,14 +120,14 @@
         </div>
         <div class="flex items-center gap-3">
           <div class="flex-1">
-            <label class="text-xs text-slate-400 block mb-1">Scale</label>
+            <span class="text-xs text-slate-400 block mb-1">Scale</span>
             <select value={mon.scale} on:change={(e) => applyScale(mon, e.currentTarget.value)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
               {#each scales as s (s)}<option value={s}>{(parseFloat(s) * 100).toFixed(0)}%</option>{/each}
             </select>
           </div>
           <div class="flex-1">
-            <label class="text-xs text-slate-400 block mb-1">Rotation</label>
+            <span class="text-xs text-slate-400 block mb-1">Rotation</span>
             <select value="normal" on:change={(e) => applyRotation(mon, e.currentTarget.value)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
               <option value="normal">Normal (0°)</option>
