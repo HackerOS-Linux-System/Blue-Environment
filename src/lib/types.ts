@@ -24,6 +24,15 @@ export enum AppId {
   CAMERA = 'camera',
   BLUE_PLAY = 'blue_play',
   BLUE_CALENDAR = 'blue_calendar',
+  BLUE_TASKS = 'blue_tasks',
+  BLUE_NOTIFICATIONS = 'blue_notifications',
+  BLUE_WELCOME = 'blue_welcome',
+  BLUE_EMOJI = 'blue_emoji',
+  BLUE_NEWS = 'blue_news',
+  BLUE_MESSAGES = 'blue_messages',
+  BLUE_CONNECT = 'blue_connect',
+  BLUE_ACCOUNTS = 'blue_accounts',
+  BLUE_VIRT = 'blue_virt',
   EXTERNAL = 'external',
 }
 
@@ -110,6 +119,11 @@ export interface UserConfig {
   accentColor: string;
   displayScale: number;
   customThemes?: ThemeDefinition[];
+  /** See systemBridge.ts's UserConfig — same field, duplicated here
+   * since this file keeps its own parallel UserConfig definition
+   * rather than importing systemBridge's. */
+  shellThemeId?: string;
+  installedPlugins?: import('./data/builtinPlugins').InstalledPlugin[];
   desktopPath: string;
   panelEnabled: boolean;
   panelPosition: string;
@@ -146,6 +160,17 @@ export interface UserConfig {
   /** User-added external games (native Linux binaries or Windows .exe
    * run through Wine/Proton/umu), managed from Blue Play's Library tab. */
   blueGamesLibrary?: BlueGameLibraryEntry[];
+  /** Desktop/file-manager icon size in pixels — see the Icons settings
+   * section (formerly "Personalization"). */
+  iconSize?: number;
+  /** X cursor theme name, applied via `set_cursor_theme` (writes
+   * `~/.icons/default/index.theme`) — system-wide, not just Blue
+   * Environment's own UI. */
+  cursorTheme?: string;
+  /** Selected filesystem theme package id (`/usr/share/themes/<id>/`),
+   * applied globally by SystemThemeStyle.svelte — independent of
+   * `shellThemeId` (an app-bundled theme), see that component's doc. */
+  systemThemeId?: string | null;
 }
 
 export interface ThemeDefinition {
@@ -154,6 +179,27 @@ export interface ThemeDefinition {
   type?: 'builtin' | 'custom';
   css?: string;
   colors: Record<string, string>;
+}
+
+/** A filesystem theme package (`/usr/share/themes/<id>/`) as returned by
+ * `list_system_themes`/`load_system_theme` — see src-tauri/src/themes.rs.
+ * Distinct from `ThemeDefinition` (custom accent themes) and
+ * `ShellTheme` in builtinThemes.ts (app-bundled shell themes). */
+export interface SystemTheme {
+  id: string;
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+  effects: {
+    blur: boolean;
+    transparency: boolean;
+    animations: boolean;
+    cornerStyle: string;
+    accentColor?: string;
+  };
+  css: string;
+  previewDataUrl?: string;
 }
 
 export interface PowerProfile {
