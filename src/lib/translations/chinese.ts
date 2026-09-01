@@ -144,7 +144,7 @@ export const chinese: Translations = {
     'filemenu.properties': '属性',
 
     // HDR / color management (compositor negotiation only — see
-    // Blue-Compositor's protocols/color_management.rs)
+    // HackerOS-Comp's protocols/color_management.rs)
     'monitors.hdr': 'HDR',
     'monitors.hdr_desc': '实验性功能 — 与应用协商 HDR，但画面本身尚未重新映射。',
     // IME candidate-window status (compositor bridges ibus/fcitx5 —
@@ -156,6 +156,8 @@ export const chinese: Translations = {
     // content is localized yet
     'settings.tab.display': '显示',
     'settings.tab.personalization': '个性化',
+
+    'settings.tab.icons': '图标',
     'settings.tab.night_light': '夜间模式',
     'settings.tab.panel': '面板',
     'settings.tab.weather': '天气与小组件',
