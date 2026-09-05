@@ -12,8 +12,8 @@
     KeyRound, Plus, Trash2, Eye, EyeOff, Copy, Check, Lock, Unlock,
     Search, RefreshCw, Loader2, Shield, X,
   } from 'lucide-svelte';
-  import { SystemBridge } from '../../../../utils/systemBridge';
-  import LoadingSpinner from '../../../LoadingSpinner.svelte';
+  import { SystemBridge } from '../../../utils/systemBridge';
+  import LoadingSpinner from '../../LoadingSpinner.svelte';
   import { newEntry, type VaultEntry } from './types';
 
   /// Focuses an element on mount without using the `autofocus`
