@@ -119,7 +119,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          # `src-tauri` and `auth` are members of ONE cargo workspace
+          # rooted at the repo root (see root Cargo.toml's
+          # `[workspace] members`), so the actual build output — and
+          # therefore what's worth caching — lives at `./target`, not
+          # `./src-tauri/target`. This must stay in sync with the paths
+          # used below ("Stage a generic portable tarball" etc.), which
+          # hit exactly this mismatch before.
+          workspaces: . -> target
           key: ${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only }}
 
       - name: npm install
@@ -153,9 +160,17 @@ jobs:
       - name: Stage a generic portable tarball
         run: |
           set -e
+          # Binary lands in the *workspace* root's target/ (see this
+          # repo's root Cargo.toml — [workspace] members = ["src-tauri",
+          # "auth"]), not src-tauri/target/. Cargo always resolves the
+          # target directory relative to the workspace root once a
+          # crate is a workspace member, regardless of --manifest-path
+          # pointing at the member crate itself — an earlier revision
+          # of this file got that backwards and every job failed at
+          # this exact step as a result.
           stage="dist-stage/blue-environment-${{ matrix.arch }}"
           mkdir -p "$stage"
-          cp src-tauri/target/release/blue-environment "$stage/"
+          cp target/release/blue-environment "$stage/"
           cp images/icon.png "$stage/icon.png" 2>/dev/null || true
           mkdir -p dist-stage
           tar -C dist-stage -czf "dist-stage/blue-environment-${{ matrix.arch }}.tar.gz" "blue-environment-${{ matrix.arch }}"
@@ -164,7 +179,7 @@ jobs:
         if: needs.resolve-mode.outputs.binary_only == 'false'
         run: |
           mkdir -p dist-stage/bundle
-          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+          find target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
             -exec cp {} dist-stage/bundle/ \; || true
           ls -la dist-stage/bundle || echo "No bundle files found — check tauri.conf.json's bundle.targets and this job's log above for bundler errors."
 
@@ -172,7 +187,7 @@ jobs:
         with:
           name: build-${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }}
           path: |
-            src-tauri/target/release/blue-environment
+            target/release/blue-environment
             dist-stage/blue-environment-${{ matrix.arch }}.tar.gz
             dist-stage/bundle/*
           if-no-files-found: warn
