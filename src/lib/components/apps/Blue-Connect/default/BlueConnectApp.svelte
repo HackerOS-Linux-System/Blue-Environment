@@ -2,13 +2,14 @@
   // Blue Connect — LAN device discovery + pairing, KDE-Connect-style.
   // See src-tauri/src/BlueConnect/mod.rs's module doc for exactly what
   // "real" means here: genuine UDP broadcast discovery on KDE Connect's
-  // real port (can see real KDE Connect/GSConnect devices), but
-  // plaintext TCP pairing with no TLS — meaningfully pairs only with
-  // another Blue Connect instance. This UI is honest about that
-  // distinction rather than presenting every discovered device as
-  // equally pairable.
+  // real port (can see real KDE Connect/GSConnect devices), and mutual
+  // TLS pairing gated behind an explicit Short Authentication String
+  // (SAS) confirmation on both ends (see tls.rs's compute_sas doc) —
+  // meaningfully pairs with another Blue Connect instance; this UI is
+  // honest about that KDE-Connect-protocol-compatibility distinction
+  // rather than presenting every discovered device as equally pairable.
   import { onMount, onDestroy } from 'svelte';
-  import { RefreshCw, Smartphone, Tablet, Monitor, Laptop, Tv, HelpCircle, Link2, Unlink, Radio, Loader2, Info } from 'lucide-svelte';
+  import { RefreshCw, Smartphone, Tablet, Monitor, Laptop, Tv, HelpCircle, Link2, Unlink, Radio, Loader2, Info, ShieldCheck, X } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
   import LoadingSpinner from '../../../LoadingSpinner.svelte';
   import type { DiscoveredDevice, DeviceType } from './types';
@@ -21,6 +22,15 @@
   let listeningForPairing = false;
   let pairingDeviceId: string | null = null;
   let error: string | null = null;
+
+  /** The SAS confirmation dialog's state — shown for both roles:
+   * `role: 'initiator'` (we called bcRequestPairing and are waiting for
+   * the other person) shows the code with no buttons, just "waiting…";
+   * `role: 'incoming'` (someone is pairing with us) shows the code with
+   * Accept/Reject buttons wired to bcConfirmIncomingPairing. */
+  let sasDialog: { role: 'initiator' | 'incoming'; deviceId: string; deviceName: string; sas: string } | null = null;
+  let unlistenSas: (() => void) | null = null;
+  let unlistenIncoming: (() => void) | null = null;
 
   const ICONS: Record<DeviceType, typeof Smartphone> = {
     phone: Smartphone,
@@ -55,6 +65,10 @@
     pairingDeviceId = device.id;
     error = null;
     try {
+      // The `blue-connect://pairing-sas` event (subscribed in onMount)
+      // fires the SAS dialog for the 'initiator' role while this await
+      // is in flight — nothing else to do here but wait for the
+      // eventual accept/reject/timeout outcome.
       const res = await SystemBridge.bcRequestPairing(device.id);
       if (!res.ok) {
         error = res.error ?? `Failed to pair with ${device.name}`;
@@ -63,6 +77,7 @@
       }
     } finally {
       pairingDeviceId = null;
+      if (sasDialog?.deviceId === device.id) sasDialog = null;
     }
   }
 
@@ -75,15 +90,56 @@
     if (listeningForPairing) return; // one listen cycle already in flight
     listeningForPairing = true;
     try {
-      const incomingId = await SystemBridge.bcListenForPairing(30);
-      if (incomingId) await loadKnownDevices();
+      // The `blue-connect://pairing-request` event fires the SAS
+      // dialog for the 'incoming' role while this await is in flight;
+      // that dialog's Accept/Reject buttons call
+      // bcConfirmIncomingPairing, which is what actually lets this
+      // pending bcListenForPairing call resolve.
+      const { deviceId, error: err } = await SystemBridge.bcListenForPairing(30);
+      if (deviceId) {
+        await loadKnownDevices();
+      } else if (err) {
+        // A plain timeout-with-nobody-trying-to-pair resolves with
+        // `deviceId: null` and no `error` at all (see
+        // bc_listen_for_pairing's `Ok(None)` case) — only a genuine
+        // outcome (declined, TLS failure, ...) sets `err`, so only that
+        // case is worth surfacing.
+        error = err;
+      }
     } finally {
       listeningForPairing = false;
+      sasDialog = null;
     }
+  }
+
+  async function respondToIncoming(accept: boolean) {
+    if (!sasDialog) return;
+    await SystemBridge.bcConfirmIncomingPairing(accept);
+    sasDialog = null;
   }
 
   onMount(() => {
     loadKnownDevices();
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlistenSas = await listen('blue-connect://pairing-sas', (e: any) => {
+          const { deviceId, deviceName, sas } = e.payload ?? {};
+          if (deviceId) sasDialog = { role: 'initiator', deviceId, deviceName, sas };
+        });
+        unlistenIncoming = await listen('blue-connect://pairing-request', (e: any) => {
+          const { deviceId, deviceName, sas } = e.payload ?? {};
+          if (deviceId) sasDialog = { role: 'incoming', deviceId, deviceName, sas };
+        });
+      } catch {
+        /* not running under Tauri — pairing simply won't be available */
+      }
+    })();
+  });
+
+  onDestroy(() => {
+    unlistenSas?.();
+    unlistenIncoming?.();
   });
 </script>
 
@@ -160,6 +216,49 @@
       </div>
     {/if}
   </div>
+
+  {#if sasDialog}
+    <div class="absolute inset-0 bg-black/60 flex items-center justify-center z-20">
+      <div class="bg-slate-900 border border-white/10 rounded-xl w-80 p-5 flex flex-col gap-4">
+        <div class="flex items-center gap-2">
+          <ShieldCheck class="w-5 h-5 text-emerald-400 shrink-0" />
+          <h3 class="font-medium text-sm">
+            {sasDialog.role === 'incoming' ? `Pairing request from ${sasDialog.deviceName}` : `Pairing with ${sasDialog.deviceName}`}
+          </h3>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          {#if sasDialog.role === 'incoming'}
+            Compare this code with the one shown on {sasDialog.deviceName}. If they match, it's genuinely that device — if they don't, something on the network is impersonating it.
+          {:else}
+            Ask {sasDialog.deviceName} to show its pairing code and compare it with the one below. Waiting for it to accept…
+          {/if}
+        </p>
+        <div class="text-center py-3 bg-slate-800/60 rounded-lg">
+          <span class="text-3xl font-mono font-bold tracking-[0.3em] text-emerald-300">{sasDialog.sas}</span>
+        </div>
+        {#if sasDialog.role === 'incoming'}
+          <div class="flex gap-2">
+            <button
+              on:click={() => respondToIncoming(false)}
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+            >
+              <X class="w-3.5 h-3.5" /> Reject
+            </button>
+            <button
+              on:click={() => respondToIncoming(true)}
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
+            >
+              <ShieldCheck class="w-3.5 h-3.5" /> Codes match — Accept
+            </button>
+          </div>
+        {:else}
+          <div class="flex items-center justify-center gap-2 text-xs text-slate-500">
+            <Loader2 class="w-3.5 h-3.5 animate-spin" /> Waiting for confirmation…
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   {#if error}
     <div class="absolute bottom-3 right-3 bg-red-500/90 text-white text-xs px-3 py-2 rounded shadow-lg">{error}</div>
