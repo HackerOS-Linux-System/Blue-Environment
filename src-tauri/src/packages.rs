@@ -297,7 +297,7 @@ pub fn get_appimage_packages() -> Vec<PackageInfo> {
                 id: path.to_string_lossy().to_string(), name: display.clone(),
                           description: format!("AppImage: {}", name),
                           version: "local".to_string(), source: "appimage".to_string(),
-                          installed: true, update_available: None,
+                          installed: true, update_available: check_appimage_update(&path.to_string_lossy()),
                           icon: icon_for_package(&display.to_lowercase()), size,
             });
         }
@@ -326,7 +326,72 @@ pub fn install_appimage(pkg_id: &str) -> bool {
 pub fn remove_appimage(pkg_id: &str) -> bool {
     std::path::Path::new(pkg_id).exists() && std::fs::remove_file(pkg_id).is_ok()
 }
-pub fn update_appimage(_pkg_id: &str) -> bool { false }
+
+fn command_exists(cmd: &str) -> bool {
+    Command::new("which").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Best-effort "does this AppImage have an update available" check,
+/// via `appimageupdatetool -j <path>` (its documented check-only mode:
+/// exit code `1` means an update is available, `0` means up to date).
+/// Returns `None` — "unknown", rendered as no badge rather than a
+/// false "up to date" — whenever the tool isn't installed or exits
+/// with anything other than those two documented codes, since a
+/// network hiccup or a missing update-information string shouldn't be
+/// reported to the person as a confident "you're up to date".
+///
+/// Called once per AppImage every time the Software list refreshes —
+/// each call is a real (small) network request when update
+/// information is present, same tradeoff the apt/flatpak backends
+/// elsewhere in this file already make for their own "is an update
+/// available" checks.
+fn check_appimage_update(path: &str) -> Option<bool> {
+    if !command_exists("appimageupdatetool") {
+        return None;
+    }
+    match Command::new("appimageupdatetool").args(["-j", path]).status() {
+        Ok(status) => match status.code() {
+            Some(0) => Some(false),
+            Some(1) => Some(true),
+            _ => None,
+        },
+        Err(_) => None,
+    }
+}
+
+/// Updates an AppImage in place via `appimageupdatetool`
+/// (https://github.com/AppImage/AppImageUpdate — a separate, commonly
+/// packaged tool, not something this project bundles or reimplements).
+///
+/// Most AppImages built with `linuxdeploy`/recent `appimagetool`
+/// contain an "update information" string embedded in their own ELF
+/// header (a zsync URL, or a pointer at a GitHub/Bitbucket/OSS-hosted
+/// releases feed) — `appimageupdatetool <path>` reads that, diffs
+/// against the current file with zsync, downloads only the changed
+/// blocks, and replaces the file atomically. Previously this function
+/// always returned `false`, silently telling Blue Software every
+/// AppImage was permanently un-updatable regardless of whether the
+/// file itself supports it.
+///
+/// This still can't update **every** AppImage: one with no embedded
+/// update information at all (common for one-off/manually-repackaged
+/// AppImages) genuinely has nothing for `appimageupdatetool` to check
+/// against, and this returns `false` for that case too — but now that
+/// `false` means "this specific file doesn't support self-update",
+/// not "no AppImage anywhere can ever be updated by this OS".
+pub fn update_appimage(pkg_id: &str) -> bool {
+    if !std::path::Path::new(pkg_id).exists() {
+        return false;
+    }
+    if !command_exists("appimageupdatetool") {
+        return false;
+    }
+    Command::new("appimageupdatetool")
+        .arg(pkg_id)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // APT backend (Debian / Ubuntu)
