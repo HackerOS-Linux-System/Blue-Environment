@@ -78,52 +78,98 @@ pub fn install(webview: &Webview, blocklist: Arc<Mutex<HashSet<String>>>) {
 // ════════════════════════════════════════════════════════════════════
 
 #[cfg(target_os = "linux")]
-/// Linux subresource blocking — **currently disabled**, not merely
-/// unimplemented. A real `cargo build` against `webkit2gtk = "2.0.2"`
-/// (this dependency's actually-resolved version, per the compiler's own
-/// error path) confirmed `UserContentFilterStore`/
-/// `UserContentFilterStoreExt` don't exist anywhere in this crate's
-/// generated bindings — not gated behind a missing feature flag either
-/// (a `v2_24` feature was added and made no difference; the compiler's
-/// own "help: an enum with a similar name exists:
-/// UserContentFilterError" both times is the tell that the symbol
-/// genuinely isn't there, at any feature level, in this crate version).
+/// Linux subresource blocking via WebKitGTK's `decide-policy` signal —
+/// see the previous revision's doc (preserved in git history) for why
+/// `UserContentFilterStore` specifically was tried first and ruled out
+/// (confirmed absent from this crate's generated bindings at any
+/// feature level, not just gated behind a missing flag).
 ///
-/// Rather than guess a third time in the same narrow spot (two guesses
-/// already burned a real compile cycle each), this is now a documented
-/// no-op: it logs once and returns. Linux tabs still get real
-/// navigation-level blocking (`on_navigation`'s `host_is_blocked`
-/// check, unaffected by any of this) — what's missing specifically is
-/// *subresource* blocking (an allowed page's own embedded ad script/
-/// tracking pixel), same gap this whole file exists to close on
-/// Windows/macOS, just not yet closed here.
+/// **What's confirmed vs. guessed, specifically** (same standard this
+/// file's `install_macos` holds itself to, for the same reason — being
+/// explicit about exactly where the remaining risk is beats a
+/// plausible-looking wall of code):
+/// - Confirmed: `WebKitWebView`'s `decide-policy` signal firing with
+///   decision type `WEBKIT_POLICY_DECISION_TYPE_RESPONSE` for every
+///   subresource response, and `WebKitResponsePolicyDecision::ignore()`
+///   preventing that resource from loading, are real, long-standing
+///   (1.x/2.x-era) WebKitGTK APIs (webkitgtk.org's own reference docs).
+/// - Confirmed: `webkit2gtk::WebViewExt::connect_decide_policy` exists
+///   in this crate's generated bindings at the `2.0`/`v2_24` feature
+///   level actually in use here (unlike `UserContentFilterStore`, this
+///   is old enough API surface that gtk-rs-family crates have carried
+///   working bindings for it across many versions).
+/// - **Now actually compiler-verified** (this was previously an open
+///   gap in this doc): the closure body below — the
+///   `PolicyDecision` → `ResponsePolicyDecision` downcast,
+///   `.request()`, `.uri()`, feeding the result through
+///   `url::Url::parse`, and `.ignore()` — was extracted into a
+///   standalone crate depending only on `webkit2gtk = "2.0"` (with the
+///   `v2_24` feature) + `glib` + `url`, matching this project's own
+///   pinned versions, and run through a real `cargo check` against the
+///   actual `webkit2gtk` 2.0.2 crate and its real generated bindings
+///   (system WebKitGTK 2.52.6, the current Ubuntu 24.04 package). That
+///   check caught one real bug on the first pass — `URIRequest::uri()`
+///   requires `webkit2gtk::URIRequestExt` in scope, which this file
+///   didn't import; `WebViewExt` alone (what was imported before) isn't
+///   enough, since the two are separate traits — now fixed below. With
+///   that fix, the exact logic in this function compiles cleanly.
+///   What *isn't* covered by that isolated check: whether
+///   `tauri::Webview::with_webview`'s Linux payload actually hands back
+///   a `webkit2gtk::WebView` the way `wv.inner()` below assumes (that
+///   call sits in the `tauri` crate itself, which the isolated test
+///   deliberately didn't pull in, precisely because that whole
+///   dependency tree is what wouldn't resolve under this sandbox's
+///   available Rust toolchain — see this repository's own CI, which
+///   does have a modern enough toolchain, for the full-crate build this
+///   still needs).
 ///
-/// **The concrete, most-promising next thing to try** (not attempted
-/// here, to avoid a third unverified guess in one pass): WebKitGTK's
-/// `WebKitWebView::decide-policy` signal with decision type
-/// `WEBKIT_POLICY_DECISION_TYPE_RESPONSE` fires for every resource
-/// response *including subresources*, and calling `.ignore()` on the
-/// `WebKitResponsePolicyDecision` blocks that specific resource from
-/// loading. This is core WebKitGTK API dating to the 1.x/2.x days
-/// (much older and more likely to have complete bindings than the
-/// 2.24-era filter store this file tried first) — check
-/// `webkit2gtk::WebViewExt::connect_decide_policy` and
-/// `WebKitResponsePolicyDecisionExt` exist in this crate version before
-/// wiring it in, the same way this doc is now doing for the filter-
-/// store approach after the fact.
+/// **Before trusting this in production**: build the full app, open a
+/// Blue Web tab pointed at a page that embeds a known-blocked-domain
+/// resource, and confirm in WebKitGTK's own Web Inspector (or a packet
+/// capture) that the request genuinely never goes out — the same
+/// verification step `install_macos`'s doc asks for. The isolated check
+/// above rules out "this doesn't typecheck against real webkit2gtk
+/// bindings"; it doesn't replace an actual on-hardware behavioral test.
 fn install_linux(webview: &Webview, blocklist: HashSet<String>) {
     if blocklist.is_empty() {
         return;
     }
-    static WARNED_ONCE: std::sync::Once = std::sync::Once::new();
-    WARNED_ONCE.call_once(|| {
-        tracing::warn!(
-            "Linux subresource content blocking is currently disabled (WebKitUserContentFilterStore \
-             isn't available in this build's webkit2gtk bindings) — navigation-level blocking still \
-             works. See content_blocking.rs's install_linux doc for the next thing to try."
-        );
+    let blocklist = Arc::new(blocklist);
+
+    let _ = webview.with_webview(move |wv| {
+        use glib::Cast;
+        use webkit2gtk::{PolicyDecisionType, PolicyDecisionExt, ResponsePolicyDecisionExt, URIRequestExt, WebViewExt};
+
+        // `wv.inner()` is this crate's own accessor for the raw
+        // platform webview handle on Linux (mirrors how `install_macos`
+        // reaches `wv.controller()` on macOS and `install_windows`
+        // reaches `wv.controller()` on Windows via the same
+        // `with_webview` mechanism) — see this function's doc for what
+        // isn't independently re-verified about this exact call.
+        let webkit_view: webkit2gtk::WebView = wv.inner();
+        let blocklist = blocklist.clone();
+
+        webkit_view.connect_decide_policy(move |_view, decision, decision_type| {
+            if decision_type != PolicyDecisionType::Response {
+                return false; // let navigation/new-window decisions through unchanged — this handler only judges subresource responses
+            }
+            let Some(response_decision) = decision.clone().downcast::<webkit2gtk::ResponsePolicyDecision>().ok() else {
+                return false;
+            };
+            let Some(request) = response_decision.request() else { return false; };
+            let Some(uri) = request.uri() else { return false; };
+            let Ok(parsed) = tauri::Url::parse(&uri) else { return false; };
+            let Some(host) = parsed.host_str() else { return false; };
+
+            let blocked = blocklist.iter().any(|b| host == b || host.ends_with(&format!(".{b}")));
+            if blocked {
+                response_decision.ignore();
+                true // we've made the decision — WebKitGTK shouldn't apply its own default
+            } else {
+                false // fall through to WebKitGTK's default (allow) handling
+            }
+        });
     });
-    let _ = webview;
 }
 
 // ════════════════════════════════════════════════════════════════════
