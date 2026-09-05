@@ -42,12 +42,28 @@ jobs:
           VITE_CI: '1'
 
   compositor-check:
-    name: Compositor — cargo check + clippy + test
+    name: Compositor — cargo check + clippy + test (if present)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      # The Wayland compositor described in README.md hasn't landed in
+      # this tree yet — same "probe, don't assume" pattern as
+      # `blue-lock-check` below, so this workflow neither fails nor
+      # silently skips depending on repo state; it explicitly reports
+      # which it did.
+      - name: Check whether compositor/ exists yet
+        id: probe
+        run: |
+          if [ -f "compositor/Cargo.toml" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::compositor/Cargo.toml not found — skipping compositor checks (nothing to check yet)."
+          fi
+
       - name: Install system dependencies
+        if: steps.probe.outputs.present == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -56,26 +72,32 @@ jobs:
             libgles2-mesa-dev pkg-config
 
       - name: Install Rust toolchain
+        if: steps.probe.outputs.present == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.probe.outputs.present == 'true'
         with:
           workspaces: compositor -> target
 
       - name: cargo fmt --check
+        if: steps.probe.outputs.present == 'true'
         run: cargo fmt --manifest-path compositor/Cargo.toml -- --check
         continue-on-error: true # style-only, shouldn't block CI on its own
 
       - name: cargo check
+        if: steps.probe.outputs.present == 'true'
         run: cargo check --manifest-path compositor/Cargo.toml --all-targets
 
       - name: cargo clippy
+        if: steps.probe.outputs.present == 'true'
         run: cargo clippy --manifest-path compositor/Cargo.toml --all-targets -- -D warnings
         continue-on-error: true # tighten to blocking once the existing warning backlog is cleared
 
       - name: cargo test
+        if: steps.probe.outputs.present == 'true'
         run: cargo test --manifest-path compositor/Cargo.toml
 
   shell-backend-check:
@@ -103,6 +125,25 @@ jobs:
 
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  auth-check:
+    name: auth (pattern-lock crate) — cargo check + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: auth -> target
+
+      - name: cargo check
+        run: cargo check --manifest-path auth/Cargo.toml --all-targets
+
+      - name: cargo test
+        run: cargo test --manifest-path auth/Cargo.toml
 
   blue-lock-check:
     name: blue-lock — cargo check (if present)
