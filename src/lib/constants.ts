@@ -12,6 +12,7 @@ import {
   Radio,
   KeyRound,
   MonitorPlay,
+  Download,
 } from 'lucide-svelte';
 import type { AppDefinition } from './types';
 import { AppId } from './types';
@@ -31,6 +32,7 @@ import BlueNewsAppLazy from './components/apps/Blue-News-App/BlueNewsAppLazy.sve
 import BlueAI from './components/apps/Blue-AI/BlueAI.svelte';
 import BlueVideoApp from './components/apps/Blue-Video/BlueVideoApp.svelte';
 import BlueArchiveApp from './components/apps/Blue-Archive-App/BlueArchiveApp.svelte';
+import BlueDownloaderApp from './components/apps/Blue-Downloader-App/BlueDownloaderApp.svelte';
 import BlueSoftwareApp from './components/apps/Blue-Software/BlueSoftwareApp.svelte';
 import BlueWebApp from './components/apps/Blue-Web/BlueWebApp.svelte';
 import BlueImagesApp from './components/apps/Blue-Images-App/BlueImagesApp.svelte';
@@ -46,8 +48,8 @@ import BluePartitionManager from './components/apps/Blue-Partition-Manager/BlueP
 import BluePlay from './components/apps/Blue-Play/BluePlay.svelte';
 import BlueMessagesAppLazy from './components/apps/Blue-Messages-App/BlueMessagesAppLazy.svelte';
 import BlueConnectAppLazy from './components/apps/Blue-Connect/default/BlueConnectAppLazy.svelte';
-import BlueAccountsAppLazy from './components/apps/Blue-Accounts/default/BlueAccountsAppLazy.svelte';
-import BlueVirtAppLazy from './components/apps/Blue-Virt/default/BlueVirtAppLazy.svelte';
+import BlueAccountsAppLazy from './components/apps/Blue-Accounts/BlueAccountsAppLazy.svelte';
+import BlueVirtAppLazy from './components/apps/Blue-Virt/BlueVirtAppLazy.svelte';
 
 // Not currently imported anywhere in the app (checked — configStore.ts/
 // App.svelte resolve the wallpaper dynamically via
@@ -97,6 +99,7 @@ export const APPS: Record<AppId, AppDefinition> = {
   [AppId.BLUE_MUSIC]: { id: AppId.BLUE_MUSIC, title: 'Blue Music', icon: Music, component: BlueMusicApp, defaultWidth: 420, defaultHeight: 620 },
   [AppId.BLUE_SCREEN]: { id: AppId.BLUE_SCREEN, title: 'Blue Screenshot', icon: ScanLine, component: BlueScreenshot, defaultWidth: 760, defaultHeight: 600 },
   [AppId.BLUE_ARCHIVE]: { id: AppId.BLUE_ARCHIVE, title: 'Blue Archive', icon: Archive, component: BlueArchiveApp, defaultWidth: 760, defaultHeight: 560 },
+  [AppId.BLUE_DOWNLOADER]: { id: AppId.BLUE_DOWNLOADER, title: 'Blue Downloader', icon: Download, component: BlueDownloaderApp, defaultWidth: 480, defaultHeight: 620 },
   [AppId.BLUE_TRANSLATE]: { id: AppId.BLUE_TRANSLATE, title: 'Translate', icon: Languages, component: BlueTranslateApp, defaultWidth: 760, defaultHeight: 520 },
   [AppId.BLUE_INSTALLER]: { id: AppId.BLUE_INSTALLER, title: 'Install Blue Environment', icon: Box, isExternal: true },
   [AppId.BLUE_PARTITION_MANAGER]: { id: AppId.BLUE_PARTITION_MANAGER, title: 'Blue Partition Manager', icon: HardDrive, component: BluePartitionManager, defaultWidth: 820, defaultHeight: 600 },
