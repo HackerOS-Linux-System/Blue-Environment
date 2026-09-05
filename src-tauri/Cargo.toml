@@ -122,7 +122,13 @@ uuid                           = { version = "1", features = ["v4"] }
 glob                           = "0.3"
 base64                         = "0.21"
 regex                          = "1"
-reqwest                        = { version = "0.12", features = ["json"] }
+reqwest                        = { version = "0.12", features = ["json", "stream"] }
+# Streaming the response body chunk-by-chunk for Blue Downloader (see
+# BlueDownloaderApp/mod.rs) — `reqwest`'s `bytes_stream()` (from its
+# `stream` feature above) returns a `futures_core::Stream`, and
+# `StreamExt::next()` is what actually drives it item-by-item in a
+# plain `while let` loop.
+futures-util                   = { version = "0.3", default-features = false }
 once_cell                      = "1"
 linicon                         = "2.3.0"
 walkdir                        = "2"
@@ -130,6 +136,57 @@ libc                           = "0.2"
 portable-pty                   = "0.8"
 lazy_static                    = "1"
 sysinfo                        = "0.30"
+# Real XMPP transport for Blue Messages (see
+# BlueMessagesApp/xmpp.rs's module doc) — STARTTLS upgrade of the raw
+# (blocking, std::net) TCP stream, validated against the OS trust store
+# via `native-tls` (same trust model this project's Mail App already
+# relies on through `curl --ssl-reqd`, rather than bundling a separate
+# root-CA store the way a `rustls` + `webpki-roots` stack would). Used
+# synchronously/blocking, same as this crate's existing
+# `Command::new(...).output()` calls elsewhere — not the async
+# `tokio-native-tls` wrapper, since xmpp.rs's commands aren't `async`.
+native-tls                     = "0.2"
+# Real streaming XML parser for Blue Messages' XMPP client (see
+# BlueMessagesApp/xml_stream.rs) — replaces the previous pragmatic
+# "scan the buffer for a substring" approach, which could stall on a
+# stanza split unluckily across TCP packets. `quick-xml`'s `Reader`
+# does incremental/pull parsing directly off a blocking `Read`, so it
+# naturally keeps blocking for more bytes mid-tag/mid-stanza instead of
+# needing this project's own buffering logic to get that right.
+quick-xml                      = { version = "0.36", default-features = false }
+# RFC 5802 SCRAM-SHA-1/SCRAM-SHA-256 for XMPP auth (see
+# BlueMessagesApp/scram.rs) — added alongside the existing SASL PLAIN
+# path so servers that only offer SCRAM (increasingly common; some
+# public servers disable PLAIN outright even over TLS) can still log
+# in. `hmac`/`pbkdf2`/`sha1` are the exact three primitives RFC 5802
+# composes; `sha2` (already a dependency) covers the SHA-256 variant.
+hmac                           = "0.12"
+pbkdf2                         = { version = "0.12", default-features = false, features = ["hmac"] }
+sha1                           = "0.10"
+# ModemManager D-Bus client for Blue Messages' SMS channel (see
+# BlueMessagesApp/sms.rs). `zbus` is pure-Rust (no `libdbus` headers
+# needed at build time, unlike the `dbus` crate), which matters here
+# since this is an optional, best-effort feature on the small subset of
+# desktops that actually have a modem — the build shouldn't gain a new
+# system-library requirement just to compile a code path that safely
+# no-ops everywhere else.
+zbus                           = { version = "4", default-features = false, features = ["tokio"] }
+# Real TLS + certificate-pinning for Blue Connect's pairing handshake
+# (see BlueConnect/tls.rs's module doc). `rustls` (not `native-tls`)
+# specifically because Blue Connect's trust model is KDE Connect's own
+# "trust-on-first-pair, then pin that exact certificate forever" —
+# there is no CA involved by design (nobody's self-signed pairing cert
+# is signed by anything), so the OS trust store `native-tls` normally
+# validates against is the wrong tool here. `rustls`'s
+# `dangerous_configuration` verifier hooks are what let this accept an
+# unknown cert once (capturing its fingerprint) and then require an
+# exact match on every reconnect — a deliberate, narrowly-scoped use of
+# "danger" APIs for a real, well-understood trust model, not a
+# shortcut around certificate validation in general.
+rustls                         = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-rustls                   = { version = "0.26", default-features = false, features = ["ring"] }
+rcgen                          = "0.13"
+rustls-pemfile                 = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # For real subresource-level content blocking (see
