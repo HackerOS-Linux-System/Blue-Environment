@@ -7,8 +7,8 @@
   // no snapshots, no USB passthrough).
   import { onMount } from 'svelte';
   import { Plus, Play, Square, Trash2, MonitorPlay, Loader2, Cpu, HardDrive, X, Info, Zap, ZapOff } from 'lucide-svelte';
-  import { SystemBridge } from '../../../../utils/systemBridge';
-  import LoadingSpinner from '../../../LoadingSpinner.svelte';
+  import { SystemBridge } from '../../../utils/systemBridge';
+  import LoadingSpinner from '../../LoadingSpinner.svelte';
   import type { VmSummary, OsType } from './types';
   import { OS_TYPE_LABELS } from './types';
 
