@@ -10,6 +10,7 @@
   import RichEditor from './RichEditor.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import SpreadsheetEditor from './SpreadsheetEditor.svelte';
+  import PresentationEditor from './PresentationEditor.svelte';
   import OutlineSidebar from './OutlineSidebar.svelte';
   import SaveAsDialog from './SaveAsDialog.svelte';
 
@@ -110,12 +111,7 @@
       {:else if activeDoc.format === 'spreadsheet'}
         <SpreadsheetEditor content={activeDoc.content} on:change={(e) => doc.updateContent(e.detail)} />
       {:else if activeDoc.format === 'presentation'}
-        <div class="flex-1 flex items-center justify-center text-slate-600">
-          <div class="text-center">
-            <p class="text-sm">Presentation editor coming soon</p>
-            <p class="text-xs mt-1 text-slate-700">Use Markdown mode for slide content in the meantime</p>
-          </div>
-        </div>
+        <PresentationEditor content={activeDoc.content} on:change={(e) => doc.updateContent(e.detail)} />
       {/if}
     </div>
 
