@@ -1092,6 +1092,53 @@ export const SystemBridge = {
         if (isTauri) { try { return await invoke('matrix_refresh_thread', { conversationId }); } catch { return []; } }
         return [];
     },
+
+    // --- Blue Messages: XMPP transport (src-tauri/src/BlueMessagesApp/xmpp.rs) ---
+    async xmppHasSession(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('xmpp_has_session'); } catch { return false; } }
+        return false;
+    },
+    async xmppLogin(jid: string, password: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('xmpp_login', { jid, password }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async xmppLogout(): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('xmpp_logout'); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async xmppAddContact(contactJid: string, name: string): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
+        if (isTauri) { try { const conversation = await invoke('xmpp_add_contact', { contactJid, name }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async xmppRefreshThread(conversationId: string): Promise<import('../components/apps/Blue-Messages-App/types').Message[]> {
+        if (isTauri) { try { return await invoke('xmpp_refresh_thread', { conversationId }); } catch { return []; } }
+        return [];
+    },
+
+    // --- Blue Messages: SMS transport via ModemManager (src-tauri/src/BlueMessagesApp/sms.rs) ---
+    async smsModemAvailable(): Promise<boolean> {
+        if (isTauri) { try { return await invoke('sms_modem_available'); } catch { return false; } }
+        return false;
+    },
+    async smsAddContact(phoneNumber: string, name: string): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
+        if (isTauri) { try { const conversation = await invoke('sms_add_contact', { phoneNumber, name }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async smsRefreshThread(conversationId: string): Promise<import('../components/apps/Blue-Messages-App/types').Message[]> {
+        if (isTauri) { try { return await invoke('sms_refresh_thread', { conversationId }); } catch { return []; } }
+        return [];
+    },
+    /** Paired phones (via Blue Connect) an SMS conversation can relay
+     * through, as an alternative to a locally-attached modem — see
+     * src-tauri/src/BlueMessagesApp/sms.rs's sms_list_paired_phones doc. */
+    async smsListPairedPhones(): Promise<{ deviceId: string; deviceName: string }[]> {
+        if (isTauri) { try { return await invoke('sms_list_paired_phones'); } catch { return []; } }
+        return [];
+    },
+    async smsAddPhoneContact(deviceId: string, phoneNumber: string, name: string): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
+        if (isTauri) { try { const conversation = await invoke('sms_add_phone_contact', { deviceId, phoneNumber, name }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
     async messagesGetRetentionSettings(): Promise<[number, number]> {
         if (isTauri) { try { return await invoke('messages_get_retention_settings'); } catch { return [10000, 365]; } }
         return [10000, 365];
@@ -1117,9 +1164,50 @@ export const SystemBridge = {
         if (isTauri) { try { await invoke('bc_request_pairing', { deviceId }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
     },
-    async bcListenForPairing(timeoutSecs: number = 30): Promise<string | null> {
-        if (isTauri) { try { return await invoke('bc_listen_for_pairing', { timeoutSecs }); } catch { return null; } }
-        return null;
+    async bcListenForPairing(timeoutSecs: number = 30): Promise<{ deviceId: string | null; error?: string }> {
+        if (isTauri) {
+            try {
+                const deviceId = await invoke('bc_listen_for_pairing', { timeoutSecs });
+                return { deviceId: (deviceId as string | null) ?? null };
+            } catch (e) {
+                return { deviceId: null, error: String(e) };
+            }
+        }
+        return { deviceId: null };
+    },
+    /** Delivers the person's accept/reject decision for whatever pairing
+     * request is currently waiting inside a running bcListenForPairing
+     * call — see src-tauri/src/BlueConnect/mod.rs's
+     * bc_confirm_incoming_pairing doc. */
+    async bcConfirmIncomingPairing(accept: boolean): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('bc_confirm_incoming_pairing', { accept }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+
+    // --- Blue Downloader (src-tauri/src/BlueDownloaderApp/mod.rs) ---
+    async downloaderAdd(url: string, destinationDir?: string): Promise<{ ok: boolean; item?: import('../components/apps/Blue-Downloader-App/types').DownloadItem; error?: string }> {
+        if (isTauri) { try { const item = await invoke('downloader_add', { url, destinationDir }); return { ok: true, item: item as any }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async downloaderList(): Promise<import('../components/apps/Blue-Downloader-App/types').DownloadItem[]> {
+        if (isTauri) { try { return await invoke('downloader_list'); } catch { return []; } }
+        return [];
+    },
+    async downloaderPause(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('downloader_pause', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async downloaderResume(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('downloader_resume', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async downloaderCancel(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('downloader_cancel', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
+    },
+    async downloaderRemove(id: string): Promise<{ ok: boolean; error?: string }> {
+        if (isTauri) { try { await invoke('downloader_remove', { id }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
+        return { ok: false, error: 'Only in Tauri environment' };
     },
 
     // --- Blue Accounts (src-tauri/src/BlueAccounts/) ---
@@ -1142,15 +1230,15 @@ export const SystemBridge = {
     async accountsLock(): Promise<void> {
         if (isTauri) { try { await invoke('accounts_lock'); } catch { /* best-effort */ } }
     },
-    async accountsListEntries(): Promise<{ ok: boolean; entries?: import('../components/apps/Blue-Accounts/default/types').VaultEntry[]; error?: string }> {
+    async accountsListEntries(): Promise<{ ok: boolean; entries?: import('../components/apps/Blue-Accounts/types').VaultEntry[]; error?: string }> {
         if (isTauri) { try { const entries = await invoke('accounts_list_entries'); return { ok: true, entries: entries as any }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
     },
-    async accountsAddEntry(entry: import('../components/apps/Blue-Accounts/default/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+    async accountsAddEntry(entry: import('../components/apps/Blue-Accounts/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
         if (isTauri) { try { await invoke('accounts_add_entry', { entry, masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
     },
-    async accountsUpdateEntry(entry: import('../components/apps/Blue-Accounts/default/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
+    async accountsUpdateEntry(entry: import('../components/apps/Blue-Accounts/types').VaultEntry, masterPassword: string): Promise<{ ok: boolean; error?: string }> {
         if (isTauri) { try { await invoke('accounts_update_entry', { entry, masterPassword }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
     },
@@ -1172,12 +1260,12 @@ export const SystemBridge = {
         if (isTauri) { try { return await invoke('bv_is_kvm_available'); } catch { return false; } }
         return false;
     },
-    async bvListVms(): Promise<import('../components/apps/Blue-Virt/default/types').VmSummary[]> {
+    async bvListVms(): Promise<import('../components/apps/Blue-Virt/types').VmSummary[]> {
         if (isTauri) { try { return await invoke('bv_list_vms'); } catch { return []; } }
         return [];
     },
     async bvCreateVm(
-        name: string, osType: import('../components/apps/Blue-Virt/default/types').OsType,
+        name: string, osType: import('../components/apps/Blue-Virt/types').OsType,
         cpuCores: number, memoryMb: number, diskSizeGb: number, isoPath: string | null
     ): Promise<{ ok: boolean; error?: string }> {
         if (isTauri) { try { await invoke('bv_create_vm', { name, osType, cpuCores, memoryMb, diskSizeGb, isoPath }); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } }
