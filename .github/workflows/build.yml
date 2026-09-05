@@ -1,22 +1,28 @@
-name: Build (all targets)
+name: Build (release)
 
-# Full release/packaging matrix. This is intentionally heavier than
-# test.yml (it builds the compositor + Tauri shell in release mode,
-# multiple times, across architectures and distro package formats) so it
-# only runs on demand, on tags, and nightly — not on every push/PR.
+# Full release build. This is intentionally heavier than test.yml (release
+# mode, multiple architectures) so it only runs on demand, on tags, and
+# nightly — not on every push/PR. See test.yml for the fast
+# check/lint/unit-test workflow that does run on every push/PR.
 #
-# Coverage:
-#   - Architectures: x86_64 and aarch64 (native runners for both — GitHub
-#     now provides `ubuntu-24.04-arm`, so this avoids the correctness
-#     risk of cross-compiling Tauri's webkit2gtk dependency).
-#   - Package formats: .deb (Debian/Ubuntu), .rpm (Fedora + LegendaryOS +
-#     openSUSE specs), Arch .pkg.tar.zst, Alpine .apk, a generic portable
-#     tarball (works on anything with the right shared libs — this is
-#     what the Gentoo ebuild / Void template / Nix flake in packaging/
-#     currently consume as their SRC_URI), and a Nix flake build.
-#   - Best-effort/manual-step formats (Flatpak, Snap, Gentoo ebuild, Void
-#     xbps-src) are NOT fully automated here — see the `community-formats`
-#     job for why, and ROADMAP.md for what full automation would need.
+# ── Why this doesn't call a `build.rb`/Ruby packaging script ───────────
+# An earlier version of this file shelled out to `ruby build.rb ...` for
+# every job, and separately expected a `compositor/` directory to exist
+# and be built alongside the Tauri shell. Neither `build.rb` nor
+# `compositor/` exists anywhere in this repository — the Wayland
+# compositor described in README.md hasn't landed in the tree yet, and
+# no such Ruby script was ever added either, so every single job in that
+# version of this file was unrunnable from a fresh checkout.
+#
+# This version depends on neither. `src-tauri/tauri.conf.json` already
+# sets `"bundle": { "targets": "all" }`, which means Tauri's own,
+# already-a-dependency bundler (`tauri build`, i.e. `npm run build:tauri`)
+# produces every packaging format it can for the host platform on its
+# own — on Linux that's `.deb`, `.rpm`, and `.AppImage`, with zero extra
+# tooling beyond what `cargo`/`tauri-cli` already pull in. There is
+# nothing here for a future `compositor/` addition to unblock — if/when
+# it lands, it would be its own additional build step (and its own
+# artifact), not a prerequisite this workflow is currently missing.
 on:
   push:
     tags: ['v*']
@@ -28,18 +34,61 @@ on:
         description: 'Ref to build (branch/tag/sha)'
         required: false
         default: ''
+      build_mode:
+        description: >-
+          "All" runs `tauri build`, which produces the full bundle set
+          `tauri.conf.json`'s `targets: "all"` asks for (on Linux: .deb,
+          .rpm, .AppImage) alongside the raw binary — the default, and
+          always what tag pushes/the nightly schedule get regardless of
+          this input (only a manual run can choose "Binary"). "Binary"
+          instead does a plain `cargo build --release` on `src-tauri`
+          directly (after building the frontend once, since the binary
+          embeds it) and skips bundling entirely — useful for a quick
+          "does it still build" check without waiting on the bundler.
+        required: false
+        type: choice
+        default: 'all'
+        options:
+          - all
+          - binary
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
-  # Shared release binaries — built once per architecture, reused by every
-  # packaging job below via upload-artifact/download-artifact so we don't
-  # rebuild the same cargo/npm output N times for N package formats.
+  # Resolves the "All" vs "Binary" choice above into a single
+  # `binary_only` boolean the build job reads via
+  # `needs.resolve-mode.outputs.binary_only` — computed once here rather
+  # than re-deriving the same "is this a manual run AND did it ask for
+  # Binary" expression independently in more than one place.
   # ──────────────────────────────────────────────────────────────────────
-  build-binaries:
-    name: Build binaries (${{ matrix.arch }})
+  resolve-mode:
+    name: Resolve build mode
+    runs-on: ubuntu-latest
+    outputs:
+      binary_only: ${{ steps.resolve.outputs.binary_only }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "binary" ]; then
+            echo "binary_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "binary_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Builds the shell — native per architecture (GitHub's ubuntu-24.04-arm
+  # runner avoids the correctness risk of cross-compiling Tauri's
+  # webkit2gtk dependency). Both modes need the frontend built first
+  # (`tauri build`'s own `beforeBuildCommand` in tauri.conf.json does
+  # this for "All" automatically; "Binary" does the equivalent manually
+  # before `cargo build`, since skipping the bundler means skipping that
+  # hook too).
+  # ──────────────────────────────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.arch }}, ${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }})
+    needs: resolve-mode
     strategy:
       fail-fast: false
       matrix:
@@ -54,14 +103,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Tauri v2 Linux build/bundle deps)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwayland-dev libxkbcommon-dev libudev-dev libinput-dev \
-            libgbm-dev libdrm-dev libseat-dev libegl1-mesa-dev libgles2-mesa-dev \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev pkg-config ruby rpm
+            librsvg2-dev libssl-dev pkg-config libudev-dev file
 
       - uses: actions/setup-node@v4
         with:
@@ -72,240 +119,106 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            compositor -> target
-            src-tauri -> target
-          key: ${{ matrix.arch }}
+          workspaces: src-tauri -> target
+          key: ${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only }}
 
-      - name: npm ci
-        run: npm ci
+      - name: npm install
+        # `npm ci` requires a committed package-lock.json, which this
+        # repo doesn't have; falling back to `npm install` (an unpinned,
+        # slightly slower resolve) rather than failing the whole build
+        # over a missing lockfile. Committing package-lock.json and
+        # switching this back to `npm ci` is a worthwhile follow-up for
+        # reproducible CI installs, just outside this workflow's scope.
+        run: npm install
 
-      - name: Build everything (frontend + shell + compositor)
-        run: ruby build.rb all
+      - name: Build (All — full tauri bundle)
+        if: needs.resolve-mode.outputs.binary_only == 'false'
+        run: npm run build:tauri
+
+      - name: Build frontend only (Binary mode)
+        if: needs.resolve-mode.outputs.binary_only == 'true'
+        # Mirrors tauri.conf.json's own `beforeBuildCommand` — normally
+        # `tauri build` runs this step itself, but Binary mode skips
+        # `tauri build` entirely (going straight to `cargo build`) so it
+        # has to do this part by hand instead.
+        run: |
+          mkdir -p src-tauri/icons
+          cp images/icon.png src-tauri/icons/icon.png
+          npm run build
+
+      - name: Build binary only (Binary mode)
+        if: needs.resolve-mode.outputs.binary_only == 'true'
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
       - name: Stage a generic portable tarball
         run: |
           set -e
-          stage=dist/blue-environment-${{ matrix.arch }}
-          mkdir -p "$stage/lib"
-          cp target/release/blue-environment "$stage/"
-          cp compositor/target/release/blue-compositor "$stage/lib/"
-          cp blue "$stage/"
+          stage="dist-stage/blue-environment-${{ matrix.arch }}"
+          mkdir -p "$stage"
+          cp src-tauri/target/release/blue-environment "$stage/"
           cp images/icon.png "$stage/icon.png" 2>/dev/null || true
-          tar -C dist -czf "dist/blue-environment-${{ matrix.arch }}.tar.gz" "blue-environment-${{ matrix.arch }}"
+          mkdir -p dist-stage
+          tar -C dist-stage -czf "dist-stage/blue-environment-${{ matrix.arch }}.tar.gz" "blue-environment-${{ matrix.arch }}"
+
+      - name: Collect bundle outputs (All mode only)
+        if: needs.resolve-mode.outputs.binary_only == 'false'
+        run: |
+          mkdir -p dist-stage/bundle
+          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) \
+            -exec cp {} dist-stage/bundle/ \; || true
+          ls -la dist-stage/bundle || echo "No bundle files found — check tauri.conf.json's bundle.targets and this job's log above for bundler errors."
 
       - uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.arch }}
+          name: build-${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }}
           path: |
-            target/release/blue-environment
-            compositor/target/release/blue-compositor
-            blue
-            dist/blue-environment-${{ matrix.arch }}.tar.gz
+            src-tauri/target/release/blue-environment
+            dist-stage/blue-environment-${{ matrix.arch }}.tar.gz
+            dist-stage/bundle/*
+          if-no-files-found: warn
           retention-days: 14
 
   # ──────────────────────────────────────────────────────────────────────
-  # .deb — Debian / Ubuntu
+  # Full source-tree zip — every file at the built ref, unmodified and
+  # newly-added alike, as a single downloadable archive. Independent of
+  # the All/Binary choice above (a source snapshot isn't a build
+  # artifact in the same sense the binaries/bundles are) and independent
+  # of the `build` job too, so this job's own runtime doesn't grow if
+  # that one gets slower — it just archives what `actions/checkout`
+  # already gave it.
+  #
+  # `git archive` (not a plain `zip -r .`) deliberately produces exactly
+  # what's tracked in git at this ref — no `.git/` internals, no
+  # `node_modules`/`target` build output some earlier step in this same
+  # workflow run might have left lying around in the runner's workspace,
+  # and no stray local-only files. That's what "unmodified and expanded
+  # files" both mean here in practice: this is the literal repository
+  # contents, not a filtered subset and not a rebuilt/regenerated one.
   # ──────────────────────────────────────────────────────────────────────
-  package-deb:
-    name: Package .deb (${{ matrix.arch }})
-    needs: build-binaries
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+  package-source-zip:
+    name: Package full source .zip
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.arch }}
-      - name: Restore binary layout expected by build.rb
+      - name: Archive tracked source tree
         run: |
-          mkdir -p target/release compositor/target/release
-          mv blue-environment target/release/ 2>/dev/null || true
-          mv blue-compositor compositor/target/release/ 2>/dev/null || true
-          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
-      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev ruby
-      - run: ruby build.rb packages deb
+          set -e
+          name="blue-environment-source-${{ github.ref_name }}.zip"
+          git archive --format=zip --output="$name" HEAD
+          mkdir -p dist
+          mv "$name" "dist/$name"
       - uses: actions/upload-artifact@v4
         with:
-          name: deb-${{ matrix.arch }}
-          path: dist/*.deb
-
-  # ──────────────────────────────────────────────────────────────────────
-  # .rpm — Fedora + LegendaryOS
-  # ──────────────────────────────────────────────────────────────────────
-  package-rpm-fedora:
-    name: Package .rpm (Fedora, ${{ matrix.arch }})
-    needs: build-binaries
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    container: fedora:latest
-    steps:
-      - run: dnf install -y git ruby rpm-build tar which
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.arch }}
-      - run: |
-          mkdir -p target/release compositor/target/release
-          mv blue-environment target/release/ 2>/dev/null || true
-          mv blue-compositor compositor/target/release/ 2>/dev/null || true
-          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
-      - run: ruby build.rb packages rpm
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rpm-fedora-${{ matrix.arch }}
-          path: rpmbuild/**/RPMS/**/*.rpm
-
-  package-rpm-opensuse:
-    name: Package .rpm (openSUSE, ${{ matrix.arch }})
-    needs: build-binaries
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    container: opensuse/tumbleweed:latest
-    steps:
-      - run: zypper --non-interactive install git ruby rpm-build tar
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.arch }}
-      - run: |
-          mkdir -p target/release compositor/target/release
-          mv blue-environment target/release/ 2>/dev/null || true
-          mv blue-compositor compositor/target/release/ 2>/dev/null || true
-          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
-      - run: ruby build.rb packages opensuse
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rpm-opensuse-${{ matrix.arch }}
-          path: rpmbuild/opensuse/RPMS/**/*.rpm
-
-  # ──────────────────────────────────────────────────────────────────────
-  # Arch Linux .pkg.tar.zst
-  # ──────────────────────────────────────────────────────────────────────
-  package-arch:
-    name: Package Arch (${{ matrix.arch }})
-    needs: build-binaries
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    container: archlinux:latest
-    steps:
-      - run: pacman -Syu --noconfirm git ruby base-devel
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.arch }}
-      - run: |
-          mkdir -p target/release compositor/target/release
-          mv blue-environment target/release/ 2>/dev/null || true
-          mv blue-compositor compositor/target/release/ 2>/dev/null || true
-          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
-          # makepkg refuses to run as root — Arch containers default to root.
-          useradd -m builder && chown -R builder:builder .
-      - run: su builder -c "ruby build.rb packages arch"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arch-${{ matrix.arch }}
-          path: build/arch/*.pkg.tar.zst
-
-  # ──────────────────────────────────────────────────────────────────────
-  # Alpine .apk
-  # ──────────────────────────────────────────────────────────────────────
-  package-alpine:
-    name: Package Alpine .apk (${{ matrix.arch }})
-    needs: build-binaries
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    container: alpine:latest
-    steps:
-      - run: apk add --no-cache git ruby alpine-sdk sudo
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.arch }}
-      - run: |
-          mkdir -p target/release compositor/target/release
-          mv blue-environment target/release/ 2>/dev/null || true
-          mv blue-compositor compositor/target/release/ 2>/dev/null || true
-          chmod +x target/release/blue-environment compositor/target/release/blue-compositor blue
-          adduser -D builder && addgroup builder abuild
-          chown -R builder:builder .
-      - run: su builder -c "abuild-keygen -a -i -n && ruby build.rb packages apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: alpine-${{ matrix.arch }}
-          path: /home/builder/packages/**/*.apk
-        continue-on-error: true # abuild's output path can vary by abuild.conf; best-effort upload
-
-  # ──────────────────────────────────────────────────────────────────────
-  # Nix flake — build-checks the derivation (not a full binary build,
-  # since that needs a real release tarball + correct sha256 pin; see the
-  # comment in packaging/nix/flake.nix).
-  # ──────────────────────────────────────────────────────────────────────
-  check-nix-flake:
-    name: Check Nix flake
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: cachix/install-nix-action@v27
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-      - name: nix flake check (syntax/eval only)
-        run: nix flake check packaging/nix --no-build
-        continue-on-error: true # the fetchurl sha256 is a placeholder until a real release exists
-
-  # ──────────────────────────────────────────────────────────────────────
-  # Formats that aren't (yet) fully wired into CI — listed explicitly so
-  # "which targets are covered" is answerable by reading this file, per
-  # ROADMAP.md. These are template-only: Flatpak needs Flathub/Flatpak
-  # Builder submission review, Snap classic-confinement needs Snap Store
-  # manual review, and Gentoo/Void both expect submission to their
-  # respective community package trees (ebuild/xbps-src PRs) rather than
-  # a self-hosted CI artifact.
-  # ──────────────────────────────────────────────────────────────────────
-  community-formats:
-    name: Community-submitted formats (info only)
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "Not built in CI — require manual submission to community package trees / store review:"
-          echo "  - Flatpak:      packaging/flatpak/io.blueenvironment.Shell.yaml (submit to Flathub)"
-          echo "  - Snap:         packaging/snap/snapcraft.yaml (classic confinement needs Snap Store review)"
-          echo "  - Gentoo:       packaging/gentoo/blue-environment-9999.ebuild (submit to a GURU/overlay PR)"
-          echo "  - Void Linux:   packaging/void/template (submit to void-packages PR)"
-          echo "See ROADMAP.md for what full automation of these would require."
+          name: source-zip
+          path: dist/*.zip
+          retention-days: 14
 
   release:
     name: Attach artifacts to GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-binaries, package-deb, package-rpm-fedora, package-rpm-opensuse, package-arch, package-alpine]
+    needs: [build, package-source-zip]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -315,7 +228,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name '*.apk' -o -name '*.tar.gz' \) \
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.zip' \) \
             -exec cp {} out/ \;
       - uses: softprops/action-gh-release@v2
         with:
