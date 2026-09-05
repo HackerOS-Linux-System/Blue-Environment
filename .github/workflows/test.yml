@@ -118,7 +118,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          # src-tauri is a member of the root Cargo.toml's workspace —
+          # actual build output lands in the workspace root's ./target,
+          # not ./src-tauri/target (unlike compositor above, which is a
+          # genuinely separate, standalone crate).
+          workspaces: . -> target
 
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
@@ -137,7 +141,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: auth -> target
+          # Same workspace as shell-backend-check above (auth is also a
+          # root-workspace member) — this job builds `auth` on its own,
+          # but it's still the same shared `./target` at the repo root.
+          workspaces: . -> target
 
       - name: cargo check
         run: cargo check --manifest-path auth/Cargo.toml --all-targets
