@@ -557,4 +557,23 @@ export const polish: Translations = {
     'cal.time': 'Godzina',
     'cal.duration_min': 'Czas trwania (min)',
     'cal.description_placeholder': 'Opis (opcjonalnie)',
+
+    // ── Added: emoji picker, Blue Music, Blue News, Blue Notifications,
+    // Settings (Icons/Power profiles/Default apps/tab labels), Blue Tasks,
+    // and the welcome tour — previously missing here entirely, which meant
+    // every one of these strings silently fell back to English (see the
+    // `t`/`translate` fallback chain in stores/language.ts) rather than
+    // showing in this language.
+    'settings.icons.title': 'Ikony',
+    'settings.icons.icon_size': 'Rozmiar ikon',
+    'settings.icons.icon_size_desc': 'Dotyczy ikon pulpitu i menedżera plików.',
+    'settings.icons.cursor_theme': 'Motyw kursora',
+    'settings.icons.cursor_theme_desc': 'Obowiązuje w całym systemie, w tym w zewnętrznych aplikacjach (spoza Blue Environment), które odczytują ustawienia kształtu kursora XCursor/Wayland.',
+    'settings.icons.no_cursor_themes': 'Nie znaleziono zainstalowanych motywów kursora — używany jest domyślny motyw kompozytora.',
+    'settings.icons.preview': 'Podgląd',
+    'settings.icons.accent_themes_title': 'Niestandardowe motywy akcentu',
+    'settings.defaultapps.role_pdf': 'Przeglądarka PDF',
+    'settings.defaultapps.role_pdf_desc': 'Domyślna aplikacja do otwierania dokumentów PDF',
+    'settings.defaultapps.role_calendar': 'Kalendarz',
+    'settings.defaultapps.role_calendar_desc': 'Domyślna aplikacja dla plików .ics i linków webcal://',
 };
