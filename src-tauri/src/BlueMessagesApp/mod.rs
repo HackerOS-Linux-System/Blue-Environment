@@ -1,5 +1,10 @@
 pub mod matrix;
+pub mod sms;
+mod secretstore;
 pub mod storage;
+mod xml_stream;
+mod scram;
+pub mod xmpp;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -25,16 +30,20 @@ fn conversations_path() -> PathBuf { messages_dir().join("conversations.json") }
 /// - `Local`: this file's own storage only — a note-to-self thread, a
 ///   draft, ... Fully implemented.
 /// - `Matrix`: real — see `matrix.rs`. Needs a homeserver + account.
-/// - `Sms`: **not implemented**. A real implementation needs a
-///   transport to an actual modem/phone — either a USB/serial AT-command
-///   modem via `ModemManager`'s D-Bus API, or a paired Android phone via
-///   something like KDE Connect's protocol (its own TLS+TCP scheme, not
-///   a small addition). Nothing in this codebase talks to either today.
-/// - `Xmpp`: **not implemented**. Needs a persistent, stateful XML
-///   stream connection (TLS + SASL auth + an indefinitely-open
-///   `<stream:stream>`, unlike Matrix's stateless HTTP calls) kept alive
-///   for as long as the app runs, plus a proper XML stream parser — a
-///   meaningfully larger addition than Matrix's REST calls were.
+/// - `Xmpp`: real, best-effort — see `xmpp.rs`'s module doc. Real
+///   STARTTLS + SCRAM-SHA-256/SHA-1 (falling back to SASL PLAIN) +
+///   bind, with a persistent, auto-reconnecting background connection
+///   for live receiving (pushed to the frontend via a Tauri event) —
+///   not just a pull-on-refresh design. Sending still opens its own
+///   short-lived connection per message rather than sharing the
+///   persistent one; see `xmpp.rs`'s doc for why.
+/// - `Sms`: real for the ModemManager path, **not implemented** for the
+///   phone-pairing path — see `sms.rs`'s module doc. Sending/receiving
+///   through a USB/serial AT-command modem via ModemManager's D-Bus API
+///   works when such a modem exists; there is still no code here that
+///   talks to a paired Android phone (that would need something like
+///   KDE Connect's own protocol — see `BlueConnect/mod.rs` — layered on
+///   top, which is a separate, larger addition).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
@@ -63,6 +72,15 @@ pub struct Conversation {
     pub last_message_at: String,
     pub unread_count: u32,
     pub pinned: bool,
+    /// Only set for `channel: Sms` conversations that relay through a
+    /// paired phone via Blue Connect (see `sms.rs`'s
+    /// `send_sms_via_phone`/`poll_incoming_via_phone`) rather than a
+    /// locally-attached modem. `None` means "use ModemManager" — the
+    /// original, still-supported SMS path — so existing SMS
+    /// conversations created before this field existed keep working
+    /// exactly as before without any migration needed.
+    #[serde(default)]
+    pub phone_device_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -109,6 +127,7 @@ fn ensure_default_conversation(items: &mut Vec<Conversation>) -> Vec<Conversatio
             last_message_at: now.clone(),
             unread_count: 0,
             pinned: true,
+            phone_device_id: None,
         });
         let _ = write_conversations(items);
         let _ = storage::add(&Message {
@@ -139,8 +158,13 @@ pub fn messages_load_conversations() -> Vec<Conversation> {
 /// `matrix::matrix_import_room` (a Matrix room import is, from local
 /// storage's point of view, just creating a conversation with
 /// `channel: Matrix` and `participant: <room id>` — see that function's
-/// own doc).
+/// own doc). `phone_device_id` is `None` for every caller except
+/// `sms::sms_add_phone_contact`.
 fn create_conversation_internal(title: String, participant: String, channel: Channel) -> Result<Conversation, String> {
+    create_conversation_with_device(title, participant, channel, None)
+}
+
+fn create_conversation_with_device(title: String, participant: String, channel: Channel, phone_device_id: Option<String>) -> Result<Conversation, String> {
     let mut items = read_conversations();
     let now = chrono::Utc::now().to_rfc3339();
     let convo = Conversation {
@@ -153,6 +177,7 @@ fn create_conversation_internal(title: String, participant: String, channel: Cha
         last_message_at: now,
         unread_count: 0,
         pinned: false,
+        phone_device_id,
     };
     items.push(convo.clone());
     write_conversations(&items)?;
@@ -198,14 +223,30 @@ pub async fn messages_send(conversation_id: String, body: String) -> Result<Mess
     let convo = conversations.iter().find(|c| c.id == conversation_id).cloned();
 
     if let Some(c) = &convo {
-        if c.channel == Channel::Matrix {
-            let session = matrix::get_session().ok_or("Not logged in to Matrix")?;
-            matrix::send_to_room(&session, &c.participant, &body).await?;
+        match c.channel {
+            Channel::Matrix => {
+                let session = matrix::get_session().ok_or("Not logged in to Matrix")?;
+                matrix::send_to_room(&session, &c.participant, &body).await?;
+            }
+            Channel::Xmpp => {
+                let participant = c.participant.clone();
+                let body_for_send = body.clone();
+                // xmpp::send_message is blocking (raw std::net I/O, see
+                // its module doc) — run it on a blocking thread so it
+                // doesn't stall this async command's executor while it
+                // waits on the network.
+                tokio::task::spawn_blocking(move || xmpp::send_message(&participant, &body_for_send))
+                    .await
+                    .map_err(|e| format!("XMPP send task panicked: {e}"))??;
+            }
+            Channel::Sms => {
+                match &c.phone_device_id {
+                    Some(device_id) => sms::send_sms_via_phone(device_id, &c.participant, &body).await?,
+                    None => sms::send_sms(&c.participant, &body).await?,
+                }
+            }
+            Channel::Local => {}
         }
-        // Sms/Xmpp conversations fall through to local-only storage —
-        // see this module's `Channel` doc for why those transports
-        // don't exist yet; better to save the message locally than to
-        // discard it outright.
     }
 
     let now = chrono::Utc::now().to_rfc3339();
