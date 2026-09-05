@@ -171,7 +171,14 @@ export const BUILTIN_THEMES: ShellTheme[] = [
     requiresRestart: true, builtin: true,
   },
 
-  // ── Placeholders — selectable in the grid, not yet appliable ────────
+  // ── Formerly placeholders, now fully applied ─────────────────────────
+  // Hydra and HDE below used to ship with `placeholder: true` (visible
+  // in the grid, not selectable) while their palettes/layouts were
+  // being finished. Neither sets that flag anymore — both are real,
+  // fully-appliable themes now; see `ShellThemeStyle.svelte` for what
+  // "applied" actually changes. Kept as their own labeled group here
+  // only because they're this file's two most recent additions, not
+  // because anything about them is still incomplete.
   {
     id: 'hydra',
     name: 'Hydra',
