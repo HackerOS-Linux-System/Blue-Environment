@@ -1,3 +1,16 @@
+<script context="module" lang="ts">
+  // NOTE: this file is a plain store module (no markup, no component
+  // instance) — the only reason it carries a .svelte extension instead
+  // of .ts (like its sibling Blue-Docs-App/document.ts) is to match
+  // whatever the original convention here was; wrapped in a
+  // `context="module"` script block so its named exports work exactly
+  // like a plain TS module import (`import { createMessagesStore } from
+  // './messagesStore'`) while keeping the file's name/path unchanged.
+  // Previously this file had bare top-level `import`/`export` statements
+  // with no `<script>` wrapper at all, which is invalid Svelte syntax
+  // (svelte-check: "Unexpected token" — the compiler expects markup or a
+  // script block, not a raw JS/TS module body) and made the whole file
+  // fail to parse.
 import { writable, get } from 'svelte/store';
 import { SystemBridge } from '../../../utils/systemBridge';
 import type { Conversation, Message, Channel } from './types';
@@ -15,6 +28,21 @@ export function createMessagesStore() {
   const matrixLoggedIn = writable(false);
   const matrixBusy = writable(false);
   const matrixRooms = writable<{ roomId: string; name: string }[]>([]);
+
+  // XMPP session state — see xmpp.rs's module doc for what "real" means
+  // here (real STARTTLS+SASL PLAIN+bind+send, ephemeral connection per
+  // action, no persistent/live connection).
+  const xmppLoggedIn = writable(false);
+  const xmppBusy = writable(false);
+
+  // SMS (ModemManager) availability — see sms.rs's module doc. `false`
+  // just means "no modem visible to ModemManager right now", not an
+  // error; the UI uses this to decide whether to offer an SMS option.
+  const smsAvailable = writable(false);
+  // Paired phones (via Blue Connect) an SMS conversation can relay
+  // through instead of a local modem — see sms.rs's
+  // sms_list_paired_phones/send_sms_via_phone doc.
+  const pairedPhones = writable<{ deviceId: string; deviceName: string }[]>([]);
 
   async function refreshMatrixSession() {
     matrixLoggedIn.set(await SystemBridge.matrixHasSession());
@@ -74,6 +102,124 @@ export function createMessagesStore() {
     }
   }
 
+  async function refreshXmppSession() {
+    xmppLoggedIn.set(await SystemBridge.xmppHasSession());
+  }
+
+  async function xmppLogin(jid: string, password: string) {
+    xmppBusy.set(true);
+    try {
+      const res = await SystemBridge.xmppLogin(jid, password);
+      if (!res.ok) { error.set(res.error ?? 'XMPP login failed'); return false; }
+      xmppLoggedIn.set(true);
+      return true;
+    } finally {
+      xmppBusy.set(false);
+    }
+  }
+
+  async function xmppLogout() {
+    await SystemBridge.xmppLogout();
+    xmppLoggedIn.set(false);
+  }
+
+  async function xmppAddContact(contactJid: string, name: string) {
+    const res = await SystemBridge.xmppAddContact(contactJid, name);
+    if (!res.ok || !res.conversation) {
+      error.set(res.error ?? 'Failed to add XMPP contact');
+      return null;
+    }
+    conversations.update((list) => [res.conversation!, ...list]);
+    await openConversation(res.conversation.id);
+    return res.conversation;
+  }
+
+  /// Same pull-on-open shape as `refreshIfMatrix` — see `xmpp_refresh_thread`'s
+  /// doc in xmpp.rs for exactly what this ephemeral-connection poll does
+  /// and doesn't cover (no live/persistent connection).
+  async function refreshIfXmpp(id: string) {
+    const convo = get(conversations).find((c) => c.id === id);
+    if (!convo || convo.channel !== 'xmpp') return;
+    xmppBusy.set(true);
+    try {
+      const updated = await SystemBridge.xmppRefreshThread(id);
+      if (get(activeId) === id) thread.set(updated);
+    } finally {
+      xmppBusy.set(false);
+    }
+  }
+
+  async function refreshSmsAvailability() {
+    smsAvailable.set(await SystemBridge.smsModemAvailable());
+    pairedPhones.set(await SystemBridge.smsListPairedPhones());
+  }
+
+  async function smsAddContact(phoneNumber: string, name: string) {
+    const res = await SystemBridge.smsAddContact(phoneNumber, name);
+    if (!res.ok || !res.conversation) {
+      error.set(res.error ?? 'Failed to add SMS contact');
+      return null;
+    }
+    conversations.update((list) => [res.conversation!, ...list]);
+    await openConversation(res.conversation.id);
+    return res.conversation;
+  }
+
+  /// Same as `smsAddContact` but relayed through a paired phone via
+  /// Blue Connect instead of a local modem — see sms.rs's
+  /// sms_add_phone_contact doc.
+  async function smsAddPhoneContact(deviceId: string, phoneNumber: string, name: string) {
+    const res = await SystemBridge.smsAddPhoneContact(deviceId, phoneNumber, name);
+    if (!res.ok || !res.conversation) {
+      error.set(res.error ?? 'Failed to add phone-relayed SMS contact');
+      return null;
+    }
+    conversations.update((list) => [res.conversation!, ...list]);
+    await openConversation(res.conversation.id);
+    return res.conversation;
+  }
+
+  /// Same shape again for the ModemManager-backed SMS channel — see
+  /// `sms_refresh_thread`'s doc in sms.rs.
+  async function refreshIfSms(id: string) {
+    const convo = get(conversations).find((c) => c.id === id);
+    if (!convo || convo.channel !== 'sms') return;
+    try {
+      const updated = await SystemBridge.smsRefreshThread(id);
+      if (get(activeId) === id) thread.set(updated);
+    } catch { /* no modem / ModemManager unavailable — thread just stays as-is */ }
+  }
+
+  /// Subscribes to the background XMPP connection's live-push event
+  /// (see xmpp.rs's `run_receive_loop`/`handle_incoming_message`) so a
+  /// message arriving while the app is open shows up immediately —
+  /// without this, XMPP would still only update via the manual
+  /// `refreshIfXmpp` pull-on-open path despite the backend now having a
+  /// real persistent connection to push from. No-ops outside Tauri.
+  async function subscribeXmppIncoming() {
+    if (!SystemBridge.isTauri()) return;
+    try {
+      const mod = await import('@tauri-apps/api/event');
+      await mod.listen('blue-messages://xmpp-incoming', (e: any) => {
+        const { conversationId, message } = e.payload ?? {};
+        if (!conversationId || !message) return;
+        conversations.update((list) =>
+          list.map((c) =>
+            c.id === conversationId
+              ? { ...c, lastMessagePreview: message.body, lastMessageAt: message.sentAt, unreadCount: (get(activeId) === conversationId ? 0 : c.unreadCount + 1) }
+              : c
+          )
+        );
+        if (get(activeId) === conversationId) {
+          thread.update((msgs) => [...msgs, message]);
+        }
+      });
+    } catch {
+      /* not running under Tauri, or the event API isn't available — the
+         manual refresh-on-open path still works either way */
+    }
+  }
+
   async function load() {
     loading.set(true);
     try {
@@ -81,6 +227,9 @@ export function createMessagesStore() {
       conversations.set(items);
       await refreshMatrixSession();
       if (get(matrixLoggedIn)) matrixLoadRooms();
+      await refreshXmppSession();
+      await refreshSmsAvailability();
+      subscribeXmppIncoming();
       // Auto-open the first (pinned/most-recent, per the backend's own
       // sort — see messages_load_conversations) conversation so the
       // window never opens to a blank two-pane view on first launch.
@@ -98,6 +247,8 @@ export function createMessagesStore() {
     await SystemBridge.messagesMarkRead(id);
     conversations.update((list) => list.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
     refreshIfMatrix(id); // fire-and-forget — thread already shows local history immediately
+    refreshIfXmpp(id);
+    refreshIfSms(id);
   }
 
   async function createConversation(title: string, participant: string, channel: Channel) {
@@ -155,5 +306,8 @@ export function createMessagesStore() {
     load, openConversation, createConversation, deleteConversation, togglePinned, send,
     matrixLoggedIn, matrixBusy, matrixRooms,
     matrixLogin, matrixLogout, matrixLoadRooms, matrixImportRoom,
+    xmppLoggedIn, xmppBusy, xmppLogin, xmppLogout, xmppAddContact,
+    smsAvailable, smsAddContact, pairedPhones, smsAddPhoneContact,
   };
 }
+</script>
