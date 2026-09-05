@@ -60,6 +60,7 @@
     [AppId.BLUE_TASKS]: ['Office'], [AppId.BLUE_CALENDAR]: ['Office'],
     [AppId.BLUE_NOTIFICATIONS]: ['Utility'], [AppId.BLUE_EMOJI]: ['Utility'],
     [AppId.BLUE_NEWS]: ['Internet'],
+    [AppId.BLUE_DOWNLOADER]: ['Internet'],
   };
 
   function getCategory(app: AnyApp): string {
