@@ -23,13 +23,15 @@ export interface Message {
   read: boolean;
 }
 
-/** Labels + icon names for each channel — `local` is the only one with
- * a working transport today (see BlueMessagesApp/mod.rs's module doc);
- * the others render as selectable so the data model/UI are ready, but
- * `channel !== 'local'` conversations don't actually send anywhere yet. */
+/** Labels + icon names for each channel. `local` and `matrix` are fully
+ * wired; `xmpp` sends/receives through the best-effort transport in
+ * `xmpp.rs` (real, but ephemeral-connection-per-action — see that
+ * module's doc); `sms` sends/receives through a locally-attached modem
+ * via ModemManager (see `sms.rs`'s doc) — there is still no support for
+ * routing SMS through a paired phone. */
 export const CHANNEL_LABELS: Record<Channel, string> = {
   local: 'Local note',
-  sms: 'SMS (paired phone)',
+  sms: 'SMS (modem or paired phone)',
   xmpp: 'XMPP',
   matrix: 'Matrix',
 };
