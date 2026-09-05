@@ -6,3 +6,12 @@ description = "Shared authentication primitives for Blue Environment: pattern-lo
 
 [dependencies]
 sha2 = "0.10"
+# Real password-hashing KDF for pattern-lock storage (replaces the old bare
+# SHA-256 digest — see lib.rs module doc for the migration story). Argon2id
+# is the same algorithm/crate family already used by Blue-Accounts'
+# password-vault crypto (src-tauri/src/BlueAccounts/crypto.rs), so both of
+# this project's "prove who you are" mechanisms now sit at the same
+# security level instead of the vault being hardened while the lock screen
+# stayed a fast, unsalted-cost digest.
+argon2 = "0.5"
+rand_core = { version = "0.6", features = ["std"] }
