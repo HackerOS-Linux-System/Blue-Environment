@@ -80,18 +80,15 @@ npm run build:tauri
 # This runs: npm run build  →  vite build  →  tauri build
 ```
 
-### Build the Wayland compositor (for bare-metal/TTY use)
-
-```bash
-npm run build:compositor
-# Output: ~/.hackeros/Blue-Environment/libs/hackeros-comp
-```
-
-### Build everything
-
-```bash
-npm run build:all
-```
+> **Note:** the Wayland compositor (Smithay) described under Features
+> above is planned architecture — `compositor/` doesn't exist in this
+> tree yet, so there is currently no `npm run build:compositor` or
+> `npm run build:all` command, and the CI workflows (`test.yml`,
+> `build.yml`) don't assume it exists either (they probe for
+> `compositor/Cargo.toml` and skip compositor-specific steps when it's
+> absent, rather than failing). The shell above already runs standalone
+> today under any existing Wayland/X11 compositor (GNOME, KDE, sway,
+> ...) — it doesn't require HackerOS-Comp specifically.
 
 ### Development (hot-reload)
 
