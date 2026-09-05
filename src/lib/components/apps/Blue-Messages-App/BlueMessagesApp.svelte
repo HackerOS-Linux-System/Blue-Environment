@@ -5,20 +5,25 @@
   // transport integration would add later).
   import { onMount } from 'svelte';
   import { Send, Plus, Pin, Trash2, MessageSquare, Search, X, Link2, LogOut, Loader2 } from 'lucide-svelte';
-  import { createMessagesStore } from './messagesStore';
+  import { createMessagesStore } from './messagesStore.svelte';
   import { CHANNEL_LABELS, type Channel } from './types';
   import { t } from '../../../stores/language';
 
   export let windowId: string;
 
   const store = createMessagesStore();
-  const { conversations, activeId, thread, loading, sending, error, matrixLoggedIn, matrixBusy, matrixRooms } = store;
+  const { conversations, activeId, thread, loading, sending, error, matrixLoggedIn, matrixBusy, matrixRooms, xmppLoggedIn, xmppBusy, smsAvailable, pairedPhones } = store;
 
   let search = '';
   let composeText = '';
   let showNewConversation = false;
   let newTitle = '';
   let newParticipant = '';
+  /** For `newChannel === 'sms'`: which transport to use — a local modem
+   * (ModemManager, the original path) or a specific paired phone via
+   * Blue Connect (see sms.rs's two conversation-creation commands).
+   * `null` means "use the modem". */
+  let smsViaDeviceId: string | null = null;
   let newChannel: Channel = 'local';
   let threadEl: HTMLDivElement | null = null;
 
@@ -27,6 +32,22 @@
   let matrixUsername = '';
   let matrixPassword = '';
   let matrixLoginError = '';
+
+  let showXmppLogin = false;
+  let xmppJid = '';
+  let xmppPassword = '';
+  let xmppLoginError = '';
+
+  async function submitXmppLogin() {
+    xmppLoginError = '';
+    const ok = await store.xmppLogin(xmppJid.trim(), xmppPassword);
+    if (ok) {
+      xmppPassword = ''; // never keep the typed password around longer than needed
+      showXmppLogin = false;
+    } else {
+      xmppLoginError = 'Login failed — check your JID (user@domain) and password, and that the server supports STARTTLS + SASL PLAIN.';
+    }
+  }
 
   async function submitMatrixLogin() {
     matrixLoginError = '';
@@ -73,10 +94,16 @@
 
   async function submitNewConversation() {
     if (!newTitle.trim()) return;
-    await store.createConversation(newTitle.trim(), newParticipant.trim() || newTitle.trim(), newChannel);
+    const participant = newParticipant.trim() || newTitle.trim();
+    if (newChannel === 'sms' && smsViaDeviceId) {
+      await store.smsAddPhoneContact(smsViaDeviceId, participant, newTitle.trim());
+    } else {
+      await store.createConversation(newTitle.trim(), participant, newChannel);
+    }
     newTitle = '';
     newParticipant = '';
     newChannel = 'local';
+    smsViaDeviceId = null;
     showNewConversation = false;
   }
 
@@ -118,6 +145,13 @@
         title={$matrixLoggedIn ? 'Connected to Matrix — click to log out' : 'Connect a Matrix account'}
       >
         {#if $matrixBusy}<Loader2 class="w-4 h-4 animate-spin" />{:else if $matrixLoggedIn}<LogOut class="w-4 h-4" />{:else}<Link2 class="w-4 h-4" />{/if}
+      </button>
+      <button
+        on:click={() => ($xmppLoggedIn ? store.xmppLogout() : (showXmppLogin = true))}
+        class="shrink-0 w-7 h-7 flex items-center justify-center rounded transition-colors {$xmppLoggedIn ? 'bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'}"
+        title={$xmppLoggedIn ? 'Connected to XMPP — click to log out' : 'Connect an XMPP account'}
+      >
+        {#if $xmppBusy}<Loader2 class="w-4 h-4 animate-spin" />{:else if $xmppLoggedIn}<LogOut class="w-4 h-4" />{:else}<Link2 class="w-4 h-4" />{/if}
       </button>
     </div>
 
@@ -267,6 +301,12 @@
               </div>
             {/if}
           {/if}
+        {:else if newChannel === 'xmpp' && !$xmppLoggedIn}
+          <p class="text-[11px] text-slate-400">
+            Not connected to XMPP yet.
+            <button class="text-blue-400 hover:underline" on:click={() => { showNewConversation = false; showXmppLogin = true; }}>Connect an account</button>
+            first.
+          </p>
         {:else}
           <input
             bind:value={newTitle}
@@ -275,12 +315,31 @@
           />
           <input
             bind:value={newParticipant}
-            placeholder="Participant (phone, handle, ...)"
+            placeholder={newChannel === 'xmpp' ? 'Contact JID (user@domain)' : newChannel === 'sms' ? 'Phone number' : 'Participant'}
             class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
           />
-          {#if newChannel !== 'local'}
+          {#if newChannel === 'sms' && !$smsAvailable && $pairedPhones.length === 0}
             <p class="text-[11px] text-amber-400/80">
-              {CHANNEL_LABELS[newChannel]} isn't connected to a real transport yet — this conversation will still only send/receive locally.
+              No modem detected via ModemManager and no paired phones via Blue Connect — messages will be saved locally but won't actually send until one is available (see sms.rs).
+            </p>
+          {:else if newChannel === 'sms'}
+            {#if $pairedPhones.length > 0}
+              <label class="text-[11px] text-slate-500">Send through</label>
+              <select bind:value={smsViaDeviceId} class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500">
+                <option value={null}>{$smsAvailable ? 'Local modem (ModemManager)' : 'Local modem (none detected)'}</option>
+                {#each $pairedPhones as phone (phone.deviceId)}
+                  <option value={phone.deviceId}>Paired phone: {phone.deviceName}</option>
+                {/each}
+              </select>
+              {#if smsViaDeviceId}
+                <p class="text-[11px] text-slate-500">
+                  Relayed through the paired phone over Blue Connect — see sms.rs's send_sms_via_phone doc for what's and isn't guaranteed to work.
+                </p>
+              {/if}
+            {/if}
+          {:else if newChannel === 'xmpp'}
+            <p class="text-[11px] text-slate-500">
+              Messages will send/receive over a real (but not always-on — see xmpp.rs) connection to your XMPP server.
             </p>
           {/if}
           <button
@@ -333,6 +392,45 @@
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
           {#if $matrixBusy}<Loader2 class="w-3.5 h-3.5 animate-spin" />{/if} Log in
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showXmppLogin}
+    <div class="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+      <div class="bg-slate-900 border border-white/10 rounded-lg w-80 p-4 flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <span class="font-medium text-sm flex items-center gap-1.5"><Link2 class="w-3.5 h-3.5" /> Connect XMPP account</span>
+          <button on:click={() => (showXmppLogin = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-500">
+          Real STARTTLS + SASL PLAIN login (see xmpp.rs) — the password is kept, encrypted at rest, since XMPP sends happen over fresh
+          ephemeral connections rather than a long-lived session token like Matrix's.
+        </p>
+        <input
+          bind:value={xmppJid}
+          placeholder="JID (e.g. you@example.org)"
+          class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
+        <input
+          bind:value={xmppPassword}
+          type="password"
+          placeholder="Password"
+          on:keydown={(e) => e.key === 'Enter' && submitXmppLogin()}
+          class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
+        {#if xmppLoginError}
+          <p class="text-[11px] text-red-400">{xmppLoginError}</p>
+        {/if}
+        <button
+          on:click={submitXmppLogin}
+          disabled={!xmppJid.trim() || !xmppPassword || $xmppBusy}
+          class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+        >
+          {#if $xmppBusy}<Loader2 class="w-3.5 h-3.5 animate-spin" />{/if} Log in
         </button>
       </div>
     </div>
