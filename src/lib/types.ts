@@ -21,6 +21,7 @@ export enum AppId {
   BLUE_TRANSLATE = 'blue_translate',
   BLUE_INSTALLER = 'blue_installer',
   BLUE_PARTITION_MANAGER = 'blue_partition_manager',
+  BLUE_DOWNLOADER = 'blue_downloader',
   CAMERA = 'camera',
   BLUE_PLAY = 'blue_play',
   BLUE_CALENDAR = 'blue_calendar',
