@@ -61,6 +61,8 @@ mod blue_news_app;
 mod blue_messages_app;
 #[path = "BlueConnect/mod.rs"]
 mod blue_connect;
+#[path = "BlueDownloaderApp/mod.rs"]
+mod blue_downloader_app;
 #[path = "BlueAccounts/mod.rs"]
 mod blue_accounts;
 #[path = "BlueVirt/mod.rs"]
@@ -187,9 +189,15 @@ fn main() {
         blue_messages_app::messages_load_thread, blue_messages_app::messages_send, blue_messages_app::messages_mark_read,
         blue_messages_app::matrix::matrix_has_session, blue_messages_app::matrix::matrix_login, blue_messages_app::matrix::matrix_logout,
         blue_messages_app::matrix::matrix_list_rooms, blue_messages_app::matrix::matrix_import_room, blue_messages_app::matrix::matrix_refresh_thread,
+        blue_messages_app::xmpp::xmpp_has_session, blue_messages_app::xmpp::xmpp_login, blue_messages_app::xmpp::xmpp_logout,
+        blue_messages_app::xmpp::xmpp_add_contact, blue_messages_app::xmpp::xmpp_refresh_thread,
+        blue_messages_app::sms::sms_add_contact, blue_messages_app::sms::sms_add_phone_contact, blue_messages_app::sms::sms_list_paired_phones,
+        blue_messages_app::sms::sms_modem_available, blue_messages_app::sms::sms_refresh_thread,
         blue_messages_app::storage::messages_get_retention_settings, blue_messages_app::storage::messages_set_retention_settings,
         blue_connect::bc_start_discovery, blue_connect::bc_get_devices, blue_connect::bc_forget_device,
-        blue_connect::bc_request_pairing, blue_connect::bc_listen_for_pairing,
+        blue_connect::bc_request_pairing, blue_connect::bc_listen_for_pairing, blue_connect::bc_confirm_incoming_pairing,
+        blue_downloader_app::downloader_add, blue_downloader_app::downloader_list, blue_downloader_app::downloader_pause,
+        blue_downloader_app::downloader_resume, blue_downloader_app::downloader_cancel, blue_downloader_app::downloader_remove,
         blue_accounts::accounts_vault_exists, blue_accounts::accounts_is_unlocked, blue_accounts::accounts_create_vault,
         blue_accounts::accounts_unlock, blue_accounts::accounts_lock, blue_accounts::accounts_list_entries,
         blue_accounts::accounts_add_entry, blue_accounts::accounts_update_entry, blue_accounts::accounts_delete_entry,
