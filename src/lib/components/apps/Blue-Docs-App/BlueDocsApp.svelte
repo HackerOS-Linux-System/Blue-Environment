@@ -103,7 +103,7 @@
       </button>
     {/if}
 
-    <div class="flex-1 flex overflow-hidden" style={distraction ? 'background:#0a0f1e;' : ''}>
+    <div class="flex-1 flex overflow-hidden {distraction ? 'docs-distraction-surface' : ''}">
       {#if activeDoc.format === 'rich'}
         <RichEditor bind:this={richEditorRef} content={activeDoc.content} {fontFamily} {fontSize} on:change={(e) => doc.updateContent(e.detail)} />
       {:else if activeDoc.format === 'markdown'}
