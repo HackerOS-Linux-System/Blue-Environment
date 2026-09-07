@@ -78,6 +78,87 @@ pub fn toggle_wifi(enabled: bool) {
     let _ = Command::new("nmcli").args(["radio", "wifi", if enabled { "on" } else { "off" }]).spawn();
 }
 
+/// Lists every *saved* Wi-Fi connection profile (nmcli calls these
+/// "connections" — distinct from the live scan results
+/// `get_wifi_networks_real` returns, which only show currently-visible
+/// networks). This is what "forget network"/"edit saved connections"
+/// needs: a network can be saved (and therefore forgettable/editable)
+/// without being in range right now, and conversely a network can be in
+/// range without ever having been saved.
+#[tauri::command]
+pub fn get_saved_wifi_connections() -> Vec<String> {
+    match Command::new("nmcli").args(["-t", "-f", "NAME,TYPE", "connection", "show"]).output() {
+        Ok(o) => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|line| {
+                let parts = split_nmcli_terse(line);
+                if parts.get(1).map(|t| t == "802-11-wireless").unwrap_or(false) {
+                    parts.first().cloned()
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// "Forget network" — deletes the saved connection profile (stored
+/// credentials/settings) for `ssid` entirely, same as NetworkManager's
+/// own "Forget" action. This is different from `disconnect_wifi`, which
+/// only drops the *current* session but leaves the saved password in
+/// place so it auto-reconnects again later.
+#[tauri::command]
+pub fn forget_wifi_network(ssid: String) -> Result<(), String> {
+    let o = Command::new("nmcli").args(["connection", "delete", &ssid]).output().map_err(|e| e.to_string())?;
+    if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stderr).to_string()) }
+}
+
+/// Renames a saved connection profile — the practical extent of "editing"
+/// a saved Wi-Fi connection nmcli exposes without opening a full
+/// NetworkManager settings editor; changing the stored password itself
+/// requires reconnecting with `connect_wifi_real`, which overwrites it.
+#[tauri::command]
+pub fn rename_saved_wifi_connection(old_name: String, new_name: String) -> Result<(), String> {
+    let o = Command::new("nmcli").args(["connection", "modify", &old_name, "connection.id", &new_name])
+        .output().map_err(|e| e.to_string())?;
+    if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stderr).to_string()) }
+}
+
+/// Updates the stored password on a saved connection *without* going
+/// through the full disconnect/rescan/reconnect flow `connect_wifi_real`
+/// needs — `nmcli connection modify` writes the new PSK directly into the
+/// existing profile, then `connection up` re-applies it immediately if
+/// the network is in range. This is the "change password" affordance
+/// nmcli actually offers; there's no more direct single-command way to
+/// edit a saved secret than modify-then-reapply.
+#[tauri::command]
+pub fn update_saved_wifi_password(name: String, password: String) -> Result<(), String> {
+    let modify = Command::new("nmcli")
+        .args(["connection", "modify", &name, "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", &password])
+        .output().map_err(|e| e.to_string())?;
+    if !modify.status.success() {
+        return Err(String::from_utf8_lossy(&modify.stderr).to_string());
+    }
+    // Re-apply immediately so the new password takes effect right away
+    // if the network is currently in range; if it's out of range this
+    // simply fails silently here and the new password is used the next
+    // time NetworkManager auto-connects to it.
+    let _ = Command::new("nmcli").args(["connection", "up", &name]).output();
+    Ok(())
+}
+
+/// Brings up a saved connection *by profile name* rather than by
+/// scanning for its SSID first (`connect_wifi_real` requires the network
+/// to currently show up in a scan). This is what makes a saved-but-out-
+/// of-range network's "Connect" button actually able to do something
+/// once you're back in range, without needing a fresh scan to list it.
+#[tauri::command]
+pub fn connect_saved_wifi_connection(name: String) -> Result<(), String> {
+    let o = Command::new("nmcli").args(["connection", "up", &name]).output().map_err(|e| e.to_string())?;
+    if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stderr).to_string()) }
+}
+
 #[tauri::command]
 pub fn get_bluetooth_devices_real() -> Vec<BluetoothDevice> {
     let mut devices = Vec::new();
@@ -123,6 +204,37 @@ pub fn bluetooth_disconnect(mac: String) -> Result<(), String> {
 pub fn bluetooth_pair(mac: String) -> Result<(), String> {
     Command::new("bluetoothctl").args(["pair", &mac]).spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// "Forget device" — unpairs and removes the stored pairing/trust
+/// entirely (bluetoothctl's own `remove`), rather than just disconnecting
+/// the current session. Distinct from `bluetooth_disconnect` the same
+/// way `forget_wifi_network` is distinct from `disconnect_wifi` above.
+#[tauri::command]
+pub fn bluetooth_forget(mac: String) -> Result<(), String> {
+    let o = Command::new("bluetoothctl").args(["remove", &mac]).output().map_err(|e| e.to_string())?;
+    if o.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&o.stderr).to_string()) }
+}
+
+/// Best-effort live RSSI for a *currently connected* Bluetooth device.
+///
+/// Unlike Wi-Fi (where `nmcli` always reports a signal percentage for
+/// every visible network), BlueZ only exposes RSSI for a device while
+/// it's actively connected, and only if the adapter/controller
+/// populated that property at all — plenty of controllers just don't.
+/// `bluetoothctl info <mac>` prints an `RSSI:` line when it's available;
+/// this returns `None` rather than a fake number when it isn't, so the
+/// frontend can honestly hide the indicator instead of showing a
+/// meaningless fixed value.
+#[tauri::command]
+pub fn get_bluetooth_rssi(mac: String) -> Option<i32> {
+    let o = Command::new("bluetoothctl").args(["info", &mac]).output().ok()?;
+    let text = String::from_utf8_lossy(&o.stdout);
+    text.lines()
+        .find(|l| l.trim_start().starts_with("RSSI:"))
+        .and_then(|l| l.split(':').nth(1))
+        .and_then(|s| s.trim().split_whitespace().next())
+        .and_then(|s| s.parse::<i32>().ok())
 }
 
 /// Android-style "Mobile data" toggle — only relevant on laptops with a
