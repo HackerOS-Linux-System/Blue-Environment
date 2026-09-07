@@ -29,7 +29,7 @@
   let showNewMenu = false;
 </script>
 
-<div class="shrink-0 border-b border-white/5" style="background:#0f1629;">
+<div class="shrink-0 border-b border-white/5 docs-toolbar-surface">
   <div class="flex items-center gap-0.5 px-3 py-1.5 border-b border-white/5 overflow-x-auto scrollbar-hide">
     <div class="relative" on:mouseenter={() => (showNewMenu = true)} on:mouseleave={() => (showNewMenu = false)}>
       <button on:click={() => dispatch('new', 'rich')} title="New Document" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><FilePlus size={14} /></button>
