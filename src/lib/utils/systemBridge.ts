@@ -66,6 +66,22 @@ export interface UserConfig {
     installedPlugins?: import('../data/builtinPlugins').InstalledPlugin[];
     /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
     customBookmarks?: string[];
+    /** Per-*installed-theme* override of the default window-controls
+     * button order (close/maximize/minimize/pip, "edge-outward"), keyed
+     * by theme id (e.g. 'default', 'hydra', 'azure' — see
+     * builtinThemes.ts) rather than by `WindowControlsStyle`. Two
+     * different installed themes can use the exact same base style
+     * (say, both 'windows') while still wanting independently
+     * customized orders — keying by style alone would make customizing
+     * one silently apply to every other theme sharing that style,
+     * which is the opposite of what "per theme" customization implies.
+     * A theme with no entry here falls back to *its style's* own
+     * built-in default (WindowControls.svelte), not to some other
+     * theme's override. */
+    windowControlsOrderByTheme?: Record<string, string[]>;
+    /** Last directory browsed to, per `FilePickerOptions.rememberKey` —
+     * see that field's doc comment (stores/filePicker.ts). */
+    filePickerLastPaths?: Record<string, string>;
     /** Show the weather widget in the TopBar (auto-detected via IP geolocation unless weatherCity is set). */
     weatherEnabled?: boolean;
     /** Manual city override for weather, e.g. "Katowice,PL". Empty/undefined = auto-detect via geolocation. */
@@ -318,45 +334,71 @@ async function pluginClipboardWriteImage(blob: Blob): Promise<void> {
     }
 }
 
-async function pluginDialogOpenDirectory(): Promise<string> {
+async function pluginDialogOpenDirectory(rememberKey?: string): Promise<string> {
+    // Blue Environment's own in-shell picker (BlueFilePicker.svelte) is
+    // now the primary path — see stores/filePicker.ts's doc comment for
+    // why: every desktop environment (KDE, GNOME, ...) shows *its own*
+    // file chooser rather than falling through to a foreign OS dialog,
+    // and Blue Environment previously had no equivalent at all here.
+    // The native Tauri dialog / backend command are kept purely as a
+    // fallback for the rare case the in-shell picker's own store isn't
+    // reachable (e.g. this module loaded outside the normal App.svelte
+    // tree, such as in isolated unit tests).
     try {
-        const mod = await import('@tauri-apps/plugin-dialog');
-        const selected = await mod.open({ directory: true, multiple: false, title: 'Wybierz katalog' });
-        return (selected as string | null) ?? '';
+        const { pickPaths } = await import('../stores/filePicker');
+        const paths = await pickPaths({ mode: 'directory', title: 'Wybierz katalog', rememberKey });
+        if (paths.length) return paths[0];
+        return '';
     } catch {
-        return (await invoke('pick_directory')) ?? '';
+        try {
+            const mod = await import('@tauri-apps/plugin-dialog');
+            const selected = await mod.open({ directory: true, multiple: false, title: 'Wybierz katalog' });
+            return (selected as string | null) ?? '';
+        } catch {
+            return (await invoke('pick_directory')) ?? '';
+        }
     }
 }
 
 /**
- * Opens a Tauri-native file picker that stays inside the shell window.
- * `filters` follows Tauri's DialogFilter format:
+ * Opens Blue Environment's own in-shell file picker (BlueFilePicker.svelte).
+ * `filters` follows the same DialogFilter-like format Tauri's picker used:
  *   [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
  *
+ * `rememberKey` identifies which "Open" flow this is so the picker can
+ * start back where that specific flow last left off — see
+ * `FilePickerOptions.rememberKey`'s doc comment (stores/filePicker.ts).
+ *
  * Returns an array of selected file paths (empty if user cancelled).
- * Falls back to the backend `pick_file` command when the JS plugin isn't
- * available.
+ * Falls back to the OS-native Tauri plugin, then the backend `pick_file`
+ * command, only if the in-shell picker's store can't be reached at all.
  */
 async function pluginDialogOpenFile(
     filters: { name: string; extensions: string[] }[] = [],
     multiple = false,
     title = 'Wybierz plik',
+    rememberKey?: string,
 ): Promise<string[]> {
     try {
-        const mod = await import('@tauri-apps/plugin-dialog');
-        const selected = await mod.open({ filters, multiple, title });
-        if (!selected) return [];
-        if (Array.isArray(selected)) return selected as string[];
-        return [selected as string];
+        const { pickPaths } = await import('../stores/filePicker');
+        return await pickPaths({ mode: 'file', title, filters, multiple, rememberKey });
     } catch {
-        // Plugin not available — use the backend pick_file command instead.
         try {
-            const path: string | null = await invoke('pick_file', {
-                filters: filters.map(f => f.extensions).flat().join(','),
-            });
-            return path ? [path] : [];
+            const mod = await import('@tauri-apps/plugin-dialog');
+            const selected = await mod.open({ filters, multiple, title });
+            if (!selected) return [];
+            if (Array.isArray(selected)) return selected as string[];
+            return [selected as string];
         } catch {
-            return [];
+            // Plugin not available — use the backend pick_file command instead.
+            try {
+                const path: string | null = await invoke('pick_file', {
+                    filters: filters.map(f => f.extensions).flat().join(','),
+                });
+                return path ? [path] : [];
+            } catch {
+                return [];
+            }
         }
     }
 }
@@ -528,16 +570,16 @@ export const SystemBridge = {
     // --- File pickers (stay inside the shell — use Tauri plugin-dialog,
     //     NOT <input type="file"> which opens an OS file-chooser outside
     //     the Tauri window, showing "Wybór plików" on a white background) ---
-    pickFile: async (filters: { name: string; extensions: string[] }[] = [], title?: string): Promise<string | null> => {
-        const paths = await pluginDialogOpenFile(filters, false, title);
+    pickFile: async (filters: { name: string; extensions: string[] }[] = [], title?: string, rememberKey?: string): Promise<string | null> => {
+        const paths = await pluginDialogOpenFile(filters, false, title, rememberKey);
         return paths[0] ?? null;
     },
-    pickFiles: async (filters: { name: string; extensions: string[] }[] = [], title?: string): Promise<string[]> => {
-        return pluginDialogOpenFile(filters, true, title);
+    pickFiles: async (filters: { name: string; extensions: string[] }[] = [], title?: string, rememberKey?: string): Promise<string[]> => {
+        return pluginDialogOpenFile(filters, true, title, rememberKey);
     },
 
-    pickDirectory: async (): Promise<string> => {
-        if (isTauri) return pluginDialogOpenDirectory();
+    pickDirectory: async (rememberKey?: string): Promise<string> => {
+        if (isTauri) return pluginDialogOpenDirectory(rememberKey);
         return prompt('Wybierz katalog (mock):', '/home/user') || '/home/user';
     },
 
@@ -633,6 +675,48 @@ export const SystemBridge = {
     disconnectWifi: async () => { if (isTauri) await invoke('disconnect_wifi'); else mockWifi.connectedSSID = ''; },
     toggleWifi:     async (enabled: boolean) => { if (isTauri) await invoke('toggle_wifi', { enabled }); else if (!enabled) mockWifi.connectedSSID = ''; },
 
+    /** Every saved Wi-Fi connection profile — see the Rust command's doc
+     * comment (src-tauri/src/commands/network.rs) for why this is a
+     * separate list from `getWifiNetworks` (live scan vs. saved
+     * profiles: a network can be one without being the other). */
+    getSavedWifiConnections: async (): Promise<string[]> => {
+        if (isTauri) { try { return await invoke('get_saved_wifi_connections'); } catch { return []; } }
+        // Mock: treat every currently-known network as "saved" so the
+        // forget/rename UI has something to show without Tauri.
+        return mockWifi.networks.map(n => n.ssid);
+    },
+    /** "Forget network" — deletes the saved profile/credentials entirely,
+     * unlike `disconnectWifi` which only drops the current session. */
+    forgetWifiNetwork: async (ssid: string): Promise<void> => {
+        if (isTauri) { await invoke('forget_wifi_network', { ssid }); return; }
+        mockWifi.networks = mockWifi.networks.filter(n => n.ssid !== ssid);
+        if (mockWifi.connectedSSID === ssid) mockWifi.connectedSSID = '';
+    },
+    /** Renames a saved connection profile (the extent of "editing" a
+     * saved Wi-Fi connection nmcli exposes without a full settings
+     * editor — see the Rust command's doc comment). */
+    renameSavedWifiConnection: async (oldName: string, newName: string): Promise<void> => {
+        if (isTauri) { await invoke('rename_saved_wifi_connection', { oldName, newName }); return; }
+        mockWifi.networks = mockWifi.networks.map(n => n.ssid === oldName ? { ...n, ssid: newName } : n);
+        if (mockWifi.connectedSSID === oldName) mockWifi.connectedSSID = newName;
+    },
+    /** Updates the stored password on a saved connection directly and
+     * re-applies it immediately if in range — no full disconnect/scan/
+     * reconnect cycle needed (see the Rust command's doc comment). */
+    updateSavedWifiPassword: async (name: string, password: string): Promise<void> => {
+        if (isTauri) { await invoke('update_saved_wifi_password', { name, password }); return; }
+        // Mock: nothing to actually store, just no-op successfully.
+    },
+    /** Brings up a saved connection by profile name, working even when
+     * it isn't currently showing up in a scan — see the Rust command's
+     * doc comment. This is what lets a saved-but-out-of-range network's
+     * "Connect" button do something once you're back in range. */
+    connectSavedWifiConnection: async (name: string): Promise<void> => {
+        if (isTauri) { await invoke('connect_saved_wifi_connection', { name }); return; }
+        mockWifi.connectedSSID = name;
+        mockWifi.networks = mockWifi.networks.map(n => ({ ...n, in_use: n.ssid === name }));
+    },
+
     // --- Bluetooth ---
     getBluetoothDevices: async () => {
         if (isTauri) { try { return await invoke('get_bluetooth_devices_real'); } catch { return []; } }
@@ -643,6 +727,21 @@ export const SystemBridge = {
     bluetoothConnect:    async (mac: string) => { if (isTauri) await invoke('bluetooth_connect',    { mac }); else mockBt = mockBt.map(d => d.mac === mac ? { ...d, connected: true }  : d); },
     bluetoothDisconnect: async (mac: string) => { if (isTauri) await invoke('bluetooth_disconnect', { mac }); else mockBt = mockBt.map(d => d.mac === mac ? { ...d, connected: false } : d); },
     bluetoothPair:       async (mac: string) => { if (isTauri) await invoke('bluetooth_pair',       { mac }); },
+    /** "Forget device" — unpairs and removes the stored pairing/trust
+     * entirely, unlike `bluetoothDisconnect` which only ends the current
+     * session (see the Rust command's doc comment). */
+    bluetoothForget:     async (mac: string): Promise<void> => {
+        if (isTauri) { await invoke('bluetooth_forget', { mac }); return; }
+        mockBt = mockBt.filter(d => d.mac !== mac);
+    },
+    /** Best-effort live RSSI for a connected Bluetooth device — `null`
+     * when the controller/BlueZ doesn't expose it (common; see the Rust
+     * command's doc comment), which the frontend treats as "no signal
+     * indicator for this device" rather than showing a fake number. */
+    getBluetoothRssi: async (mac: string): Promise<number | null> => {
+        if (isTauri) { try { return await invoke('get_bluetooth_rssi', { mac }); } catch { return null; } }
+        return null; // no meaningful mock value — mirrors the "often just unavailable" reality
+    },
 
     toggleBluetoothDevice: async (mac: string) => {
         const dev = mockBt.find(d => d.mac === mac);
