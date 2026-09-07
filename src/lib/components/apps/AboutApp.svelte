@@ -162,7 +162,7 @@
         <div class="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center shrink-0"><Monitor size={20} class="text-blue-400" /></div>
         <div class="flex-1">
           <div class="font-semibold text-white">Blue Environment</div>
-          <div class="text-sm text-slate-400">Version 0.7.0 - Smithay Wayland Compositor (Svelte UI)</div>
+          <div class="text-sm text-slate-400">Version 0.8.0 - Smithay Wayland Compositor (Svelte UI)</div>
         </div>
         <div class="text-right">
           <div class="text-xs text-slate-500">GNU GPL v3.0</div>
