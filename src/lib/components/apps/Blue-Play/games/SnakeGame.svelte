@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../../stores/colorScheme';
 
   const dispatch = createEventDispatcher<{ score: number; gameOver: number }>();
 
@@ -8,6 +9,17 @@
   const TICK_MS = 110;
 
   type Point = { x: number; y: number };
+
+  // Canvas drawing bypasses CSS entirely (see colorScheme.ts's doc
+  // comment for why this needs its own store instead of a Tailwind
+  // class) — only the board background/overlay/text need to flip;
+  // the snake/food accent colors already read fine on either.
+  let scheme: 'dark' | 'light' = 'dark';
+  const unsubScheme = colorScheme.subscribe((v) => { scheme = v; draw(); });
+  $: boardBg = scheme === 'light' ? '#f1f5f9' : '#0f172a';
+  $: overlayBg = scheme === 'light' ? 'rgba(241,245,249,0.8)' : 'rgba(15,23,42,0.75)';
+  $: overlayBgPaused = scheme === 'light' ? 'rgba(241,245,249,0.7)' : 'rgba(15,23,42,0.6)';
+  $: overlayText = scheme === 'light' ? '#0f172a' : '#fff';
 
   let canvasEl: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -66,7 +78,7 @@
 
   function draw() {
     if (!ctx) return;
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = boardBg;
     ctx.fillRect(0, 0, GRID * CELL, GRID * CELL);
 
     ctx.fillStyle = '#f59e0b';
@@ -78,18 +90,18 @@
     });
 
     if (over) {
-      ctx.fillStyle = 'rgba(15,23,42,0.75)';
+      ctx.fillStyle = overlayBg;
       ctx.fillRect(0, 0, GRID * CELL, GRID * CELL);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = overlayText;
       ctx.font = 'bold 20px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Game Over', GRID * CELL / 2, GRID * CELL / 2 - 10);
       ctx.font = '13px sans-serif';
       ctx.fillText('Press Space to retry', GRID * CELL / 2, GRID * CELL / 2 + 14);
     } else if (paused) {
-      ctx.fillStyle = 'rgba(15,23,42,0.6)';
+      ctx.fillStyle = overlayBgPaused;
       ctx.fillRect(0, 0, GRID * CELL, GRID * CELL);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = overlayText;
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Paused', GRID * CELL / 2, GRID * CELL / 2);
@@ -125,6 +137,7 @@
   onDestroy(() => {
     clearInterval(timer);
     window.removeEventListener('keydown', handleKey);
+    unsubScheme();
   });
 </script>
 
