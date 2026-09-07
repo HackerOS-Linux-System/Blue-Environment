@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export interface PromptOptions { title: string; label?: string; defaultValue?: string; placeholder?: string; confirmLabel?: string; cancelLabel?: string; }
+export interface PromptOptions { title: string; label?: string; defaultValue?: string; placeholder?: string; confirmLabel?: string; cancelLabel?: string; inputType?: 'text' | 'password'; }
 export interface ConfirmOptions { title: string; message: string; confirmLabel?: string; cancelLabel?: string; danger?: boolean; }
 export interface AlertOptions { title: string; message: string; confirmLabel?: string; }
 
