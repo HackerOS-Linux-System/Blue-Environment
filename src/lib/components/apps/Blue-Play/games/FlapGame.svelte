@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../../stores/colorScheme';
 
   const dispatch = createEventDispatcher<{ score: number; gameOver: number }>();
 
@@ -8,6 +9,12 @@
   const PIPE_W = 52, GAP = 130, PIPE_SPEED = 2.4, PIPE_INTERVAL = 105;
 
   interface Pipe { x: number; gapY: number; passed: boolean; }
+
+  // draw() already re-runs every frame via requestAnimationFrame, so
+  // this just needs to be read there — no need to force an extra
+  // redraw on change like the non-animating games do.
+  let scheme: 'dark' | 'light' = 'dark';
+  const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
   let canvasEl: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -68,8 +75,10 @@
 
   function draw() {
     if (!ctx) return;
+    const isLight = scheme === 'light';
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#1e3a5f'); grad.addColorStop(1, '#0f172a');
+    if (isLight) { grad.addColorStop(0, '#bfdbfe'); grad.addColorStop(1, '#e2e8f0'); }
+    else { grad.addColorStop(0, '#1e3a5f'); grad.addColorStop(1, '#0f172a'); }
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
@@ -88,7 +97,7 @@
     ctx.beginPath(); ctx.arc(4, -3, 2, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = isLight ? '#0f172a' : '#fff';
     ctx.font = 'bold 28px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(String(score), W / 2, 50);
@@ -98,9 +107,9 @@
       ctx.fillText('Click or press Space to start', W / 2, H / 2);
     }
     if (over) {
-      ctx.fillStyle = 'rgba(15,23,42,0.8)';
+      ctx.fillStyle = isLight ? 'rgba(241,245,249,0.85)' : 'rgba(15,23,42,0.8)';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isLight ? '#0f172a' : '#fff';
       ctx.font = 'bold 22px sans-serif';
       ctx.fillText('Game Over', W / 2, H / 2 - 10);
       ctx.font = '13px sans-serif';
@@ -122,6 +131,7 @@
   onDestroy(() => {
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', handleKey);
+    unsubScheme();
   });
 </script>
 
