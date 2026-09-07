@@ -28,6 +28,7 @@
   import ToastContainer from './lib/components/ToastContainer.svelte';
   import WorkspaceSwitcher from './lib/components/WorkspaceSwitcher.svelte';
   import DialogHost from './lib/components/DialogHost.svelte';
+  import BlueFilePicker from './lib/components/BlueFilePicker.svelte';
   import ShellThemeStyle from './lib/components/ShellThemeStyle.svelte';
   import SystemThemeStyle from './lib/components/SystemThemeStyle.svelte';
   import BlueInstallerApp from './lib/components/apps/Blue-Installer/BlueInstallerApp.svelte';
@@ -209,6 +210,14 @@
   // always stays a fixed margin above whatever the highest window
   // zIndex currently is, so it can never be silently overtaken again.
   $: startMenuZIndex = Math.max(50, ...$windows.map((w) => w.zIndex)) + 100;
+  // The desktop backdrop's fallback gradient (used whenever no
+  // wallpaper image is set) was hardcoded to a dark navy gradient
+  // regardless of light/dark mode — the very first thing rendered, and
+  // wrong for anyone on light mode with no wallpaper picked yet.
+  $: fallbackBgColor = theme === 'light-glass' ? '#f1f5f9' : '#0f172a';
+  $: fallbackGradient = theme === 'light-glass'
+    ? 'linear-gradient(160deg, #f1f5f9, #e2e8f0)'
+    : 'linear-gradient(160deg, #0f172a, #1e293b)';
 </script>
 
 {#if $liveModeChecked && $isLiveMode}
@@ -219,7 +228,7 @@
 <div
   class="relative w-full h-full overflow-hidden select-none"
   data-theme={theme}
-  style="background-size:cover; background-position:center; background-color:#0f172a; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}linear-gradient(160deg, #0f172a, #1e293b);"
+  style="background-size:cover; background-position:center; background-color:{fallbackBgColor}; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}{fallbackGradient};"
   on:click|self={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; }}
 >
   <Desktop {desktopPath} on:closeMenus={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; }} />
@@ -297,5 +306,6 @@
 
   <ToastContainer />
   <DialogHost />
+  <BlueFilePicker />
 </div>
 {/if}
