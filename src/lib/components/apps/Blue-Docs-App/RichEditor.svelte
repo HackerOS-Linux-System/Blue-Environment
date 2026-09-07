@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../stores/colorScheme';
 
   export let content: string;
   export let fontFamily: string;
@@ -9,11 +10,31 @@
   const dispatch = createEventDispatcher<{ change: string }>();
 
   let iframeEl: HTMLIFrameElement;
+  let styleEl: HTMLStyleElement | null = null;
   let initialised = false;
 
-  const BASE_STYLE = `
+  // This editor's content lives inside an <iframe> (needed for a real,
+  // isolated `designMode`/`contenteditable` document) — which means it's
+  // a genuinely separate document the parent page's `app.css` can never
+  // reach, no matter how the CSS override block outside is written. The
+  // stylesheet has to be built and re-injected into *this* document
+  // directly, which is what `buildStyle()`/the reactive block below do
+  // whenever `colorScheme` changes — this was the actual reason Docs'
+  // rich-text editor kept rendering near-white text on a light
+  // background (readable on the old always-dark surface, unreadable
+  // once the surface around it turned light).
+  function buildStyle(isLight: boolean): string {
+    const text = isLight ? '#1e293b' : '#e2e8f0';
+    const quote = isLight ? '#475569' : '#94a3b8';
+    const quoteBg = isLight ? 'rgba(59,130,246,.06)' : 'rgba(59,130,246,.05)';
+    const codeBg = isLight ? 'rgba(15,23,42,.06)' : 'rgba(255,255,255,.08)';
+    const preBg = isLight ? 'rgba(15,23,42,.05)' : 'rgba(0,0,0,.3)';
+    const hrColor = isLight ? 'rgba(15,23,42,.12)' : 'rgba(255,255,255,.1)';
+    const tableBorder = isLight ? 'rgba(15,23,42,.15)' : 'rgba(255,255,255,.12)';
+    const thBg = isLight ? 'rgba(15,23,42,.05)' : 'rgba(255,255,255,.05)';
+    return `
     *{box-sizing:border-box}
-    body{margin:0;padding:32px 48px;font-size:14px;color:#e2e8f0;font-family:system-ui,sans-serif;
+    body{margin:0;padding:32px 48px;font-size:14px;color:${text};font-family:system-ui,sans-serif;
          background:transparent;line-height:1.7;min-height:100vh;outline:none}
     body:focus{outline:none}
     h1{font-size:2rem;font-weight:600;margin:0 0 1rem}
@@ -23,17 +44,18 @@
     ul,ol{margin:0 0 .75rem;padding-left:1.5rem}
     li{margin:.25rem 0}
     blockquote{border-left:3px solid #3b82f6;margin:.75rem 0;padding:.5rem 1rem;
-               color:#94a3b8;font-style:italic;background:rgba(59,130,246,.05)}
-    code{font-family:monospace;background:rgba(255,255,255,.08);padding:.1em .3em;border-radius:.25em}
-    pre{background:rgba(0,0,0,.3);padding:1rem;border-radius:.5rem;overflow:auto}
+               color:${quote};font-style:italic;background:${quoteBg}}
+    code{font-family:monospace;background:${codeBg};padding:.1em .3em;border-radius:.25em}
+    pre{background:${preBg};padding:1rem;border-radius:.5rem;overflow:auto}
     a{color:#60a5fa;text-decoration:underline}
-    hr{border:none;border-top:1px solid rgba(255,255,255,.1);margin:1.5rem 0}
+    hr{border:none;border-top:1px solid ${hrColor};margin:1.5rem 0}
     table{border-collapse:collapse;width:100%;margin:.75rem 0}
-    td,th{border:1px solid rgba(255,255,255,.12);padding:.4rem .6rem}
-    th{background:rgba(255,255,255,.05);font-weight:600}
+    td,th{border:1px solid ${tableBorder};padding:.4rem .6rem}
+    th{background:${thBg};font-weight:600}
     ::selection{background:#1d4ed8;color:#fff}
     mark{background:#ca8a04;color:#000;border-radius:.2em;padding:.05em .2em}
   `;
+  }
 
   function getDoc(): Document | null { return iframeEl?.contentDocument ?? null; }
 
@@ -47,8 +69,8 @@
     doc.close();
     doc.designMode = 'on';
 
-    const styleEl = doc.createElement('style');
-    styleEl.textContent = BASE_STYLE;
+    styleEl = doc.createElement('style');
+    styleEl.textContent = buildStyle($colorScheme === 'light');
     doc.head.appendChild(styleEl);
 
     doc.body.addEventListener('input', () => dispatch('change', doc.body.innerHTML));
@@ -64,6 +86,8 @@
 
   onMount(() => iframeEl?.addEventListener('load', handleLoad));
   onDestroy(() => iframeEl?.removeEventListener('load', handleLoad));
+
+  $: if (styleEl) styleEl.textContent = buildStyle($colorScheme === 'light');
 
   $: { const doc = getDoc(); if (doc?.body && doc.body.innerHTML !== content) doc.body.innerHTML = content; }
 
