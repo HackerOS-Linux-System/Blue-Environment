@@ -95,7 +95,25 @@ pub fn list_files(path: String) -> Result<Vec<FileEntry>, String> {
         // Skip individual entries that fail to stat (e.g. broken symlinks)
         // instead of dropping the whole listing.
         let entry = match res { Ok(e) => e, Err(_) => continue };
-        let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+
+        // `DirEntry::metadata()` deliberately does NOT follow symlinks (it's
+        // equivalent to `symlink_metadata`) — so on any filesystem layout
+        // where top-level dirs are symlinks (ostree-based systems like
+        // Fedora Silverblue/HackerOS symlink /bin, /lib, /lib64, /sbin,
+        // /home, /media, /mnt, /opt, /root, /srv into /usr or /var), every
+        // one of those showed up here as a plain 0-byte "file" instead of a
+        // folder — roughly half the entries in a typical root listing,
+        // which is exactly the bug: they couldn't be opened/navigated into
+        // from the Files app. Resolve through the symlink first
+        // (`fs::metadata` follows it) and only fall back to the raw
+        // (unresolved) metadata for genuinely broken symlinks, so a
+        // dangling link still shows up as *something* rather than
+        // vanishing from the listing entirely.
+        let resolved = fs::metadata(entry.path());
+        let meta = match resolved.or_else(|_| entry.metadata()) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
 
         let name = entry.file_name().to_string_lossy().to_string();
         let is_dir = meta.is_dir();
