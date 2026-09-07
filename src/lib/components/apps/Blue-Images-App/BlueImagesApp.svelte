@@ -45,7 +45,7 @@
   $: transform = `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`;
 
   async function openFiles() {
-    const paths = await SystemBridge.pickFiles([{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff'] }], 'Open Images');
+    const paths = await SystemBridge.pickFiles([{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff'] }], 'Open Images', 'blue-images.open-files');
     if (!paths || paths.length === 0) return;
     images = paths.map((p) => ({ path: p, name: p.split('/').pop() ?? p, url: `asset://localhost/${p}` }));
     idx = 0;
