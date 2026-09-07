@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../../stores/colorScheme';
 
   const dispatch = createEventDispatcher<{ score: number; gameOver: number }>();
 
@@ -9,6 +10,11 @@
   const BRICK_ROWS = 5, BRICK_COLS = 8;
   const BRICK_W = W / BRICK_COLS, BRICK_H = 18;
   const BRICK_COLORS = ['#f87171', '#fb923c', '#facc15', '#4ade80', '#60a5fa'];
+
+  // Redrawn every frame via requestAnimationFrame — see SnakeGame's
+  // colorScheme comment for why this can't just be a CSS class.
+  let scheme: 'dark' | 'light' = 'dark';
+  const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
   let canvasEl: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -102,7 +108,8 @@
 
   function draw() {
     if (!ctx) return;
-    ctx.fillStyle = '#0f172a';
+    const isLight = scheme === 'light';
+    ctx.fillStyle = isLight ? '#f1f5f9' : '#0f172a';
     ctx.fillRect(0, 0, W, H);
 
     for (let r = 0; r < BRICK_ROWS; r++) {
@@ -118,27 +125,27 @@
 
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = isLight ? '#1e293b' : '#f8fafc';
     ctx.fill();
 
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = isLight ? '#475569' : '#94a3b8';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(`Lives: ${lives}`, 6, 16);
 
     if (over) {
-      ctx.fillStyle = 'rgba(15,23,42,0.8)';
+      ctx.fillStyle = isLight ? 'rgba(241,245,249,0.85)' : 'rgba(15,23,42,0.8)';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isLight ? '#0f172a' : '#fff';
       ctx.font = 'bold 20px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(won ? 'You cleared it!' : 'Game Over', W / 2, H / 2 - 10);
       ctx.font = '13px sans-serif';
       ctx.fillText('Press Space to retry', W / 2, H / 2 + 14);
     } else if (paused) {
-      ctx.fillStyle = 'rgba(15,23,42,0.6)';
+      ctx.fillStyle = isLight ? 'rgba(241,245,249,0.7)' : 'rgba(15,23,42,0.6)';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isLight ? '#0f172a' : '#fff';
       ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('Paused', W / 2, H / 2);
@@ -170,6 +177,7 @@
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    unsubScheme();
   });
 </script>
 
