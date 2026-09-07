@@ -11,7 +11,8 @@ export function createArchive() {
   async function openFile() {
     const path = await SystemBridge.pickFile(
       [{ name: 'Archives', extensions: ['zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar', 'zst', 'lz4', 'tgz'] }],
-      'Open Archive'
+      'Open Archive',
+      'blue-archive.open-file'
     );
     if (!path) return;
 
@@ -31,7 +32,7 @@ export function createArchive() {
 
   async function extract(current: ArchiveState | null) {
     if (!current) return;
-    const dir = await SystemBridge.pickDirectory();
+    const dir = await SystemBridge.pickDirectory('blue-archive.extract-to');
     if (!dir) return;
     loading.set(true);
     status.set('Extracting...');
