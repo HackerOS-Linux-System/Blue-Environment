@@ -2,7 +2,8 @@
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { FolderPlus, FilePlus, ClipboardPaste, RefreshCw, Image as ImageIcon } from 'lucide-svelte';
   import { SystemBridge, toAssetUrl } from '../utils/systemBridge';
-  import { dialogPrompt, dialogConfirm } from '../stores/dialog';
+  import { dialogPrompt, dialogConfirm, activeDialog } from '../stores/dialog';
+  import { get } from 'svelte/store';
   import { openApp } from '../stores/windowManager';
   import { AppId } from '../types';
   import FileIcon from './apps/Explorer-App/FileIcon.svelte';
@@ -200,6 +201,13 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    // A DialogHost modal (e.g. "New Text File"/"New Folder" naming
+    // prompt) is open and its input has focus — this desktop-wide
+    // listener must not steal Delete/Ctrl+A/F2 from it (that was the
+    // actual cause of "can't type a filename / can't delete text" in
+    // that dialog: pressing Delete here deleted the *selected desktop
+    // icons* instead of editing the dialog's text field).
+    if (get(activeDialog)) return;
     if (e.key === 'Escape') { ctxMenu = null; if (renaming) renaming = null; }
     if (e.key === 'Delete' && selected.size && !renaming) deleteSelected();
     if (e.key === 'F2' && selected.size === 1 && !renaming) {
