@@ -157,7 +157,7 @@
       <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Save to</div>
       <div class="flex gap-2">
         <input type="text" bind:value={savePath} class="flex-1 bg-slate-700 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none min-w-0" />
-        <button on:click={async () => { const p = await SystemBridge.pickDirectory(); if (p) savePath = p; }} class="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"><RefreshCw size={13} /></button>
+        <button on:click={async () => { const p = await SystemBridge.pickDirectory('screenshot.save-folder'); if (p) savePath = p; }} class="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"><RefreshCw size={13} /></button>
       </div>
     </div>
 
