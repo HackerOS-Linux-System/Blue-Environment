@@ -1,10 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../../stores/colorScheme';
 
   const dispatch = createEventDispatcher<{ score: number; gameOver: number }>();
 
   const W = 480, H = 320, PADDLE_W = 10, PADDLE_H = 60, BALL_SIZE = 8;
   const WIN_SCORE = 7;
+
+  let scheme: 'dark' | 'light' = 'dark';
+  const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
   let canvasEl: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -74,9 +78,10 @@
 
   function draw() {
     if (!ctx) return;
-    ctx.fillStyle = '#0f172a';
+    const isLight = scheme === 'light';
+    ctx.fillStyle = isLight ? '#f1f5f9' : '#0f172a';
     ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#1e293b';
+    ctx.strokeStyle = isLight ? '#cbd5e1' : '#1e293b';
     ctx.setLineDash([6, 8]);
     ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
     ctx.setLineDash([]);
@@ -85,7 +90,7 @@
     ctx.fillRect(0, playerY, PADDLE_W, PADDLE_H);
     ctx.fillStyle = '#f87171';
     ctx.fillRect(W - PADDLE_W, aiY, PADDLE_W, PADDLE_H);
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = isLight ? '#1e293b' : '#f8fafc';
     ctx.fillRect(ball.x - BALL_SIZE / 2, ball.y - BALL_SIZE / 2, BALL_SIZE, BALL_SIZE);
 
     ctx.font = 'bold 24px sans-serif';
@@ -96,17 +101,17 @@
     ctx.fillText(String(aiScore), W / 2 + 40, 32);
 
     if (over) {
-      ctx.fillStyle = 'rgba(15,23,42,0.85)';
+      ctx.fillStyle = isLight ? 'rgba(241,245,249,0.9)' : 'rgba(15,23,42,0.85)';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isLight ? '#0f172a' : '#fff';
       ctx.font = 'bold 20px sans-serif';
       ctx.fillText(playerScore > aiScore ? 'You win!' : 'AI wins', W / 2, H / 2 - 8);
       ctx.font = '13px sans-serif';
       ctx.fillText('Press Space to play again', W / 2, H / 2 + 16);
     } else if (paused) {
-      ctx.fillStyle = 'rgba(15,23,42,0.6)';
+      ctx.fillStyle = isLight ? 'rgba(241,245,249,0.7)' : 'rgba(15,23,42,0.6)';
       ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isLight ? '#0f172a' : '#fff';
       ctx.font = 'bold 18px sans-serif';
       ctx.fillText('Paused', W / 2, H / 2);
     }
@@ -131,6 +136,7 @@
   onDestroy(() => {
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', handleKey);
+    unsubScheme();
   });
 </script>
 
