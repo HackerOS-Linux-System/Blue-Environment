@@ -42,7 +42,8 @@
    */
   import { onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
-  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Clock, ExternalLink, HardDrive, Info } from 'lucide-svelte';
+  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical } from 'lucide-svelte';
+  import { DEFAULT_WINDOW_CONTROLS_ORDER, type WindowControlId } from '../../../../data/builtinThemes';
   import type { UserConfig, SystemTheme } from '../../../../types';
   import { t } from '../../../../stores/language';
   import { BUILTIN_THEMES, DEFAULT_SHELL_THEME_ID, type ShellTheme } from '../../../../data/builtinThemes';
@@ -78,6 +79,68 @@
   $: activeId = config.shellThemeId ?? DEFAULT_SHELL_THEME_ID;
   let restartPending = false;
   let stagedThemeName = '';
+
+  // ── Window control button order ─────────────────────────────────────
+  // Was previously not customizable at all (and had a real ordering bug
+  // in the default itself — see WindowControls.svelte's doc comment).
+  // Kept per-*installed-theme* (`windowControlsOrderByTheme`, keyed by
+  // `activeId`) rather than per base style — see that field's doc
+  // comment in systemBridge.ts — so two themes that happen to share a
+  // style (say, both 'windows') can still be customized independently;
+  // switching to a different theme below shows/edits that theme's own
+  // separate order (falling back to its style's built-in default if
+  // that theme hasn't been customized).
+  $: activeTheme = BUILTIN_THEMES.find((th) => th.id === activeId);
+  $: activeControlsStyle = activeTheme?.layout.windowControlsStyle ?? 'windows';
+  $: styleDefaultOrder = (activeControlsStyle === 'macos'
+    ? ['close', 'minimize', 'maximize', 'pip']
+    : DEFAULT_WINDOW_CONTROLS_ORDER) as WindowControlId[];
+  $: orderOverrides = config.windowControlsOrderByTheme ?? {};
+  $: hasOverrideForStyle = !!orderOverrides[activeId];
+  $: controlsOrder = (orderOverrides[activeId] as WindowControlId[] | undefined) ?? styleDefaultOrder;
+
+  const CONTROL_LABELS: Record<WindowControlId, string> = {
+    close: 'Zamknij (X)', maximize: 'Pełny ekran', minimize: 'Minimalizuj', pip: 'Obraz w obrazie',
+  };
+
+  async function moveControl(index: number, dir: -1 | 1) {
+    const next = [...controlsOrder];
+    const swapWith = index + dir;
+    if (swapWith < 0 || swapWith >= next.length) return;
+    [next[index], next[swapWith]] = [next[swapWith], next[index]];
+    await onSave({ windowControlsOrderByTheme: { ...orderOverrides, [activeId]: next } });
+  }
+  async function reorderControlTo(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    const next = [...controlsOrder];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    await onSave({ windowControlsOrderByTheme: { ...orderOverrides, [activeId]: next } });
+  }
+  async function resetControlsOrder() {
+    const next = { ...orderOverrides };
+    delete next[activeId];
+    await onSave({ windowControlsOrderByTheme: next });
+  }
+
+  // ── Drag-and-drop reordering ─────────────────────────────────────────
+  // The up/down arrows above still work (and stay — not everyone wants
+  // to drag, and they're the more predictable option for keyboard/
+  // switch-access users), but "real" drag-and-drop is what most people
+  // reach for first when a list says it's reorderable.
+  let dragFromIndex: number | null = null;
+  let dragOverIndex: number | null = null;
+  function handleDragStart(index: number) { dragFromIndex = index; }
+  function handleDragOver(e: DragEvent, index: number) { e.preventDefault(); dragOverIndex = index; }
+  function handleDragLeave() { dragOverIndex = null; }
+  async function handleDrop(e: DragEvent, index: number) {
+    e.preventDefault();
+    dragOverIndex = null;
+    if (dragFromIndex === null) return;
+    await reorderControlTo(dragFromIndex, index);
+    dragFromIndex = null;
+  }
+  function handleDragEnd() { dragFromIndex = null; dragOverIndex = null; }
 
   onMount(() => { if (tab === 'store') loadStore(); });
 
@@ -270,6 +333,45 @@
           </div>
         </button>
       {/each}
+    </div>
+
+    <!-- Window control button order — see WindowControls.svelte's doc
+         comment and this section's script for why this exists (a real
+         ordering bug in the default itself, plus "should also be
+         customizable, per style" as a follow-up request). Shown under
+         the installed-themes grid since it edits whichever style the
+         currently active theme uses; switching to a theme with a
+         different style below shows/edits that style's own separate
+         order (see `windowControlsOrderByStyle`'s doc comment). -->
+    <div class="mt-5 rounded-xl border border-white/10 bg-slate-800/40 p-4">
+      <div class="flex items-center justify-between mb-1">
+        <h4 class="text-sm font-medium text-white">Kolejność przycisków okna</h4>
+        {#if hasOverrideForStyle}
+          <button on:click={resetControlsOrder} class="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors">
+            <RotateCcw size={11} /> Domyślna
+          </button>
+        {/if}
+      </div>
+      <p class="text-[11px] text-slate-500 mb-3">Kolejność liczona od krawędzi okna do wewnątrz. Ustawienie dotyczy motywu: <span class="text-slate-400">{activeTheme?.name ?? activeId}</span> (styl {activeControlsStyle}) — każdy zainstalowany motyw ma własną, osobną kolejność, nawet jeśli używa tego samego stylu co inny. Przeciągnij, aby zmienić kolejność.</p>
+      <div class="space-y-1">
+        {#each controlsOrder as id, i (id)}
+          <div
+            draggable="true"
+            on:dragstart={() => handleDragStart(i)}
+            on:dragover={(e) => handleDragOver(e, i)}
+            on:dragleave={handleDragLeave}
+            on:drop={(e) => handleDrop(e, i)}
+            on:dragend={handleDragEnd}
+            class="flex items-center gap-2 bg-slate-900/60 border rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-colors {dragOverIndex === i && dragFromIndex !== i ? 'border-blue-500/60 bg-blue-500/10' : 'border-white/5'} {dragFromIndex === i ? 'opacity-40' : ''}"
+          >
+            <GripVertical size={12} class="text-slate-600 shrink-0" />
+            <span class="text-[10px] text-slate-500 w-4">{i + 1}</span>
+            <span class="text-xs text-slate-200 flex-1">{CONTROL_LABELS[id]}</span>
+            <button on:click={() => moveControl(i, -1)} disabled={i === 0} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowUp size={12} /></button>
+            <button on:click={() => moveControl(i, 1)} disabled={i === controlsOrder.length - 1} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowDown size={12} /></button>
+          </div>
+        {/each}
+      </div>
     </div>
   {:else}
     <!-- Store tab -->
