@@ -1,13 +1,29 @@
 <script lang="ts">
-  import { Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck } from 'lucide-svelte';
+  import { Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, ChevronDown, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck, Lock, Unlock, Loader2, Settings as SettingsIcon, Pencil, Trash2 } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
+  import { configStore } from '../utils/configStore';
+  import { dialogPrompt, dialogAlert, dialogConfirm } from '../stores/dialog';
   import { t } from '../stores/language';
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 
   interface AudioSink { id: number; name: string; description: string; volume: number; muted: boolean; is_default: boolean; }
+  interface WifiNetwork { ssid: string; signal: number; secure: boolean; in_use: boolean; outOfRange?: boolean; }
+  interface BtDevice { name: string; mac: string; connected: boolean; device_type: string; battery?: number; rssi?: number | null; }
 
   export let isOpen = false;
+
+  // The Control Center panel itself is always mounted (see App.svelte —
+  // `isOpen` just toggles CSS visibility), so `onDestroy` never fires
+  // merely from closing it. Without this, the live Wi-Fi signal-strength
+  // poll (see `toggleWifiExpanded` below) would keep silently re-scanning
+  // in the background forever once started, even with the panel closed.
+  $: if (!isOpen) {
+    if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = undefined; }
+    if (btRssiTimer) { clearInterval(btRssiTimer); btRssiTimer = undefined; }
+    wifiExpanded = false;
+    btExpanded = false;
+  }
   export let panelPosition: 'top' | 'bottom' = 'top';
   export let panelSize = 48;
   export let shellThemeId: string | undefined = undefined;
@@ -25,6 +41,219 @@
   let muted = false;
   let sinks: AudioSink[] = [];
   let showSinks = false;
+
+  // ── Inline Wi-Fi panel (expands in place instead of jumping to
+  // Settings — clicking the tile body used to always dispatch
+  // 'openSettings', which fully navigated away from the Control Center
+  // just to flip a network on) ────────────────────────────────────────
+  let wifiExpanded = false;
+  let wifiNetworks: WifiNetwork[] = [];
+  let wifiScanning = false;
+  let wifiConnecting: string | null = null;
+  let savedWifiConnections: string[] = [];
+  let wifiForgetting: string | null = null;
+  let wifiRenaming: string | null = null;
+  let wifiPollTimer: ReturnType<typeof setInterval> | undefined;
+
+  async function toggleWifiExpanded() {
+    wifiExpanded = !wifiExpanded;
+    if (wifiExpanded) {
+      btExpanded = false;
+      await Promise.all([scanWifi(), refreshSavedWifi()]);
+      // Live signal-strength updates while the panel is open — a
+      // background re-scan every few seconds, not gated on the
+      // `wifiScanning` flag so the list quietly refreshes signal %
+      // without flashing the "Scanning…" spinner state each time.
+      wifiPollTimer = setInterval(() => { scanWifi(true); }, 4000);
+    } else if (wifiPollTimer) {
+      clearInterval(wifiPollTimer);
+      wifiPollTimer = undefined;
+    }
+  }
+  async function scanWifi(silent = false) {
+    if (!silent) wifiScanning = true;
+    try { wifiNetworks = await SystemBridge.getWifiNetworks(); } finally { if (!silent) wifiScanning = false; }
+  }
+  async function refreshSavedWifi() {
+    savedWifiConnections = await SystemBridge.getSavedWifiConnections();
+  }
+  // Saved connections that *aren't* currently visible in a scan (e.g.
+  // work Wi-Fi while at home) previously had no way to be managed at
+  // all — the list only ever showed what was in range right now. These
+  // are synthesized as regular `WifiNetwork` entries (`outOfRange:
+  // true`, no live signal since there isn't one) so they render with
+  // the exact same row UI, just visually muted and sorted after
+  // in-range networks.
+  $: outOfRangeSaved = savedWifiConnections
+    .filter((name) => !wifiNetworks.some((n) => n.ssid === name))
+    .map((name): WifiNetwork => ({ ssid: name, signal: 0, secure: true, in_use: false, outOfRange: true }));
+  $: displayedNetworks = [...wifiNetworks, ...outOfRangeSaved];
+
+  async function connectWifiNetwork(net: WifiNetwork) {
+    if (net.in_use) { await SystemBridge.disconnectWifi(); await scanWifi(); return; }
+    if (net.outOfRange) {
+      // Saved but not currently visible in a scan — bring the existing
+      // profile up by name instead of the scan-based connect flow,
+      // which only works for SSIDs the last scan actually saw.
+      wifiConnecting = net.ssid;
+      try {
+        await SystemBridge.connectSavedWifiConnection(net.ssid);
+        await Promise.all([scanWifi(), refreshSavedWifi()]);
+        await refresh();
+      } catch {
+        await dialogAlert({ title: $t('settings.wifi.connect_failed_title'), message: $t('settings.wifi.connect_failed_message').replace('{ssid}', net.ssid) });
+      } finally {
+        wifiConnecting = null;
+      }
+      return;
+    }
+    let password = '';
+    if (net.secure) {
+      const entered = await dialogPrompt({
+        title: net.ssid,
+        label: $t('settings.wifi.secured'),
+        placeholder: $t('settings.wifi.title') + ' ' + $t('settings.common.connect'),
+        inputType: 'password',
+        confirmLabel: $t('settings.common.connect'),
+      });
+      if (entered === null) return; // cancelled
+      password = entered;
+    }
+    wifiConnecting = net.ssid;
+    try {
+      await SystemBridge.connectWifi(net.ssid, password);
+      await scanWifi();
+      await refreshSavedWifi();
+      await refresh();
+    } catch {
+      await dialogAlert({ title: $t('settings.wifi.connect_failed_title'), message: $t('settings.wifi.connect_failed_message').replace('{ssid}', net.ssid) });
+    } finally {
+      wifiConnecting = null;
+    }
+  }
+  async function forgetWifiNetwork(net: WifiNetwork, e: Event) {
+    e.stopPropagation();
+    const ok = await dialogConfirm({
+      title: $t('settings.wifi.forget_title') ?? 'Zapomnij sieć',
+      message: ($t('settings.wifi.forget_message') ?? 'Usunąć zapisane hasło do „{ssid}"? Będziesz musiał połączyć się ponownie ręcznie.').replace('{ssid}', net.ssid),
+      confirmLabel: $t('settings.wifi.forget_action') ?? 'Zapomnij',
+      danger: true,
+    });
+    if (!ok) return;
+    wifiForgetting = net.ssid;
+    try {
+      await SystemBridge.forgetWifiNetwork(net.ssid);
+      await Promise.all([scanWifi(), refreshSavedWifi()]);
+    } finally {
+      wifiForgetting = null;
+    }
+  }
+  async function renameWifiNetwork(net: WifiNetwork, e: Event) {
+    e.stopPropagation();
+    const newName = await dialogPrompt({
+      title: $t('settings.wifi.rename_title') ?? 'Zmień nazwę połączenia',
+      defaultValue: net.ssid,
+      confirmLabel: $t('settings.common.save') ?? 'Zapisz',
+    });
+    if (!newName?.trim() || newName.trim() === net.ssid) return;
+    wifiRenaming = net.ssid;
+    try {
+      await SystemBridge.renameSavedWifiConnection(net.ssid, newName.trim());
+      await Promise.all([scanWifi(), refreshSavedWifi()]);
+    } finally {
+      wifiRenaming = null;
+    }
+  }
+  /** Changes the stored password directly (modify + re-apply), without
+   * the full disconnect/rescan/manual-reconnect cycle a normal
+   * "forget, then reconnect with a new password" flow would need — see
+   * `updateSavedWifiPassword`'s doc comment in systemBridge.ts. */
+  async function changeWifiPassword(net: WifiNetwork, e: Event) {
+    e.stopPropagation();
+    const newPassword = await dialogPrompt({
+      title: $t('settings.wifi.change_password_title') ?? 'Zmień hasło',
+      label: net.ssid,
+      inputType: 'password',
+      confirmLabel: $t('settings.common.save') ?? 'Zapisz',
+    });
+    if (newPassword === null || !newPassword) return;
+    wifiRenaming = net.ssid;
+    try {
+      await SystemBridge.updateSavedWifiPassword(net.ssid, newPassword);
+      await Promise.all([scanWifi(), refreshSavedWifi()]);
+    } finally {
+      wifiRenaming = null;
+    }
+  }
+
+  // ── Inline Bluetooth panel (same idea) ──────────────────────────────
+  let btExpanded = false;
+  let btDevices: BtDevice[] = [];
+  let btScanning = false;
+  let btBusy: string | null = null;
+  let btRssiTimer: ReturnType<typeof setInterval> | undefined;
+
+  async function toggleBtExpanded() {
+    btExpanded = !btExpanded;
+    if (btExpanded) {
+      wifiExpanded = false;
+      await scanBt();
+      // Live RSSI for connected devices where the controller actually
+      // exposes it (see getBluetoothRssi's doc comment) — polled
+      // separately from `scanBt` since RSSI is per-device and scanning
+      // the whole device list is comparatively slow.
+      btRssiTimer = setInterval(refreshBtRssi, 4000);
+    } else if (btRssiTimer) {
+      clearInterval(btRssiTimer);
+      btRssiTimer = undefined;
+    }
+  }
+  async function scanBt() {
+    btScanning = true;
+    try { btDevices = await SystemBridge.getBluetoothDevices(); await refreshBtRssi(); } finally { btScanning = false; }
+  }
+  async function refreshBtRssi() {
+    const connected = btDevices.filter((d) => d.connected);
+    if (!connected.length) return;
+    const results = await Promise.all(connected.map((d) => SystemBridge.getBluetoothRssi(d.mac)));
+    btDevices = btDevices.map((d) => {
+      const idx = connected.indexOf(d);
+      return idx >= 0 ? { ...d, rssi: results[idx] } : d;
+    });
+  }
+  async function toggleBtDevice(dev: BtDevice) {
+    btBusy = dev.mac;
+    try { await SystemBridge.toggleBluetoothDevice(dev.mac); await scanBt(); } finally { btBusy = null; }
+  }
+  async function forgetBtDevice(dev: BtDevice, e: Event) {
+    e.stopPropagation();
+    const ok = await dialogConfirm({
+      title: $t('settings.bluetooth.forget_title') ?? 'Zapomnij urządzenie',
+      message: ($t('settings.bluetooth.forget_message') ?? 'Odparować „{name}"? Będziesz musiał sparować je ponownie, aby użyć go później.').replace('{name}', dev.name),
+      confirmLabel: $t('settings.bluetooth.forget_action') ?? 'Zapomnij',
+      danger: true,
+    });
+    if (!ok) return;
+    btBusy = dev.mac;
+    try { await SystemBridge.bluetoothForget(dev.mac); await scanBt(); } finally { btBusy = null; }
+  }
+
+  // ── Dark / Light mode. Previously this button just flipped a local
+  // `darkMode` boolean that nothing else ever read — visually it looked
+  // like a toggle but it didn't actually change anything. It's now
+  // backed by `config.theme` (the same field `App.svelte` already
+  // renders onto the root as `data-theme`, and that `app.css` already
+  // has real light-mode overrides for under `[data-theme='light-glass']`
+  // — see that file), so flipping it here genuinely re-themes the shell. */
+  const LIGHT_THEME_ID = 'light-glass';
+  const DARK_THEME_ID = 'dark';
+  let unsubConfig: (() => void) | undefined;
+
+  async function toggleDarkMode() {
+    const next = darkMode ? LIGHT_THEME_ID : DARK_THEME_ID;
+    darkMode = !darkMode; // optimistic — subscription below will confirm
+    await configStore.save({ theme: next });
+  }
 
   // Android-style mobile data toggle — only shown on hardware that actually
   // has a WWAN/cellular modem (see SystemBridge.hasCellularModem, backed by
@@ -50,6 +279,9 @@
     unsubHdrPromise = CompositorBridge.onHdrStateChanged((_output, active) => {
       hdrActive = active;
     });
+    const cfg = await configStore.load();
+    darkMode = cfg.theme !== LIGHT_THEME_ID;
+    unsubConfig = configStore.subscribe((cfg2) => { darkMode = cfg2.theme !== LIGHT_THEME_ID; });
   });
 
   async function refreshCellular() {
@@ -102,7 +334,7 @@
   $: batteryColor = battery < 20 ? 'text-red-400' : battery < 50 ? 'text-yellow-400' : 'text-green-400';
   $: defaultSink = sinks.find((s) => s.is_default);
 
-  onDestroy(() => { unsubHdrPromise?.then((fn) => fn()); });
+  onDestroy(() => { unsubHdrPromise?.then((fn) => fn()); unsubConfig?.(); if (wifiPollTimer) clearInterval(wifiPollTimer); if (btRssiTimer) clearInterval(btRssiTimer); });
 </script>
 
 {#if isOpen}
@@ -110,7 +342,7 @@
     style="{panelPosition === 'top' ? `top:${panelSize + 8}px;` : `bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}"
   >
     <div class="grid grid-cols-2 gap-2 mb-2">
-      <button on:click={() => dispatch('openSettings', 'wifi')} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group relative {wifiEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+      <button on:click={toggleWifiExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group relative {wifiEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
         <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleWifi(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleWifi(); })(e); } }}>
           {#if wifiEnabled}<Wifi size={14} />{:else}<WifiOff size={14} />{/if}
         </div>
@@ -118,9 +350,9 @@
           <div class="text-xs font-bold leading-none">Wi-Fi</div>
           <div class="text-[10px] opacity-70 truncate mt-0.5">{wifiEnabled ? wifiSSID : 'Off'}</div>
         </div>
-        <ChevronRight size={12} class="opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
+        <ChevronDown size={12} class="opacity-60 transition-transform shrink-0 {wifiExpanded ? 'rotate-180' : ''}" />
       </button>
-      <button on:click={() => dispatch('openSettings', 'bluetooth')} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+      <button on:click={toggleBtExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
         <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); btEnabled = !btEnabled; }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); btEnabled = !btEnabled; })(e); } }}>
           {#if btEnabled}<Bluetooth size={14} />{:else}<BluetoothOff size={14} />{/if}
         </div>
@@ -128,8 +360,103 @@
           <div class="text-xs font-bold leading-none">Bluetooth</div>
           <div class="text-[10px] opacity-70 mt-0.5">{btEnabled ? 'On' : 'Off'}</div>
         </div>
-        <ChevronRight size={12} class="opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
+        <ChevronDown size={12} class="opacity-60 transition-transform shrink-0 {btExpanded ? 'rotate-180' : ''}" />
       </button>
+    </div>
+
+    {#if wifiExpanded}
+      <div class="bg-slate-800 border border-white/5 rounded-xl mb-2 overflow-hidden">
+        <div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
+          <span class="text-[11px] font-medium text-slate-300">{$t('settings.wifi.title')}</span>
+          <div class="flex items-center gap-1">
+            <button on:click={() => scanWifi()} disabled={wifiScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={wifiScanning ? 'animate-spin' : ''} /></button>
+            <button on:click={() => dispatch('openSettings', 'wifi')} title={$t('control_center.open_settings')} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
+          </div>
+        </div>
+        <div class="max-h-44 overflow-y-auto">
+          {#if wifiScanning && displayedNetworks.length === 0}
+            <div class="p-3 text-center flex items-center justify-center gap-2 text-slate-500 text-xs"><Loader2 size={13} class="animate-spin" /> {$t('settings.common.scanning')}</div>
+          {:else if displayedNetworks.length === 0}
+            <div class="p-3 text-center text-slate-500 text-xs">{$t('settings.wifi.no_networks')}</div>
+          {/if}
+          {#each displayedNetworks as net, i (net.ssid)}
+            {@const isSaved = savedWifiConnections.includes(net.ssid)}
+            <div class="group relative flex items-center border-t border-white/5 first:border-0 transition-colors {net.in_use ? 'bg-blue-600/10' : 'hover:bg-white/5'} {net.outOfRange ? 'opacity-50' : ''}">
+              <button on:click={() => connectWifiNetwork(net)} disabled={wifiConnecting !== null}
+                class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left">
+                <Wifi size={13} class={net.outOfRange ? 'text-slate-500 shrink-0' : net.signal > 60 ? 'text-green-400 shrink-0' : 'text-yellow-400 shrink-0'} />
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs text-white truncate flex items-center gap-1.5">
+                    {net.ssid}
+                    {#if net.in_use}<Check size={10} class="text-green-400 shrink-0" />{/if}
+                  </div>
+                  <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    {#if net.outOfRange}
+                      <span>{$t('settings.wifi.out_of_range') ?? 'Poza zasięgiem'}</span>
+                    {:else}
+                      {#if net.secure}<Lock size={9} />{:else}<Unlock size={9} />{/if}
+                      {net.signal}%
+                      {#if isSaved}<span class="text-slate-500">· {$t('settings.wifi.saved') ?? 'zapisana'}</span>{/if}
+                    {/if}
+                  </div>
+                </div>
+              </button>
+              {#if wifiConnecting === net.ssid || wifiForgetting === net.ssid || wifiRenaming === net.ssid}
+                <Loader2 size={12} class="animate-spin text-slate-400 shrink-0 mr-3" />
+              {:else}
+                {#if net.in_use}<span class="text-[10px] text-red-400 shrink-0 mr-2">{$t('settings.common.disconnect')}</span>{/if}
+                {#if isSaved}
+                  <div class="hidden group-hover:flex items-center gap-0.5 shrink-0 mr-2">
+                    <button on:click={(e) => changeWifiPassword(net, e)} title={$t('settings.wifi.change_password_title') ?? 'Zmień hasło'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Lock size={11} /></button>
+                    <button on:click={(e) => renameWifiNetwork(net, e)} title={$t('settings.wifi.rename_title') ?? 'Zmień nazwę'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Pencil size={11} /></button>
+                    <button on:click={(e) => forgetWifiNetwork(net, e)} title={$t('settings.wifi.forget_action') ?? 'Zapomnij'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={11} /></button>
+                  </div>
+                {/if}
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    {#if btExpanded}
+      <div class="bg-slate-800 border border-white/5 rounded-xl mb-2 overflow-hidden">
+        <div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
+          <span class="text-[11px] font-medium text-slate-300">{$t('settings.bluetooth.title')}</span>
+          <div class="flex items-center gap-1">
+            <button on:click={scanBt} disabled={btScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={btScanning ? 'animate-spin' : ''} /></button>
+            <button on:click={() => dispatch('openSettings', 'bluetooth')} title={$t('control_center.open_settings') ?? 'Settings'} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
+          </div>
+        </div>
+        <div class="max-h-44 overflow-y-auto">
+          {#if btScanning && btDevices.length === 0}
+            <div class="p-3 text-center flex items-center justify-center gap-2 text-slate-500 text-xs"><Loader2 size={13} class="animate-spin" /> {$t('settings.common.scanning')}</div>
+          {:else if btDevices.length === 0}
+            <div class="p-3 text-center text-slate-500 text-xs">{$t('settings.bluetooth.no_devices')}</div>
+          {/if}
+          {#each btDevices as dev, i (i)}
+            <div class="group relative flex items-center border-t border-white/5 first:border-0 transition-colors hover:bg-white/5">
+              <button on:click={() => toggleBtDevice(dev)} disabled={btBusy !== null}
+                class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left">
+                <Bluetooth size={13} class="text-blue-400 shrink-0" />
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs text-white truncate">{dev.name}</div>
+                  <div class="text-[10px] text-slate-400">{dev.device_type} · {dev.connected ? $t('settings.common.connected') : $t('settings.common.disconnected')}{dev.battery != null ? ` · ${dev.battery}%` : ''}{dev.connected && dev.rssi != null ? ` · ${dev.rssi} dBm` : ''}</div>
+                </div>
+              </button>
+              {#if btBusy === dev.mac}
+                <Loader2 size={12} class="animate-spin text-slate-400 shrink-0 mr-3" />
+              {:else}
+                <span class="text-[10px] shrink-0 mr-2 {dev.connected ? 'text-red-400' : 'text-blue-400'}">{dev.connected ? $t('settings.common.disconnect') : $t('settings.common.connect')}</span>
+                <button on:click={(e) => forgetBtDevice(dev, e)} title={$t('settings.bluetooth.forget_action') ?? 'Zapomnij'} class="hidden group-hover:block p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors mr-2 shrink-0"><Trash2 size={11} /></button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <div class="grid grid-cols-2 gap-2 mb-2">
       {#if hasCellular}
         <button on:click={toggleCellular} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left {cellularEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
           <div class="p-1.5 rounded-full bg-white/20 shrink-0">
@@ -154,7 +481,7 @@
       {/if}
     </div>
     <div class="grid grid-cols-2 gap-2 mb-2">
-      <button on:click={() => (darkMode = !darkMode)} class="p-3 rounded-xl flex items-center gap-2 transition-all {darkMode ? 'bg-slate-700 text-white' : 'bg-amber-400/20 text-amber-300'}">
+      <button on:click={toggleDarkMode} class="p-3 rounded-xl flex items-center gap-2 transition-all {darkMode ? 'bg-slate-700 text-white' : 'bg-amber-400/20 text-amber-300'}">
         {#if darkMode}<Moon size={16} />{:else}<Sun size={16} />{/if}
         <span class="text-xs font-bold">{darkMode ? 'Dark' : 'Light'}</span>
       </button>
