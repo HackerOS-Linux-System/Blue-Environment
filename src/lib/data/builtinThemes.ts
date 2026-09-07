@@ -1,5 +1,21 @@
 export type WindowControlsStyle = 'macos' | 'windows' | 'gnome' | 'minimal';
 export type WindowControlsPosition = 'left' | 'right';
+/** A single window-control button id. See `DEFAULT_WINDOW_CONTROLS_ORDER`'s
+ * doc comment (WindowControls.svelte) for what "order" means precisely. */
+export type WindowControlId = 'minimize' | 'maximize' | 'pip' | 'close';
+export type WindowControlsOrder = WindowControlId[];
+/** Edge-outward default for the `windows`/`gnome`/`minimal` styles — see
+ * WindowControls.svelte's doc comment for what "edge-outward" means and
+ * why this used to be wrong (pip/minimize swapped) for those three
+ * styles specifically. Lives here (plain .ts) rather than inside
+ * WindowControls.svelte because a `<script>` (non-`context="module"`)
+ * block's `export const` becomes a *component prop*, not an importable
+ * module export — ThemesSection.svelte needs to import this as a
+ * plain value, so it has to live in a real module. */
+export const DEFAULT_WINDOW_CONTROLS_ORDER: WindowControlsOrder = ['close', 'maximize', 'minimize', 'pip'];
+/** Real macOS's own left-to-right convention — kept separate from the
+ * generic default above rather than merged into one "the" default. */
+export const MACOS_DEFAULT_WINDOW_CONTROLS_ORDER: WindowControlsOrder = ['close', 'minimize', 'maximize', 'pip'];
 export type PanelPosition = 'top' | 'bottom' | 'left' | 'right';
 export type CornerStyle = 'rounded' | 'sharp';
 export type IconStyle = 'outline' | 'filled';
