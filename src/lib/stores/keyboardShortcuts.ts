@@ -3,6 +3,7 @@ import {
   windows, activeWindowId, currentWorkspace, workspaceCount,
   focusWindow, minimizeWindow, closeWindow, maximizeWindow, switchWorkspace,
 } from './windowManager';
+import { activeDialog } from './dialog';
 
 export interface ShortcutCallbacks {
   onToggleStartMenu: () => void;
@@ -28,6 +29,20 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // A modal (DialogHost's prompt/confirm/alert — "Nowy plik tekstowy",
+    // "New Folder", etc.) is currently open and owns keyboard focus.
+    // This handler is registered on `window` with `capture: true`, so it
+    // would otherwise fire *before* the dialog's own input ever sees the
+    // keystroke — e.g. Ctrl+Alt+T ("open terminal"), Meta+D ("show
+    // desktop") or PrintScreen firing while the person is typing a
+    // filename. Bailing out here whenever a dialog is active is what
+    // actually fixes that class of bug, rather than trying to special-
+    // case every individual shortcut against "is text being typed
+    // somewhere". Escape still works to dismiss the dialog — that's
+    // handled by DialogHost.svelte's own listener, untouched by this
+    // early return.
+    if (get(activeDialog)) return;
+
     const key = e.key;
     heldKeys.add(key);
 
@@ -95,6 +110,8 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
   }
 
   function handleKeyUp(e: KeyboardEvent) {
+    if (get(activeDialog)) return;
+
     const key = e.key;
     heldKeys.delete(key);
 
