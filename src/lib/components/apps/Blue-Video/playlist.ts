@@ -10,7 +10,8 @@ export function createPlaylist() {
   async function openFiles() {
     const paths = await SystemBridge.pickFiles(
       [{ name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ogg', 'ts', 'm4v'] }],
-      'Open Videos'
+      'Open Videos',
+      'blue-video.open-files'
     );
     if (!paths.length) return;
     const items: VideoItem[] = paths.map((p) => ({ name: p.split('/').pop() || p, url: `file://${p}` }));
