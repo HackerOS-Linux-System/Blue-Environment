@@ -2,7 +2,8 @@
   import type { WindowState } from '../types';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import WindowControls from './WindowControls.svelte';
-  import { resolveActiveShellTheme } from '../data/builtinThemes';
+  import { resolveActiveShellTheme, DEFAULT_SHELL_THEME_ID, type WindowControlsOrder } from '../data/builtinThemes';
+  import { configStore } from '../utils/configStore';
 
   export let win: WindowState;
   export let isActive: boolean;
@@ -27,6 +28,25 @@
   // WindowControls.svelte's doc for why this is a separate prop rather
   // than its own `windowControlsStyle` value.
   $: controlsGlow = activeTheme?.id === 'hydra' ? activeTheme.colors.accent : undefined;
+  // Person's own override from Settings → Themes → "Window control
+  // button order" (see ThemesSection.svelte), keyed per *installed
+  // theme id* — see the `windowControlsOrderByTheme` field's doc
+  // comment in systemBridge.ts for why it's keyed by theme rather than
+  // by base style (two themes can share a style, e.g. both 'windows',
+  // while wanting independently customized orders). `shellThemeId` is
+  // `undefined` for the default theme, so it's normalized to
+  // `DEFAULT_SHELL_THEME_ID` here — the same id ThemesSection.svelte
+  // uses when the person hasn't switched themes. Falls back to the
+  // active style's own sensible default (WindowControls.svelte) when
+  // *this theme* has no override, i.e. this is `undefined` for everyone
+  // who hasn't customized their current theme specifically.
+  $: effectiveThemeId = shellThemeId ?? DEFAULT_SHELL_THEME_ID;
+  let controlsOrder: WindowControlsOrder | undefined;
+  $: controlsOrder = configStore.get().windowControlsOrderByTheme?.[effectiveThemeId] as WindowControlsOrder | undefined;
+  const unsubControlsOrder = configStore.subscribe((cfg) => {
+    controlsOrder = cfg.windowControlsOrderByTheme?.[effectiveThemeId] as WindowControlsOrder | undefined;
+  });
+  onDestroy(unsubControlsOrder);
 
   const dispatch = createEventDispatcher<{
     close: string; minimize: string; maximize: string; focus: string; pip: string;
@@ -182,6 +202,7 @@
           style={controlsStyle}
           position={controlsPosition}
           accentGlow={controlsGlow}
+          order={controlsOrder}
           on:minimize={() => dispatch('minimize', win.id)}
           on:pip={() => dispatch('pip', win.id)}
           on:maximize={() => dispatch('maximize', win.id)}
