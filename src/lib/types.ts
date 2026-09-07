@@ -141,6 +141,15 @@ export interface UserConfig {
   accounts?: Record<string, any>;
   /** User-defined Explorer sidebar shortcuts (absolute or HOME-relative paths). */
   customBookmarks?: string[];
+  /** Per-installed-theme override of the default window-controls button
+   * order, keyed by theme id — see the identical field's doc comment in
+   * systemBridge.ts's `UserConfig` (this app has two separate
+   * `UserConfig` interfaces, kept in sync by hand — see that file) for
+   * why this is keyed per *theme* rather than per style. */
+  windowControlsOrderByTheme?: Record<string, string[]>;
+  /** Last directory browsed to, per `FilePickerOptions.rememberKey` —
+   * see that field's doc comment (stores/filePicker.ts). */
+  filePickerLastPaths?: Record<string, string>;
   weatherEnabled?: boolean;
   weatherCity?: string;
   weatherUnit?: 'celsius' | 'fahrenheit';
