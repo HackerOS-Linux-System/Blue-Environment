@@ -1,25 +1,35 @@
 <script lang="ts">
   import { Edit3, Eye } from 'lucide-svelte';
   import { createEventDispatcher } from 'svelte';
+  import { colorScheme } from '../../../stores/colorScheme';
 
   export let content: string;
   const dispatch = createEventDispatcher<{ change: string }>();
 
   let preview = false;
+  // The rendered preview goes through {@html}, so the inline styles baked
+  // into that markup (inline-code background, <hr> border) can't be
+  // reached by a CSS class at all — they need to be chosen at render
+  // time instead, same underlying reason as colorScheme.ts's canvas
+  // games, just for generated HTML instead of canvas pixels.
+  $: isLight = $colorScheme === 'light';
 
-  function renderMd(md: string): string {
+  function renderMd(md: string, isLight: boolean): string {
+    const codeBg = isLight ? 'rgba(15,23,42,.06)' : 'rgba(255,255,255,.08)';
+    const hrColor = isLight ? 'rgba(15,23,42,.12)' : 'rgba(255,255,255,.1)';
+    const quoteColor = isLight ? '#475569' : '#94a3b8';
     return md
       .replace(/^### (.+)$/gm, '<h3 style="font-size:1.1rem;font-weight:600;margin:.75rem 0 .25rem">$1</h3>')
       .replace(/^## (.+)$/gm, '<h2 style="font-size:1.3rem;font-weight:600;margin:1rem 0 .4rem">$1</h2>')
       .replace(/^# (.+)$/gm, '<h1 style="font-size:1.7rem;font-weight:600;margin:1.2rem 0 .5rem">$1</h1>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code style="font-family:monospace;background:rgba(255,255,255,.08);padding:.1em .3em;border-radius:.2em">$1</code>')
-      .replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid #3b82f6;margin:.5rem 0;padding:.3rem .8rem;color:#94a3b8;font-style:italic">$1</blockquote>')
+      .replace(/`([^`]+)`/g, `<code style="font-family:monospace;background:${codeBg};padding:.1em .3em;border-radius:.2em">$1</code>`)
+      .replace(/^> (.+)$/gm, `<blockquote style="border-left:3px solid #3b82f6;margin:.5rem 0;padding:.3rem .8rem;color:${quoteColor};font-style:italic">$1</blockquote>`)
       .replace(/^- (.+)$/gm, '<li style="margin:.2rem 0">$1</li>')
       .replace(/(<li[^>]*>.+<\/li>\n?)+/g, '<ul style="padding-left:1.5rem;margin:.5rem 0">$&</ul>')
       .replace(/^\d+\. (.+)$/gm, '<li style="margin:.2rem 0">$1</li>')
-      .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid rgba(255,255,255,.1);margin:1rem 0">')
+      .replace(/^---$/gm, `<hr style="border:none;border-top:1px solid ${hrColor};margin:1rem 0">`)
       .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:#60a5fa;text-decoration:underline">$1</a>')
       .replace(/\n\n/g, '</p><p style="margin:.5rem 0">')
       .replace(/^(.+)$/gm, (m) => (m.startsWith('<') ? m : `<p style="margin:.5rem 0">${m}</p>`));
@@ -33,7 +43,7 @@
   </div>
 
   {#if preview}
-    <div class="flex-1 overflow-y-auto p-8" style="color:#e2e8f0; font-family:system-ui,sans-serif; line-height:1.7;">{@html renderMd(content)}</div>
+    <div class="flex-1 overflow-y-auto p-8 docs-markdown-preview" style="font-family:system-ui,sans-serif; line-height:1.7;">{@html renderMd(content, isLight)}</div>
   {:else}
     <textarea value={content} on:input={(e) => dispatch('change', e.currentTarget.value)}
       class="flex-1 bg-transparent text-slate-200 p-8 resize-none focus:outline-none text-sm leading-relaxed font-mono"
