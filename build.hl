@@ -15,7 +15,7 @@ using <gen 2>
 % BLUE_LIBS: str  = /usr/share/Blue-Environment/lib
 % BLUE_APPS: str  = /usr/share/Blue-Environment/apps
 % BLUE_WALLS: str = /usr/share/Blue-Environment/wallpapers
-% VERSION: str    = 0.7.0
+% VERSION: str    = 0.8.0
 % SHELL_MANIFEST: str     = src-tauri/Cargo.toml
 % COMPOSITOR_MANIFEST: str = compositor/Cargo.toml
 % SHELL_BIN_PATH: str     = target/release/blue-environment
