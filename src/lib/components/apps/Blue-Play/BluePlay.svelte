@@ -131,7 +131,7 @@
     const filters = addKind === 'windows'
       ? [{ name: 'Windows executable', extensions: ['exe'] }]
       : [];
-    const path = await SystemBridge.pickFile(filters, addKind === 'windows' ? 'Select a .exe' : 'Select a game binary');
+    const path = await SystemBridge.pickFile(filters, addKind === 'windows' ? 'Select a .exe' : 'Select a game binary', 'blue-play.add-executable');
     if (path) {
       addPath = path;
       if (!addTitle) addTitle = path.split('/').pop()?.replace(/\.exe$/i, '') ?? '';
