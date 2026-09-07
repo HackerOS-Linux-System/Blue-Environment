@@ -1,6 +1,6 @@
 [package]
 name = "blue-environment"
-version = "0.7.0"
+version = "0.8.0"
 description = "Blue Environment Desktop Shell"
 authors = ["HackerOS Team <hackeros068@gmail.com>"]
 edition = "2021"
