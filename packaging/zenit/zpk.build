@@ -1,6 +1,6 @@
 package {
   name        = "blue-environment"
-  version     = "0.7.0"
+  version     = "0.8.0"
   arch        = ["x86_64"]
   description = "Blue Environment -- powloka desktopowa (Tauri + Svelte) dla srodowisk graficznych Linuksa"
   depends_on  = ["webkit2gtk", "gtk3", "libsoup3"]
