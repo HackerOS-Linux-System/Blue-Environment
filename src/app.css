@@ -73,6 +73,168 @@ body {
 .theme-border        { border-color: rgba(255,255,255,0.1); }
 [data-theme='light-glass'] .theme-border { border-color: rgba(0,0,0,0.1); }
 
+/* ── Light mode (ControlCenter's Dark/Light toggle) ──────────────────
+ * `config.theme` already drives `data-theme` on the document root (see
+ * App.svelte) and the `.theme-*` classes above, but only a handful of
+ * components (Window.svelte's chrome) actually use those — the vast
+ * majority of the shell (TopBar, ControlCenter, StartMenu, dialogs,
+ * Settings, Explorer, Desktop context menus, notifications…) was built
+ * with literal Tailwind utility classes (`bg-slate-900`, `text-white`,
+ * `border-white/10`, …) instead, so simply flipping the CSS variables
+ * above didn't visibly re-theme any of it — which is *why* the toggle
+ * looked broken.
+ *
+ * Rather than rewriting every one of those components to use
+ * `theme-*`/CSS-var classes (a huge, invasive change for what's meant
+ * to be a quick day/night flip), this repaints the same fixed palette
+ * those components already consistently use, in place, whenever light
+ * mode is active. A `[data-theme='light-glass'] .some-utility-class`
+ * selector has higher specificity than Tailwind's own single-class
+ * utility rule, so these win without needing `!important` or a special
+ * build step. The generated block just below this one extends the same
+ * technique to every hardcoded slate/white/black utility class used
+ * *anywhere* in the app (see that block's own comment) — including
+ * games, Docs, and Video — not just the shell chrome.
+ */
+[data-theme='light-glass'] {
+  color-scheme: light;
+}
+[data-theme='light-glass'] ::-webkit-scrollbar-track { background: rgb(15 23 42 / 0.05); }
+
+/* ── Auto-generated from every bg-/text-/border-/ring-/divide-/
+ * from-/via-/to-/placeholder-*  slate|white|black utility class
+ * actually used anywhere in this project's Svelte components (see this
+ * project's own follow-up notes: the previous version of this block was
+ * hand-picked and only covered the shell chrome — games, some Docs/Video
+ * views etc. kept rendering dark because their classes just weren't
+ * in the hand-picked list). Regenerate by re-running the extraction
+ * script whenever a new hardcoded slate/white/black utility class is
+ * introduced elsewhere in the app; nothing here should be hand-edited
+ * without also updating that script, or the two will drift apart
+ * again exactly like the block this replaced did.
+ *
+ * Mapping rule: every `slate-N` shade is swapped for its brightness-
+ * mirrored partner (50↔50, 100↔900, 200↔800, 300↔700, 400↔600,
+ * 500 stays 500) using Tailwind's own default palette values, so a
+ * class that meant "darkest surface" in dark mode consistently means
+ * "lightest surface" in light mode and vice versa. `white` (used
+ * throughout as translucent highlights/text on dark backgrounds)
+ * maps to a dark navy so the same translucent-overlay effect still
+ * reads correctly on a light background; `black` (scrims/backdrops)
+ * is left as-is since a dark scrim still works over light content.
+ */
+[data-theme='light-glass'] .bg-slate-100 { background-color: rgb(15 23 42); }
+[data-theme='light-glass'] .bg-slate-400 { background-color: rgb(71 85 105); }
+[data-theme='light-glass'] .bg-slate-500 { background-color: rgb(100 116 139); }
+[data-theme='light-glass'] .bg-slate-600 { background-color: rgb(148 163 184); }
+[data-theme='light-glass'] .bg-slate-700 { background-color: rgb(203 213 225); }
+[data-theme='light-glass'] .bg-slate-700\/30 { background-color: rgb(203 213 225 / 0.3); }
+[data-theme='light-glass'] .bg-slate-700\/50 { background-color: rgb(203 213 225 / 0.5); }
+[data-theme='light-glass'] .bg-slate-700\/90 { background-color: rgb(203 213 225 / 0.9); }
+[data-theme='light-glass'] .bg-slate-800 { background-color: rgb(226 232 240); }
+[data-theme='light-glass'] .bg-slate-800\/20 { background-color: rgb(226 232 240 / 0.2); }
+[data-theme='light-glass'] .bg-slate-800\/30 { background-color: rgb(226 232 240 / 0.3); }
+[data-theme='light-glass'] .bg-slate-800\/40 { background-color: rgb(226 232 240 / 0.4); }
+[data-theme='light-glass'] .bg-slate-800\/50 { background-color: rgb(226 232 240 / 0.5); }
+[data-theme='light-glass'] .bg-slate-800\/60 { background-color: rgb(226 232 240 / 0.6); }
+[data-theme='light-glass'] .bg-slate-800\/80 { background-color: rgb(226 232 240 / 0.8); }
+[data-theme='light-glass'] .bg-slate-900 { background-color: rgb(241 245 249); }
+[data-theme='light-glass'] .bg-slate-900\/40 { background-color: rgb(241 245 249 / 0.4); }
+[data-theme='light-glass'] .bg-slate-900\/50 { background-color: rgb(241 245 249 / 0.5); }
+[data-theme='light-glass'] .bg-slate-900\/60 { background-color: rgb(241 245 249 / 0.6); }
+[data-theme='light-glass'] .bg-slate-900\/70 { background-color: rgb(241 245 249 / 0.7); }
+[data-theme='light-glass'] .bg-slate-900\/95 { background-color: rgb(241 245 249 / 0.95); }
+[data-theme='light-glass'] .bg-slate-900\/97 { background-color: rgb(241 245 249 / 0.97); }
+[data-theme='light-glass'] .bg-slate-900\/98 { background-color: rgb(241 245 249 / 0.98); }
+[data-theme='light-glass'] .bg-slate-950 { background-color: rgb(248 250 252); }
+[data-theme='light-glass'] .bg-slate-950\/30 { background-color: rgb(248 250 252 / 0.3); }
+[data-theme='light-glass'] .bg-slate-950\/40 { background-color: rgb(248 250 252 / 0.4); }
+[data-theme='light-glass'] .bg-slate-950\/50 { background-color: rgb(248 250 252 / 0.5); }
+[data-theme='light-glass'] .bg-slate-950\/60 { background-color: rgb(248 250 252 / 0.6); }
+[data-theme='light-glass'] .bg-slate-950\/70 { background-color: rgb(248 250 252 / 0.7); }
+[data-theme='light-glass'] .bg-slate-950\/80 { background-color: rgb(248 250 252 / 0.8); }
+[data-theme='light-glass'] .bg-white { background-color: rgb(15 23 42); }
+[data-theme='light-glass'] .bg-white\/10 { background-color: rgb(15 23 42 / 0.1); }
+[data-theme='light-glass'] .bg-white\/20 { background-color: rgb(15 23 42 / 0.2); }
+[data-theme='light-glass'] .bg-white\/5 { background-color: rgb(15 23 42 / 0.05); }
+[data-theme='light-glass'] .border-slate-300 { border-color: rgb(51 65 85); }
+[data-theme='light-glass'] .border-slate-600 { border-color: rgb(148 163 184); }
+[data-theme='light-glass'] .border-slate-900 { border-color: rgb(241 245 249); }
+[data-theme='light-glass'] .border-slate-900\/40 { border-color: rgb(241 245 249 / 0.4); }
+[data-theme='light-glass'] .border-white { border-color: rgb(15 23 42); }
+[data-theme='light-glass'] .border-white\/10 { border-color: rgb(15 23 42 / 0.1); }
+[data-theme='light-glass'] .border-white\/20 { border-color: rgb(15 23 42 / 0.2); }
+[data-theme='light-glass'] .border-white\/5 { border-color: rgb(15 23 42 / 0.05); }
+[data-theme='light-glass'] .divide-white\/5 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(15 23 42 / 0.05); }
+[data-theme='light-glass'] .from-slate-950 { --tw-gradient-from: rgb(248 250 252); }
+[data-theme='light-glass'] .group:hover .group-hover\:text-slate-200 { color: rgb(30 41 59); }
+[data-theme='light-glass'] .group:hover .group-hover\:text-white { color: rgb(15 23 42); }
+[data-theme='light-glass'] .hover\:bg-slate-100:hover { background-color: rgb(15 23 42); }
+[data-theme='light-glass'] .hover\:bg-slate-200:hover { background-color: rgb(30 41 59); }
+[data-theme='light-glass'] .hover\:bg-slate-300:hover { background-color: rgb(51 65 85); }
+[data-theme='light-glass'] .hover\:bg-slate-600:hover { background-color: rgb(148 163 184); }
+[data-theme='light-glass'] .hover\:bg-slate-700:hover { background-color: rgb(203 213 225); }
+[data-theme='light-glass'] .hover\:bg-slate-700\/50:hover { background-color: rgb(203 213 225 / 0.5); }
+[data-theme='light-glass'] .hover\:bg-slate-700\/60:hover { background-color: rgb(203 213 225 / 0.6); }
+[data-theme='light-glass'] .hover\:bg-slate-700\/80:hover { background-color: rgb(203 213 225 / 0.8); }
+[data-theme='light-glass'] .hover\:bg-slate-800:hover { background-color: rgb(226 232 240); }
+[data-theme='light-glass'] .hover\:bg-slate-800\/50:hover { background-color: rgb(226 232 240 / 0.5); }
+[data-theme='light-glass'] .hover\:bg-slate-800\/70:hover { background-color: rgb(226 232 240 / 0.7); }
+[data-theme='light-glass'] .hover\:bg-white:hover { background-color: rgb(15 23 42); }
+[data-theme='light-glass'] .hover\:bg-white\/10:hover { background-color: rgb(15 23 42 / 0.1); }
+[data-theme='light-glass'] .hover\:bg-white\/20:hover { background-color: rgb(15 23 42 / 0.2); }
+[data-theme='light-glass'] .hover\:bg-white\/5:hover { background-color: rgb(15 23 42 / 0.05); }
+[data-theme='light-glass'] .hover\:border-slate-500:hover { border-color: rgb(100 116 139); }
+[data-theme='light-glass'] .hover\:border-white\/10:hover { border-color: rgb(15 23 42 / 0.1); }
+[data-theme='light-glass'] .hover\:border-white\/20:hover { border-color: rgb(15 23 42 / 0.2); }
+[data-theme='light-glass'] .hover\:border-white\/5:hover { border-color: rgb(15 23 42 / 0.05); }
+[data-theme='light-glass'] .hover\:text-slate-200:hover { color: rgb(30 41 59); }
+[data-theme='light-glass'] .hover\:text-slate-300:hover { color: rgb(51 65 85); }
+[data-theme='light-glass'] .hover\:text-slate-400:hover { color: rgb(71 85 105); }
+[data-theme='light-glass'] .hover\:text-slate-500:hover { color: rgb(100 116 139); }
+[data-theme='light-glass'] .hover\:text-white:hover { color: rgb(15 23 42); }
+[data-theme='light-glass'] .placeholder-slate-500::placeholder { color: rgb(100 116 139); }
+[data-theme='light-glass'] .placeholder-slate-600::placeholder { color: rgb(148 163 184); }
+[data-theme='light-glass'] .placeholder\:text-slate-500::placeholder { color: rgb(100 116 139); }
+[data-theme='light-glass'] .placeholder\:text-slate-600::placeholder { color: rgb(148 163 184); }
+[data-theme='light-glass'] .ring-white { --tw-ring-color: rgb(15 23 42); }
+[data-theme='light-glass'] .ring-white\/60 { --tw-ring-color: rgb(15 23 42 / 0.6); }
+[data-theme='light-glass'] .text-slate-100 { color: rgb(15 23 42); }
+[data-theme='light-glass'] .text-slate-200 { color: rgb(30 41 59); }
+[data-theme='light-glass'] .text-slate-300 { color: rgb(51 65 85); }
+[data-theme='light-glass'] .text-slate-400 { color: rgb(71 85 105); }
+[data-theme='light-glass'] .text-slate-500 { color: rgb(100 116 139); }
+[data-theme='light-glass'] .text-slate-600 { color: rgb(148 163 184); }
+[data-theme='light-glass'] .text-slate-700 { color: rgb(203 213 225); }
+[data-theme='light-glass'] .text-slate-900 { color: rgb(241 245 249); }
+[data-theme='light-glass'] .text-slate-950 { color: rgb(248 250 252); }
+[data-theme='light-glass'] .text-white { color: rgb(15 23 42); }
+[data-theme='light-glass'] .text-white\/40 { color: rgb(15 23 42 / 0.4); }
+[data-theme='light-glass'] .text-white\/50 { color: rgb(15 23 42 / 0.5); }
+[data-theme='light-glass'] .text-white\/70 { color: rgb(15 23 42 / 0.7); }
+[data-theme='light-glass'] .text-white\/80 { color: rgb(15 23 42 / 0.8); }
+[data-theme='light-glass'] .text-white\/90 { color: rgb(15 23 42 / 0.9); }
+[data-theme='light-glass'] .to-slate-900 { --tw-gradient-to: rgb(241 245 249); }
+[data-theme='light-glass'] .to-slate-950 { --tw-gradient-to: rgb(248 250 252); }
+[data-theme='light-glass'] .via-slate-900 { --tw-gradient-via: rgb(241 245 249); }
+
+/* `via-*` gradient stops in Tailwind don't actually read a
+ * `--tw-gradient-via` variable (that line above is dead — via-* bakes
+ * its color straight into `--tw-gradient-stops` alongside `from-*`/
+ * `to-*`, there's no separate variable to intercept). The only two
+ * `via-*` gradients in the app are overridden directly below instead,
+ * by setting the final 3-stop value on the exact from/via/to
+ * combination each one uses — a plain `.via-x` override can't work in
+ * general since the correct stop order depends on which `from-*`/`to-*`
+ * classes are paired with it, but there are few enough of these
+ * gradients in practice to just special-case each pairing. */
+[data-theme='light-glass'] .from-slate-950.via-slate-900.to-slate-950 {
+  --tw-gradient-stops: rgb(248 250 252), rgb(241 245 249), rgb(248 250 252);
+}
+[data-theme='light-glass'] .from-blue-900\/50.via-slate-900.to-slate-900 {
+  --tw-gradient-stops: rgb(219 234 254 / 0.5), rgb(241 245 249), rgb(241 245 249);
+}
+
 /* Hydra shell theme — panel icon glow. Scoped two ways at once,
    deliberately: `[data-shell-theme='hydra']` (set on documentElement by
    ShellThemeStyle.svelte only while Hydra is active) *and* the
@@ -178,6 +340,15 @@ body {
 [data-shell-theme='hydra'] .app-content-area .border-blue-500\/50 { border-color: rgba(236, 72, 153, 0.5) !important; }
 [data-shell-theme='hydra'] .app-content-area .border-blue-500\/60 { border-color: rgba(236, 72, 153, 0.6) !important; }
 [data-shell-theme='hydra'] .app-content-area .ring-blue-500\/60 { --tw-ring-color: rgba(236, 72, 153, 0.6) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-white\/5 { background-color: rgba(236, 72, 153, 0.05) !important; }
+[data-shell-theme='hydra'] .app-content-area .bg-white\/10 { background-color: rgba(236, 72, 153, 0.10) !important; }
+[data-shell-theme='hydra'] .app-content-area .hover\:bg-white\/5:hover { background-color: rgba(236, 72, 153, 0.05) !important; }
+[data-shell-theme='hydra'] .app-content-area .hover\:bg-white\/10:hover { background-color: rgba(236, 72, 153, 0.10) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-slate-300 { color: rgb(237, 213, 253) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-slate-400 { color: rgb(216, 180, 254) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-slate-500 { color: rgb(168, 122, 210) !important; }
+[data-shell-theme='hydra'] .app-content-area .text-slate-600 { color: rgb(124, 79, 156) !important; }
+[data-shell-theme='hydra'] .app-content-area .hover\:text-white:hover { color: rgb(250, 232, 255) !important; }
 
 /* HDE shell theme — HackerOS Desktop Environment's signature terminal
    look. Same two-tier strategy as Hydra above: a small set of
@@ -256,3 +427,26 @@ body {
 [data-shell-theme='hde'] .app-content-area .border-blue-500\/50 { border-color: rgba(34, 197, 94, 0.5) !important; }
 [data-shell-theme='hde'] .app-content-area .border-blue-500\/60 { border-color: rgba(34, 197, 94, 0.6) !important; }
 [data-shell-theme='hde'] .app-content-area .ring-blue-500\/60 { --tw-ring-color: rgba(34, 197, 94, 0.6) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-white\/5 { background-color: rgba(34, 197, 94, 0.05) !important; }
+[data-shell-theme='hde'] .app-content-area .bg-white\/10 { background-color: rgba(34, 197, 94, 0.10) !important; }
+[data-shell-theme='hde'] .app-content-area .hover\:bg-white\/5:hover { background-color: rgba(34, 197, 94, 0.05) !important; }
+[data-shell-theme='hde'] .app-content-area .hover\:bg-white\/10:hover { background-color: rgba(34, 197, 94, 0.10) !important; }
+[data-shell-theme='hde'] .app-content-area .text-slate-300 { color: rgb(187, 247, 208) !important; }
+[data-shell-theme='hde'] .app-content-area .text-slate-400 { color: rgb(134, 239, 172) !important; }
+[data-shell-theme='hde'] .app-content-area .text-slate-500 { color: rgb(74, 178, 110) !important; }
+[data-shell-theme='hde'] .app-content-area .text-slate-600 { color: rgb(45, 106, 79) !important; }
+[data-shell-theme='hde'] .app-content-area .hover\:text-white:hover { color: rgb(220, 252, 231) !important; }
+
+/* Two inline `style="background:#hex"` spots in Blue Docs (the toolbar
+ * surface and the distraction-free-mode backdrop) bypassed the class-
+ * based override above entirely — an inline style can't be targeted by
+ * a plain class selector at all, `!important` or not, without a class
+ * to hang the override off of. Moved to real classes in Toolbar.svelte/
+ * BlueDocsApp.svelte so they get the same light/dark treatment as
+ * everything else. */
+.docs-toolbar-surface { background: #0f1629; }
+[data-theme='light-glass'] .docs-toolbar-surface { background: #f8fafc; }
+.docs-distraction-surface { background: #0a0f1e; }
+[data-theme='light-glass'] .docs-distraction-surface { background: #f1f5f9; }
+.docs-markdown-preview { color: #e2e8f0; }
+[data-theme='light-glass'] .docs-markdown-preview { color: #1e293b; }
