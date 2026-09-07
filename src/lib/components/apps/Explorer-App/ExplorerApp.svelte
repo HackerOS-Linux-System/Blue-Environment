@@ -9,7 +9,8 @@
     Star, StarOff, Archive as ArchiveIcon, FileBox,
   } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
-  import { dialogPrompt, dialogConfirm } from '../../../stores/dialog';
+  import { dialogPrompt, dialogConfirm, activeDialog } from '../../../stores/dialog';
+  import { get } from 'svelte/store';
   import { configStore } from '../../../utils/configStore';
   import { activeShellThemeId } from '../../../stores/shellTheme';
 
@@ -20,14 +21,33 @@
   // theme id prop-drilled in at all) — root background, sidebar, and
   // the selection-highlight color (the single most-repeated themed
   // surface in this file, appearing in bookmarks/tree/grid/list views)
-  // now follow the active theme; the many *other* hardcoded
-  // `bg-slate-800`/`border-white/5` surfaces throughout this file
-  // (toolbar, tabs, context menu, properties panel, ...) do not yet —
-  // retrofitting all of them individually is real, valuable, separate
-  // follow-up work, not attempted exhaustively here.
+  // follow the active theme directly, via `isHydra` below.
+  //
+  // The many *other* hardcoded `bg-slate-800`/`border-white/5`/
+  // `text-slate-400`/`hover:bg-white/10` surfaces throughout this file
+  // (toolbar, tabs, context menu, properties panel, ...) now inherit
+  // their retint from the generic `[data-shell-theme='hydra']
+  // .app-content-area` block in app.css instead of needing an
+  // `isHydra` branch on every single one — that block's own comment
+  // originally only covered `bg-*`/`border-*` on slate/blue, missing
+  // `bg-white/*` and `text-slate-*` entirely, which is exactly the gap
+  // that left this file's toolbar/tabs/context-menu looking untouched;
+  // it's been extended to close that. A few surfaces the app
+  // deliberately branches on directly (this selection highlight,
+  // sidebar, root background) still do, because they need a genuinely
+  // different look (pill-shaped ring, distinct sidebar tint) rather
+  // than a straight color swap of the same shape.
   $: isHydra = $activeShellThemeId === 'hydra';
   $: selClass = isHydra ? 'bg-pink-600/30 ring-2 ring-pink-500/60' : 'bg-blue-600/30 ring-2 ring-blue-500/60';
   $: selClassSubtle = isHydra ? 'bg-pink-600/20 text-pink-400' : 'bg-blue-600/20 text-blue-400';
+  // Drag-and-drop drop-target highlight — was hardcoded blue regardless
+  // of theme (unlike the selection classes right above, which already
+  // went pink under Hydra). A folder you're dragging a file onto is one
+  // of the most visually prominent moments in the whole app, so leaving
+  // it stuck on blue was a pretty conspicuous gap in "reacts to the
+  // shell theme".
+  $: dragTgtClassGrid = isHydra ? 'bg-pink-500/20 ring-2 ring-pink-400' : 'bg-blue-500/20 ring-2 ring-blue-400';
+  $: dragTgtClassRow = isHydra ? 'bg-pink-500/15' : 'bg-blue-500/15';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
@@ -326,6 +346,13 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     if (renaming) return;
+    // Same fix as Desktop.svelte: while a "New Folder"/rename/etc. modal
+    // dialog is open, this window-wide listener must not intercept
+    // Delete/Ctrl+A/Ctrl+N and friends — otherwise pressing Delete while
+    // typing a name here deleted the *currently selected files* instead
+    // of editing the dialog's text, and Ctrl+A/etc. fired against the
+    // Explorer's own file list instead of the input.
+    if (get(activeDialog)) return;
     if (e.ctrlKey) {
       if (e.key === 'a') { e.preventDefault(); selected = new Set(sorted.map((f) => f.path)); }
       if (e.key === 'c') { e.preventDefault(); copySelected(); }
@@ -468,7 +495,7 @@
                 on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                 on:drop={(e) => file.is_dir && onDrop(e, file)}
                 on:dragleave={() => (dragOver = null)}
-                class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? selClass : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/20 ring-2 ring-blue-400' : ''} {isCut ? 'opacity-50' : ''}"
+                class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? selClass : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassGrid : ''} {isCut ? 'opacity-50' : ''}"
                 on:click|stopPropagation={(e) => toggleSelect(file.path, e)}
                 on:dblclick={() => !renaming && handleOpen(file)}
                 on:contextmenu|stopPropagation={(e) => openContextMenu(e, file)}>
@@ -512,7 +539,7 @@
                   on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                   on:drop={(e) => file.is_dir && onDrop(e, file)}
                   on:dragleave={() => (dragOver = null)}
-                  class="border-b border-white/5 cursor-pointer group {isSel ? selClassSubtle : 'hover:bg-white/5'} {isDragTgt ? 'bg-blue-500/15' : ''} {isCut ? 'opacity-50' : ''}"
+                  class="border-b border-white/5 cursor-pointer group {isSel ? selClassSubtle : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassRow : ''} {isCut ? 'opacity-50' : ''}"
                   on:click={(e) => toggleSelect(file.path, e)}
                   on:dblclick={() => handleOpen(file)}
                   on:contextmenu|preventDefault={(e) => openContextMenu(e, file)}>
@@ -628,7 +655,7 @@
       {#if propertiesFile}
         {@const pf = propertiesFile}
         <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
-          <div class="w-80 bg-slate-800 border border-white/10 rounded-xl shadow-2xl p-4" on:click|stopPropagation>
+          <div class="w-80 bg-slate-800 border rounded-xl shadow-2xl p-4 {isHydra ? 'border-pink-500/20' : 'border-white/10'}" on:click|stopPropagation>
             <div class="flex items-center gap-2 mb-3">
               <FileIcon file={pf} size={28} />
               <span class="font-medium truncate">{pf.name}</span>
