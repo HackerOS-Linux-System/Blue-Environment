@@ -39,7 +39,7 @@ export function createFileTree() {
   }
 
   async function openWorkspace() {
-    const dir = await SystemBridge.pickDirectory();
+    const dir = await SystemBridge.pickDirectory('blue-code.open-folder');
     if (!dir) return;
     rootPath.set(dir); selectedDir.set(dir);
     localStorage.setItem(LAST_WORKSPACE_KEY, dir);
