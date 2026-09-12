@@ -3,6 +3,7 @@ import type { WindowState, ExternalWindow } from '../types';
 import { AppId } from '../types';
 import { APPS } from '../constants';
 import { SystemBridge } from '../utils/systemBridge';
+import { configStore } from '../utils/configStore';
 import { notificationManager } from '../utils/notificationManager';
 
 export const windows = writable<WindowState[]>([]);
@@ -10,6 +11,85 @@ export const activeWindowId = writable<string | null>(null);
 export const currentWorkspace = writable(0);
 export const workspaceCount = writable(4);
 export const externalWindows = writable<ExternalWindow[]>([]);
+
+/**
+ * A window the Alt+Tab switcher (and, potentially, any other
+ * "list every open window" surface) can show and activate, regardless
+ * of whether it's a real Blue Environment app window or an externally-
+ * running native process window tracked via `window_tracker.rs`
+ * (X11 wmctrl/xdotool, or the compositor's own foreign-toplevel list
+ * over IPC for Wayland clients).
+ *
+ * This didn't exist before — `externalWindows` was polled into this
+ * store (see `startExternalWindowPolling` below) but nothing in the
+ * UI ever read it: Alt+Tab, the taskbar, and everywhere else only ever
+ * showed `windows` (Blue Environment's own app windows). A native app
+ * running alongside Blue Environment was completely invisible to
+ * window switching, despite the backend already fully resolving a real
+ * icon for it via `icon_resolver.rs`/`window_tracker.rs`.
+ */
+export interface SwitcherItem {
+  id: string;
+  title: string;
+  isMinimized: boolean;
+  workspace: number;
+  isExternal: boolean;
+  /** Set when `isExternal` is false — looked up against `APPS` for a
+   * real (lucide-component) icon. */
+  appId?: AppId;
+  /** Set when `isExternal` is true — a `file://`/`http(s)://` URI
+   * already resolved by the backend, rendered via `AppIconGlyph`
+   * exactly like any other string-icon case it already handles. */
+  iconPath?: string;
+}
+
+/** Single source of truth for "every window that can be switched to",
+ * shared between keyboardShortcuts.ts's Alt+Tab handling and
+ * WindowSwitcher.svelte's rendering, so the two can never drift out of
+ * sync about what "window at index N" means. Takes both lists as plain
+ * arguments (rather than reading `windows`/`externalWindows` via
+ * `get()` internally) so callers stay in control of *when* it's
+ * recomputed — in particular, App.svelte's `$: switcherItems =
+ * getSwitcherItems($windows, $externalWindows)` needs `$windows`/
+ * `$externalWindows` referenced directly for Svelte to know to re-run
+ * it; a version that quietly called `get()` internally wouldn't be a
+ * reactive dependency Svelte's compiler could see at all. */
+export function getSwitcherItems(internalWindows: WindowState[], external: ExternalWindow[]): SwitcherItem[] {
+  const internal: SwitcherItem[] = internalWindows.map((w) => ({
+    id: w.id,
+    title: w.title,
+    isMinimized: w.isMinimized,
+    workspace: w.workspace,
+    isExternal: false,
+    appId: w.appId as AppId,
+  }));
+  const externalItems: SwitcherItem[] = external.map((w) => ({
+    id: w.id,
+    title: w.title || w.class || 'External window',
+    isMinimized: w.isMinimized,
+    // External windows carry their own desktop/workspace tag from the
+    // window manager/compositor rather than this shell's own
+    // `currentWorkspace` store — 0 as a fallback keeps them visible on
+    // the default workspace instead of vanishing if a tracker backend
+    // ever fails to report one.
+    workspace: w.desktop ?? 0,
+    isExternal: true,
+    iconPath: w.iconPath,
+  }));
+  return [...internal, ...externalItems];
+}
+
+/** Activates whatever `getSwitcherItems()` returned at `item.id` —
+ * routes to the right backend depending on `isExternal` so callers
+ * (keyboardShortcuts.ts, and potentially a future taskbar) don't need
+ * to duplicate this branch themselves. */
+export function activateSwitcherItem(item: SwitcherItem) {
+  if (item.isExternal) {
+    SystemBridge.focusExternalWindow(item.id);
+  } else {
+    focusWindow(item.id);
+  }
+}
 
 let nextZIndex = 10;
 let pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -60,7 +140,23 @@ export function stopExternalWindowPolling() {
   pollTimer = undefined;
 }
 
-export async function openApp(appId: string, isExternal = false, exec?: string, launchArgs?: Record<string, unknown>) {
+/**
+ * Opens an app. `appId` starting with `clone:` is resolved against
+ * `configStore`'s `clonedApps` (see ClonedAppEntry's doc for the
+ * "Cloned Apps" feature and its current scope) — this is the single
+ * place that resolution happens, so every existing launch surface
+ * (Start Menu, Desktop icons, taskbar, search) already supports opening
+ * a clone with zero changes of their own, as long as whatever calls
+ * `openApp` was given `clone:<id>` as the id in the first place.
+ */
+export async function openApp(appId: string, isExternal = false, exec?: string, launchArgs?: Record<string, unknown>, titleOverride?: string) {
+  if (appId.startsWith('clone:')) {
+    const cloneId = appId.slice('clone:'.length);
+    const entry = configStore.get().clonedApps?.find((c) => c.id === cloneId);
+    if (!entry) return; // stale/deleted clone reference — nothing to open
+    return openApp(entry.baseAppId, false, undefined, { ...launchArgs, cloneProfileId: entry.id }, entry.label);
+  }
+
   const blockReason = await checkParentalControls(appId);
   if (blockReason) {
     notificationManager.add({
@@ -93,7 +189,7 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
   const newWindow: WindowState = {
     id: `${appId}-${Date.now()}`,
     appId,
-    title: appDef.title,
+    title: titleOverride ?? appDef.title,
     x: 150 + (wins.length % 8) * 30,
     y: 100 + (wins.length % 8) * 30,
     width: appDef.defaultWidth ?? 800,
@@ -136,7 +232,7 @@ async function checkParentalControls(appId: string): Promise<string | null> {
   }
 }
 
-// ── Parental Controls usage tracking ────────────────────────────────────
+// ── Usage tracking (Parental Controls + Screen Time) ────────────────────
 //
 // `parental_controls_record_usage` existed in the backend but nothing
 // ever called it, so daily time limits couldn't actually accumulate used
@@ -144,6 +240,14 @@ async function checkParentalControls(appId: string): Promise<string | null> {
 // would be blockable at launch but never *reach* its limit from an
 // already-running session. This polls the currently active window's
 // `appId` every 60s and reports one more minute of usage for it.
+//
+// The same tick also feeds `screen_time_record_usage` (see
+// screen_time.rs) — Settings' "Screen Time" section's permanent daily
+// history. The two backends intentionally stay separate modules with
+// different retention policies (Parental Controls resets at midnight;
+// Screen Time never does on its own), but there's no reason to run two
+// independent 60-second timers polling the same `activeWindowId`/
+// `windows` state to feed them, so one tick reports to both.
 let usageTrackingTimer: ReturnType<typeof setInterval> | undefined;
 
 export function startParentalControlsUsageTracking() {
@@ -154,6 +258,7 @@ export function startParentalControlsUsageTracking() {
     const win = get(windows).find((w) => w.id === activeId);
     if (!win || win.isMinimized) return; // don't bill time for a minimized/backgrounded app
     SystemBridge.invoke('parental_controls_record_usage', { appId: win.appId, minutes: 1 }).catch(() => {});
+    SystemBridge.invoke('screen_time_record_usage', { appId: win.appId, minutes: 1 }).catch(() => {});
   }, 60_000);
 }
 
