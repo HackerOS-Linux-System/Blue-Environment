@@ -26,6 +26,8 @@ const DEFAULT_CONFIG: UserConfig = {
     nightLightSchedule: 'manual',
     nightLightStartHour: 20,
     nightLightEndHour: 6,
+    onscreenKeyboardEnabled: false,
+    clonedApps: [],
     appsEnabled: {
         blueAI: true,
         blueCode: true,
