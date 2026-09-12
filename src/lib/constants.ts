@@ -13,6 +13,8 @@ import {
   KeyRound,
   MonitorPlay,
   Download,
+  ShieldCheck,
+  LifeBuoy,
 } from 'lucide-svelte';
 import type { AppDefinition } from './types';
 import { AppId } from './types';
@@ -50,6 +52,8 @@ import BlueMessagesAppLazy from './components/apps/Blue-Messages-App/BlueMessage
 import BlueConnectAppLazy from './components/apps/Blue-Connect/default/BlueConnectAppLazy.svelte';
 import BlueAccountsAppLazy from './components/apps/Blue-Accounts/BlueAccountsAppLazy.svelte';
 import BlueVirtAppLazy from './components/apps/Blue-Virt/BlueVirtAppLazy.svelte';
+import BlueSecurityAppLazy from './components/apps/Blue-Security-App/BlueSecurityAppLazy.svelte';
+import BlueHelpAppLazy from './components/apps/Blue-Help-App/BlueHelpAppLazy.svelte';
 
 // Not currently imported anywhere in the app (checked — configStore.ts/
 // App.svelte resolve the wallpaper dynamically via
@@ -108,4 +112,6 @@ export const APPS: Record<AppId, AppDefinition> = {
   [AppId.BLUE_CONNECT]: { id: AppId.BLUE_CONNECT, title: 'Blue Connect', icon: Radio, component: BlueConnectAppLazy, defaultWidth: 720, defaultHeight: 560 },
   [AppId.BLUE_ACCOUNTS]: { id: AppId.BLUE_ACCOUNTS, title: 'Blue Accounts', icon: KeyRound, component: BlueAccountsAppLazy, defaultWidth: 820, defaultHeight: 600 },
   [AppId.BLUE_VIRT]: { id: AppId.BLUE_VIRT, title: 'Blue Virt', icon: MonitorPlay, component: BlueVirtAppLazy, defaultWidth: 900, defaultHeight: 640 },
+  [AppId.BLUE_SECURITY]: { id: AppId.BLUE_SECURITY, title: 'Blue Security and Privacy', icon: ShieldCheck, component: BlueSecurityAppLazy, defaultWidth: 480, defaultHeight: 680 },
+  [AppId.BLUE_HELP]: { id: AppId.BLUE_HELP, title: 'Blue Help', icon: LifeBuoy, component: BlueHelpAppLazy, defaultWidth: 880, defaultHeight: 620 },
 };
