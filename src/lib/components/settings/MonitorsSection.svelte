@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { SystemBridge } from '../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../utils/systemBridge';
   import { Monitor, RefreshCw } from 'lucide-svelte';
   import { t } from '../../stores/language';
   import { CompositorBridge } from '../../utils/compositorBridge';
@@ -66,11 +66,15 @@
   }
 
   async function applyScale(mon: MonitorInfo, scale: string) {
-    await SystemBridge.executeCommand(`xrandr --output "${mon.name}" --scale ${scale}x${scale}`).catch(() => {});
+    // `mon.name` is parsed from `xrandr --query` output, so realistic
+    // risk is low, but shellQuote() instead of unescaped double quotes
+    // costs nothing and matches the pattern fixed elsewhere in this
+    // audit.
+    await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon.name)} --scale ${scale}x${scale}`).catch(() => {});
     load();
   }
   async function applyRotation(mon: MonitorInfo, rotation: string) {
-    await SystemBridge.executeCommand(`xrandr --output "${mon.name}" --rotate ${rotation}`).catch(() => {});
+    await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon.name)} --rotate ${rotation}`).catch(() => {});
   }
 
   const scales = ['0.5', '0.75', '1.0', '1.25', '1.5', '1.75', '2.0', '2.5', '3.0'];
