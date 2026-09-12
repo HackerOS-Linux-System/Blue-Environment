@@ -1,13 +1,20 @@
 <script lang="ts">
-  import type { WindowState, AppId } from '../types';
+  import type { SwitcherItem } from '../stores/windowManager';
   import { APPS } from '../constants';
+  import AppIconGlyph from './AppIconGlyph.svelte';
 
-  export let windows: WindowState[] = [];
+  export let windows: SwitcherItem[] = [];
   export let selectedIndex = 0;
   export let isVisible = false;
 
-  function getAppIcon(appId: string) {
-    return APPS[appId as AppId]?.icon;
+  // Resolves to whatever AppIconGlyph.svelte itself accepts: a lucide
+  // component for a real Blue Environment app, or a `file://`/`http(s)`
+  // URL string for an external window's icon already resolved by the
+  // backend (window_tracker.rs/icon_resolver.rs) — AppIconGlyph already
+  // handles both cases (plus a lettered-fallback for neither), so this
+  // just picks the right one instead of duplicating that logic here.
+  function iconFor(item: SwitcherItem) {
+    return item.isExternal ? (item.iconPath || '') : APPS[item.appId!]?.icon;
   }
 </script>
 
@@ -27,21 +34,21 @@
 
       <div class="flex gap-3 overflow-x-auto max-w-[80vw] pb-1">
         {#each windows as win, index (win.id)}
-          {@const AppIcon = getAppIcon(win.appId)}
           {@const isSelected = index === selectedIndex}
           <div class="flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-150 w-28 shrink-0
             {isSelected ? 'bg-blue-600/80 text-white scale-105 shadow-lg shadow-blue-500/30 ring-2 ring-blue-400/50' : 'bg-slate-800/60 text-slate-300'}">
             <div class="w-12 h-12 flex items-center justify-center">
-              {#if AppIcon}
-                <svelte:component this={AppIcon} size={32} />
-              {:else}
-                <div class="w-8 h-8 bg-slate-600 rounded-lg" />
-              {/if}
+              <AppIconGlyph icon={iconFor(win)} name={win.title} size={32} />
             </div>
             <span class="text-xs font-medium truncate w-full text-center leading-tight">{win.title}</span>
-            {#if win.isMinimized}
-              <span class="text-[10px] bg-slate-700 text-slate-400 px-1.5 rounded-full">hidden</span>
-            {/if}
+            <div class="flex items-center gap-1">
+              {#if win.isMinimized}
+                <span class="text-[10px] bg-slate-700 text-slate-400 px-1.5 rounded-full">hidden</span>
+              {/if}
+              {#if win.isExternal}
+                <span class="text-[10px] bg-slate-700 text-slate-400 px-1.5 rounded-full" title="Running outside Blue Environment">external</span>
+              {/if}
+            </div>
             <span class="text-[10px] text-slate-500">WS {(win.workspace ?? 0) + 1}</span>
           </div>
         {/each}
