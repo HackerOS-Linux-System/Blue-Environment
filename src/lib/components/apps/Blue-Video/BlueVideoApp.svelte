@@ -3,6 +3,7 @@
   import { createPlaylist } from './playlist';
   import Controls from './Controls.svelte';
   import SubtitleTrack from './SubtitleTrack.svelte';
+  import { toAssetUrl } from '../../../utils/systemBridge';
 
   const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
   const { playlist, currentIdx, openFiles, remove } = createPlaylist();
@@ -22,7 +23,16 @@
   $: currentItem = $playlist[$currentIdx];
 
   $: if (videoEl && currentItem) {
-    videoEl.src = currentItem.url;
+    // `currentItem.url` is a `file://<path>` string (playlist.ts) —
+    // same webview-loading restriction as every `file://` icon fixed
+    // in AppIconGlyph.svelte applies here too: a plain `<video
+    // src="file://...">` silently fails to load in the actual Tauri
+    // app. `SubtitleTrack`'s `videoPath` prop below deliberately keeps
+    // using the raw `currentItem.url` (stripped of the prefix, not
+    // converted) since that's a real filesystem path handed to a Tauri
+    // command, not a webview `src=` — only the actual `<video>` element
+    // needs the asset-protocol conversion.
+    videoEl.src = toAssetUrl(currentItem.url);
     videoEl.play().catch(() => {});
   }
 
