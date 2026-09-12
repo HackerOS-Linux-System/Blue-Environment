@@ -34,6 +34,8 @@ export enum AppId {
   BLUE_CONNECT = 'blue_connect',
   BLUE_ACCOUNTS = 'blue_accounts',
   BLUE_VIRT = 'blue_virt',
+  BLUE_SECURITY = 'blue_security',
+  BLUE_HELP = 'blue_help',
   EXTERNAL = 'external',
 }
 
@@ -113,6 +115,14 @@ export interface AIConfig {
   rememberChoice?: boolean;
 }
 
+/** See the identical type's doc in systemBridge.ts (duplicated by hand,
+ * same convention as AIConfig/ThemeDefinition in this file). */
+export interface ClonedAppEntry {
+  id: string;
+  baseAppId: string;
+  label: string;
+}
+
 export interface UserConfig {
   wallpaper: string;
   theme: string;
@@ -136,6 +146,13 @@ export interface UserConfig {
   nightLightSchedule: 'manual' | 'sunset';
   nightLightStartHour: number;
   nightLightEndHour: number;
+  /** See the identical field's doc in systemBridge.ts's UserConfig
+   * (this app keeps two separate UserConfig interfaces, kept in sync by
+   * hand — see that file). */
+  onscreenKeyboardEnabled?: boolean;
+  /** See systemBridge.ts's UserConfig.clonedApps doc for the full
+   * explanation and scope caveat. */
+  clonedApps?: ClonedAppEntry[];
   appsEnabled?: Record<string, boolean>;
   aiConfig?: AIConfig;
   accounts?: Record<string, any>;
