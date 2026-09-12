@@ -1,5 +1,5 @@
 import { writable, get, derived } from 'svelte/store';
-import { SystemBridge } from '../../../utils/systemBridge';
+import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 import type { OpenFile, Diagnostic } from './types';
 import { getLang, LSP_LANGS } from './languageMap';
 
@@ -53,20 +53,26 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
     if (!file) return;
     const newDiags: Diagnostic[] = [];
 
+    // Security note: `currentRoot`/`file.path` come from whatever
+    // project folder the user opened — same class of risk as the Git
+    // Panel finding (a maliciously named file/folder in someone else's
+    // project executing on nothing more than "run the linter"), so
+    // every interpolation below goes through shellQuote(), not a bare
+    // double-quoted template.
     if (file.language === 'rust') {
-      const res = await SystemBridge.executeCommand(`cd "${currentRoot}" && cargo check --message-format=short 2>&1 | head -20`);
+      const res = await SystemBridge.executeCommand(`cd ${shellQuote(currentRoot)} && cargo check --message-format=short 2>&1 | head -20`);
       for (const line of out(res).split('\n')) {
         const m = line.match(/^(.+):(\d+):(\d+):\s*(error|warning):\s*(.+)$/);
         if (m) newDiags.push({ file: m[1], line: parseInt(m[2]), col: parseInt(m[3]), severity: m[4] as any, message: m[5] });
       }
     } else if (file.language === 'typescript' || file.language === 'javascript') {
-      const res = await SystemBridge.executeCommand(`npx --yes tsc --noEmit --allowJs "${file.path}" 2>&1 | head -20`);
+      const res = await SystemBridge.executeCommand(`npx --yes tsc --noEmit --allowJs ${shellQuote(file.path)} 2>&1 | head -20`);
       for (const line of out(res).split('\n')) {
         const m = line.match(/^(.+)\((\d+),(\d+)\):\s*(error|warning)\s+\w+:\s*(.+)$/);
         if (m) newDiags.push({ file: m[1], line: parseInt(m[2]), col: parseInt(m[3]), severity: m[4] as any, message: m[5] });
       }
     } else if (file.language === 'python') {
-      const res = await SystemBridge.executeCommand(`cd "${currentRoot}" && python3 -m py_compile "${file.path}" 2>&1 | head -20`);
+      const res = await SystemBridge.executeCommand(`cd ${shellQuote(currentRoot)} && python3 -m py_compile ${shellQuote(file.path)} 2>&1 | head -20`);
       const text = out(res);
       for (const line of text.split('\n')) {
         const m = line.match(/File "(.+)", line (\d+)/);
