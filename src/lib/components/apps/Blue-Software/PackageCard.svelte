@@ -2,6 +2,7 @@
   import { Package, ArrowUpCircle, Download, Trash2, RefreshCw, Loader2, HardDrive } from 'lucide-svelte';
   import type { PackageInfo, SoftwareTab } from './types';
   import SourceBadge from './SourceBadge.svelte';
+  import AppIconGlyph from '../../AppIconGlyph.svelte';
   import { createEventDispatcher } from 'svelte';
 
   export let pkg: PackageInfo;
@@ -9,18 +10,15 @@
   export let busy: boolean;
 
   const dispatch = createEventDispatcher<{ action: 'install' | 'remove' | 'update' }>();
-
-  function imgError(e: Event) { (e.currentTarget as HTMLElement).style.display = 'none'; }
 </script>
 
 <div class="bg-slate-800/60 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-all flex flex-col gap-3">
   <div class="flex items-start gap-3">
     <div class="w-11 h-11 bg-slate-700 rounded-xl flex items-center justify-center shrink-0">
-      {#if pkg.icon}
-        <img src={pkg.icon} alt="" class="w-8 h-8 object-contain" on:error={imgError} />
-      {:else}
-        <Package size={22} class="text-slate-400" />
-      {/if}
+      <!-- See PackageRow.svelte's identical fix for why a raw
+           `<img src={pkg.icon}>` never actually loaded a `file://`
+           icon in a Tauri v2 webview. -->
+      <AppIconGlyph icon={pkg.icon || Package} name={pkg.name} size={32} />
     </div>
     <div class="flex-1 min-w-0">
       <h3 class="font-semibold text-white text-sm truncate">{pkg.name}</h3>
