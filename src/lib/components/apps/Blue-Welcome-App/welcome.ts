@@ -1,4 +1,4 @@
-const KEY = 'blue-welcome-completed';
+const KEY = 'blue-welcome-completed-v2';
 
 export function hasCompletedWelcome(): boolean {
   try {
