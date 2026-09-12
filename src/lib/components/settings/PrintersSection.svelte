@@ -30,15 +30,20 @@
 
   onMount(load);
 
+  function shq(s: string): string { return `'${s.replace(/'/g, "'\\''")}'`; }
+
   async function setDefault(name: string) {
-    await SystemBridge.executeCommand(`lpoptions -d "${name}"`).catch(() => {});
+    // `name` is enumerated from `lpstat -p`, so realistic risk is low,
+    // but single-quoting instead of the previous unescaped double
+    // quotes costs nothing and matches the pattern used elsewhere.
+    await SystemBridge.executeCommand(`lpoptions -d ${shq(name)}`).catch(() => {});
     load();
   }
 
   async function removePrinter(name: string) {
     const ok = await dialogConfirm({ title: 'Remove printer', message: `Remove printer "${name}"? You can add it again later.`, confirmLabel: 'Remove', danger: true });
     if (!ok) return;
-    await SystemBridge.executeCommand(`lpadmin -x "${name}"`).catch(() => {});
+    await SystemBridge.executeCommand(`lpadmin -x ${shq(name)}`).catch(() => {});
     load();
   }
 </script>
