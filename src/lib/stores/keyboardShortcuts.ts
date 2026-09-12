@@ -1,7 +1,8 @@
 import { get } from 'svelte/store';
 import {
-  windows, activeWindowId, currentWorkspace, workspaceCount,
-  focusWindow, minimizeWindow, closeWindow, maximizeWindow, switchWorkspace,
+  windows, externalWindows, activeWindowId, currentWorkspace, workspaceCount,
+  minimizeWindow, closeWindow, maximizeWindow, switchWorkspace,
+  getSwitcherItems, activateSwitcherItem,
 } from './windowManager';
 import { activeDialog } from './dialog';
 
@@ -20,11 +21,15 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
   const heldKeys = new Set<string>();
 
   function commitSwitcher() {
-    const wins = get(windows);
+    // getSwitcherItems() (not the raw `windows` store) so the committed
+    // selection matches what WindowSwitcher.svelte is actually showing
+    // — including external/native app windows, which weren't
+    // switchable at all before this.
+    const wins = getSwitcherItems(get(windows), get(externalWindows));
     const idx = cb.switcherIndex();
     if (wins.length === 0) return;
     const selected = wins[idx % wins.length];
-    if (selected) focusWindow(selected.id);
+    if (selected) activateSwitcherItem(selected);
     cb.setSwitcherVisible(false);
   }
 
@@ -50,7 +55,7 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
     const meta = e.metaKey || key === 'Meta';
     const ctrl = e.ctrlKey;
     const shift = e.shiftKey;
-    const wins = get(windows);
+    const wins = getSwitcherItems(get(windows), get(externalWindows));
     const svVisible = cb.isSwitcherVisible();
 
     if (alt && key === 'Tab') {
