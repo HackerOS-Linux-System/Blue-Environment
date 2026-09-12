@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import { SystemBridge } from '../../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import {
     Save, FolderOpen, Plus, X, FileText, Download,
     Bold, Italic, Hash, Search, SpellCheck,
@@ -56,15 +56,25 @@
   onDestroy(() => clearInterval(autosaveTimer));
 
   async function saveToCacheNote(tab: NoteTab) {
+    // Previously: `printf '%s' ${JSON.stringify(data)}` — JSON.stringify
+    // produces a *double*-quoted string, which the shell still expands
+    // ($()/backticks) inside. A note merely containing e.g. a backtick
+    // command in its text would execute on autosave. shellQuote() (real
+    // single-quoting) is what actually neutralizes the shell here.
     const data = JSON.stringify({ content: tab.content, title: tab.title });
-    await SystemBridge.executeCommand(`mkdir -p ~/.cache/Blue-Environment && printf '%s' ${JSON.stringify(data)} > ~/.cache/Blue-Environment/notepad-autosave.json`).catch(() => {});
+    await SystemBridge.executeCommand(`mkdir -p ~/.cache/Blue-Environment && printf '%s' ${shellQuote(data)} > ~/.cache/Blue-Environment/notepad-autosave.json`).catch(() => {});
   }
 
   async function writeToPath(tab: NoteTab) {
     if (!tab.path) return false;
     try {
       const expandedPath = tab.path.startsWith('~/') ? tab.path.replace('~', '$HOME') : tab.path;
-      await SystemBridge.executeCommand(`mkdir -p "$(dirname "${expandedPath}")" && printf '%s' ${JSON.stringify(tab.content)} > "${expandedPath}"`);
+      // Previously both `"${expandedPath}"` (unescaped double quotes)
+      // and `${JSON.stringify(tab.content)}` were shell-injectable —
+      // see saveToCacheNote's note above on why JSON.stringify isn't
+      // shell-safe. Saving a note whose text contains a backtick or
+      // `$(...)` previously ran it as a command.
+      await SystemBridge.executeCommand(`mkdir -p "$(dirname ${shellQuote(expandedPath)})" && printf '%s' ${shellQuote(tab.content)} > ${shellQuote(expandedPath)}`);
       return true;
     } catch { return false; }
   }
