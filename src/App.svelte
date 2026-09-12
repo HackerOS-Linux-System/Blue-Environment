@@ -8,11 +8,13 @@
     moveWindow, resizeWindow, toggleWindowFromTaskbar, switchWorkspace,
     startExternalWindowPolling, stopExternalWindowPolling,
     startParentalControlsUsageTracking, stopParentalControlsUsageTracking,
+    externalWindows, getSwitcherItems,
   } from './lib/stores/windowManager';
   import { initKeyboardShortcuts } from './lib/stores/keyboardShortcuts';
   import { shellOverlayOpen } from './lib/stores/overlayState';
   import { hasCompletedWelcome } from './lib/components/apps/Blue-Welcome-App/welcome';
   import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
+  import OnscreenKeyboard from './lib/components/OnscreenKeyboard.svelte';
   import { APPS } from './lib/constants';
   import { AppId } from './lib/types';
   import TopBar from './lib/components/TopBar.svelte';
@@ -63,6 +65,32 @@
   let panelSize = 48;
   $: barHeight = panelEnabled ? panelSize : 0;
   let shellThemeId: string | undefined;
+
+  // On-screen keyboard — see OnscreenKeyboard.svelte's module doc for
+  // what this can and can't type into. `enabled` is the Settings
+  // toggle (opt-in, default off); `visible` is the moment-to-moment
+  // show/hide state, auto-shown whenever a text-editable element inside
+  // the shell gains focus while enabled, and auto-hidden when focus
+  // moves to something non-editable (clicking the keyboard's own keys
+  // never triggers this, since each key handler uses
+  // `on:mousedown|preventDefault` specifically so it never steals DOM
+  // focus away from the field being typed into).
+  let onscreenKeyboardEnabled = false;
+  let onscreenKeyboardVisible = false;
+  $: if (!onscreenKeyboardEnabled) onscreenKeyboardVisible = false;
+  function isTextEditableTarget(el: Element | null): boolean {
+    if (!el) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName === 'INPUT') {
+      const type = (el as HTMLInputElement).type;
+      return ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(type);
+    }
+    return (el as HTMLElement).isContentEditable === true;
+  }
+  function onGlobalFocusIn(e: FocusEvent) {
+    if (!onscreenKeyboardEnabled) return;
+    onscreenKeyboardVisible = isTextEditableTarget(e.target as Element | null);
+  }
   let systemThemeId: string | null | undefined;
 
   // Active shell theme (Hydra etc. — see builtinThemes.ts) overrides the
@@ -113,6 +141,7 @@
     initLanguage();
     startExternalWindowPolling();
     startParentalControlsUsageTracking();
+    document.addEventListener('focusin', onGlobalFocusIn);
 
     // First-run wizard — see welcome.ts's doc comment. Deferred one tick
     // (not called synchronously before anything else) so it opens as an
@@ -140,6 +169,7 @@
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
       shellThemeId = cfg.shellThemeId;
       systemThemeId = cfg.systemThemeId;
+      onscreenKeyboardEnabled = cfg.onscreenKeyboardEnabled ?? false;
     });
     const unsubConfig = configStore.subscribe((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -151,6 +181,7 @@
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelSize = cfg.panelSize;
       shellThemeId = cfg.shellThemeId;
       systemThemeId = cfg.systemThemeId;
+      onscreenKeyboardEnabled = cfg.onscreenKeyboardEnabled ?? false;
     });
 
     cleanupKeyboard = initKeyboardShortcuts({
@@ -182,6 +213,7 @@
     stopExternalWindowPolling();
     stopParentalControlsUsageTracking();
     cleanupKeyboard?.();
+    document.removeEventListener('focusin', onGlobalFocusIn);
   });
 
   function handlePower(e: CustomEvent) {
@@ -189,15 +221,37 @@
     SystemBridge.powerAction(e.detail);
   }
 
-  $: openWindowSummaries = $windows.map((w) => ({
-    id: w.id,
-    appId: w.appId as AppId,
-    isMinimized: w.isMinimized,
-    isActive: w.id === $activeWindowId,
-    workspace: w.workspace,
-  }));
+  $: openWindowSummaries = [
+    ...$windows.map((w) => ({
+      id: w.id,
+      appId: w.appId as AppId | undefined,
+      isMinimized: w.isMinimized,
+      isActive: w.id === $activeWindowId,
+      workspace: w.workspace,
+    })),
+    // External (native, non-Blue-Environment) windows have no `appId`
+    // in this shell's own registry, so they can never match a pinned
+    // app's icon in TopBar's center dock — but they still belong in
+    // this list for the workspace-dot indicator (`hasWins` in
+    // TopBar.svelte), which only checks `workspace`/`isMinimized`, not
+    // `appId`. Without this, switching to a workspace that only has an
+    // external app open would show that workspace's dot as empty.
+    ...$externalWindows.map((w) => ({
+      id: w.id,
+      appId: undefined as AppId | undefined,
+      isMinimized: w.isMinimized,
+      isActive: false,
+      workspace: w.desktop ?? 0,
+    })),
+  ];
 
   $: windowCounts = Array.from({ length: $workspaceCount }, (_, i) => $windows.filter((w) => w.workspace === i).length);
+
+  // `getSwitcherItems` takes both lists as plain arguments (see its own
+  // doc in windowManager.ts for why) — referencing `$windows`/
+  // `$externalWindows` directly here is what makes this recompute
+  // whenever either list changes.
+  $: switcherItems = getSwitcherItems($windows, $externalWindows);
 
   // StartMenu (both the popup dropdown and the fullscreen app drawer) is
   // meant to always sit above every window, including a maximized/
@@ -291,7 +345,7 @@
     </WindowComponent>
   {/each}
 
-  <WindowSwitcher windows={$windows} selectedIndex={switcherIndex} isVisible={switcherVisible} />
+  <WindowSwitcher windows={switcherItems} selectedIndex={switcherIndex} isVisible={switcherVisible} />
   <WorkspaceSwitcher currentWorkspace={$currentWorkspace} workspaceCount={$workspaceCount} {windowCounts} />
 
   <ControlCenter isOpen={isControlCenterOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:openSettings={() => { openApp(AppId.SETTINGS); isControlCenterOpen = false; }} />
@@ -307,5 +361,6 @@
   <ToastContainer />
   <DialogHost />
   <BlueFilePicker />
+  <OnscreenKeyboard bind:visible={onscreenKeyboardVisible} />
 </div>
 {/if}
