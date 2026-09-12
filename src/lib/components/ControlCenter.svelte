@@ -56,6 +56,7 @@
   let wifiPollTimer: ReturnType<typeof setInterval> | undefined;
 
   async function toggleWifiExpanded() {
+    if (!wifiEnabled) return; // nothing to scan/connect to with the radio off — the toggle circle (not this expand arrow) is what turns it back on
     wifiExpanded = !wifiExpanded;
     if (wifiExpanded) {
       btExpanded = false;
@@ -194,6 +195,7 @@
   let btRssiTimer: ReturnType<typeof setInterval> | undefined;
 
   async function toggleBtExpanded() {
+    if (!btEnabled) return; // nothing to scan/connect to with the adapter off — the toggle circle (not this expand arrow) is what turns it back on
     btExpanded = !btExpanded;
     if (btExpanded) {
       wifiExpanded = false;
@@ -304,7 +306,18 @@
     battery = stats.battery;
     isCharging = stats.isCharging;
     wifiSSID = stats.wifiSSID;
-    wifiEnabled = stats.wifiSSID !== 'Disconnected' && stats.wifiSSID !== '';
+    // Previously derived from `stats.wifiSSID !== 'Disconnected'` — i.e.
+    // "am I currently connected to a network", which is a different
+    // question from "is the radio powered on" and was getting
+    // overwritten back to a wrong value on every refresh regardless of
+    // what the on/off toggle had just set. A powered-on radio with no
+    // active connection (the normal state right after turning Wi-Fi on,
+    // before picking a network) would incorrectly show as "Off" here,
+    // and — since nothing anywhere checked this flag before allowing a
+    // scan/connect — a user could still browse and connect to networks
+    // while it displayed "Off": the toggle was purely decorative.
+    wifiEnabled = await SystemBridge.getWifiRadioEnabled();
+    btEnabled = await SystemBridge.getBluetoothPowered();
     const audioSinks = await SystemBridge.getAudioSinks();
     sinks = audioSinks;
     const def = (audioSinks as AudioSink[]).find((s) => s.is_default);
@@ -323,7 +336,26 @@
     const next = !wifiEnabled;
     wifiEnabled = next;
     await SystemBridge.toggleWifi(next);
-    if (!next) wifiSSID = 'Disconnected';
+    if (!next) {
+      wifiSSID = 'Disconnected';
+      wifiExpanded = false; // nothing to browse/connect to with the radio off — see the guard in the expanded panel too
+      if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = undefined; }
+    }
+  }
+  /** Was previously just `btEnabled = !btEnabled` inline in the
+   * template — a bare local-variable flip with no call to
+   * `settings_bluetooth_toggle` at all, so the adapter's real power
+   * state never actually changed no matter what the switch displayed.
+   * That command already existed and was already registered; nothing
+   * was calling it. */
+  async function handleToggleBluetooth() {
+    const next = !btEnabled;
+    btEnabled = next;
+    await SystemBridge.setBluetoothPowered(next);
+    if (!next) {
+      btExpanded = false; // nothing to scan/connect to with the adapter off
+      if (btRssiTimer) { clearInterval(btRssiTimer); btRssiTimer = undefined; }
+    }
   }
   async function handleSinkSelect(sink: AudioSink) {
     await SystemBridge.setDefaultSink(sink.name);
@@ -353,7 +385,7 @@
         <ChevronDown size={12} class="opacity-60 transition-transform shrink-0 {wifiExpanded ? 'rotate-180' : ''}" />
       </button>
       <button on:click={toggleBtExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
-        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); btEnabled = !btEnabled; }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); btEnabled = !btEnabled; })(e); } }}>
+        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleBluetooth(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleBluetooth(); })(e); } }}>
           {#if btEnabled}<Bluetooth size={14} />{:else}<BluetoothOff size={14} />{/if}
         </div>
         <div class="min-w-0 flex-1">
