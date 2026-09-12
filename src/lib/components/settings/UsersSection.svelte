@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { SystemBridge } from '../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../utils/systemBridge';
   import { Plus, RefreshCw } from 'lucide-svelte';
 
   interface UserInfo { username: string; uid: string; shell: string; home: string; groups: string[]; }
@@ -22,7 +22,10 @@
         const parts = line.split(':');
         if (parts.length < 4) continue;
         const [username, uid, home, shell] = parts;
-        const grpResult = await SystemBridge.executeCommand(`groups ${username} 2>/dev/null`);
+        // `username` comes from /etc/passwd parsing above, not free
+        // user input — low realistic risk, quoted anyway for
+        // consistency with the rest of this audit.
+        const grpResult = await SystemBridge.executeCommand(`groups ${shellQuote(username)} 2>/dev/null`);
         const grpOut = typeof grpResult === 'string' ? grpResult : (grpResult as any)?.stdout || '';
         const groups = grpOut.split(':').slice(-1)[0]?.trim().split(' ') || [];
         us.push({ username, uid, home, shell, groups });
