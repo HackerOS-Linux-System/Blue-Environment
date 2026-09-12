@@ -294,13 +294,18 @@ pub fn settings_get_brightness() -> u8 {
 
 #[tauri::command]
 pub fn settings_set_display_scale(output: String, scale: f64) -> SettingsResult {
+    // `output` arrives as a Tauri command argument straight from the
+    // frontend, so it must go through the same `shell_escape()` used
+    // elsewhere in this file before it is embedded in a `sh -c` string —
+    // see the security audit notes for why (untrusted string -> shell).
+    let out_q = shell_escape(&output);
     // Wayland: wlr-randr
-    if sh_ok(&format!("wlr-randr --output {} --scale {} 2>/dev/null", output, scale)) {
+    if sh_ok(&format!("wlr-randr --output {} --scale {} 2>/dev/null", out_q, scale)) {
         return SettingsResult::ok();
     }
     // X11: xrandr scale (approximate)
     let inv = 1.0 / scale;
-    if sh_ok(&format!("xrandr --output {} --scale {}x{} 2>/dev/null", output, inv, inv)) {
+    if sh_ok(&format!("xrandr --output {} --scale {}x{} 2>/dev/null", out_q, inv, inv)) {
         return SettingsResult::ok();
     }
     SettingsResult::err("Failed to set display scale")
@@ -308,15 +313,18 @@ pub fn settings_set_display_scale(output: String, scale: f64) -> SettingsResult 
 
 #[tauri::command]
 pub fn settings_set_resolution(output: String, width: u32, height: u32, refresh: f64) -> SettingsResult {
+    // See settings_set_display_scale above: `output` is untrusted input
+    // and must be shell-escaped before use in a `sh -c` string.
+    let out_q = shell_escape(&output);
     if sh_ok(&format!(
         "wlr-randr --output {} --mode {}x{}@{}Hz 2>/dev/null",
-        output, width, height, refresh
+        out_q, width, height, refresh
     )) {
         return SettingsResult::ok();
     }
     if sh_ok(&format!(
         "xrandr --output {} --mode {}x{} --rate {} 2>/dev/null",
-        output, width, height, refresh
+        out_q, width, height, refresh
     )) {
         return SettingsResult::ok();
     }
@@ -529,6 +537,20 @@ pub fn settings_bluetooth_toggle(enabled: bool) -> SettingsResult {
     }
 }
 
+/// Reads the *actual* radio power state from `bluetoothctl show`
+/// (`Powered: yes`/`Powered: no`) — previously nothing read this at
+/// all anywhere in the app; Control Center's on/off toggle tracked a
+/// plain local boolean with no connection to reality (see
+/// ControlCenter.svelte's fix for the full explanation of the bug this
+/// closes). `bluetoothctl show` reports on the default controller; a
+/// machine with no Bluetooth adapter at all returns empty output, which
+/// `.contains(...)` correctly treats as "not powered" rather than
+/// erroring.
+#[tauri::command]
+pub fn settings_bluetooth_get_powered() -> bool {
+    sh("bluetoothctl show 2>/dev/null").unwrap_or_default().contains("Powered: yes")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Power / battery commands
 // ─────────────────────────────────────────────────────────────────────────────
@@ -625,7 +647,9 @@ pub fn settings_get_power_profiles() -> Vec<PowerProfile> {
 
 #[tauri::command]
 pub fn settings_set_power_profile(profile: String) -> SettingsResult {
-    if sh_ok(&format!("powerprofilesctl set {} 2>/dev/null", profile)) {
+    // `profile` is an untrusted Tauri command argument; shell-escape it
+    // before it reaches `sh -c`, same as the rest of this file's audit.
+    if sh_ok(&format!("powerprofilesctl set {} 2>/dev/null", shell_escape(&profile))) {
         return SettingsResult::ok();
     }
     // Fallback: cpupower
@@ -676,7 +700,11 @@ pub fn settings_get_users() -> Vec<UserAccount> {
 }
 
 fn get_user_info(username: &str) -> UserAccount {
-    let line = sh(&format!("getent passwd {} 2>/dev/null", username)).unwrap_or_default();
+    // `username` is only ever passed a trusted, whoami-derived value
+    // today, but this helper takes an arbitrary &str — escape
+    // defensively so a future caller passing untrusted input doesn't
+    // silently reopen a shell-injection hole.
+    let line = sh(&format!("getent passwd {} 2>/dev/null", shell_escape(username))).unwrap_or_default();
     let parts: Vec<&str> = line.trim().split(':').collect();
     let home = parts.get(5).unwrap_or(&"/home/unknown").to_string();
     UserAccount {
@@ -693,7 +721,8 @@ fn get_user_info(username: &str) -> UserAccount {
 }
 
 fn get_user_groups(username: &str) -> Vec<String> {
-    sh(&format!("groups {} 2>/dev/null", username))
+    // Defensive escaping — see get_user_info above.
+    sh(&format!("groups {} 2>/dev/null", shell_escape(username)))
         .unwrap_or_default()
         .split_whitespace()
         .filter(|s| *s != username && *s != ":")
@@ -702,7 +731,8 @@ fn get_user_groups(username: &str) -> Vec<String> {
 }
 
 fn is_admin_user(username: &str) -> bool {
-    let groups = sh(&format!("groups {} 2>/dev/null", username)).unwrap_or_default();
+    // Defensive escaping — see get_user_info above.
+    let groups = sh(&format!("groups {} 2>/dev/null", shell_escape(username))).unwrap_or_default();
     groups.contains("sudo") || groups.contains("wheel") || groups.contains("admin")
 }
 
@@ -754,7 +784,14 @@ pub fn settings_change_password(current: String, new_password: String) -> Settin
 pub fn settings_set_avatar(path: String) -> SettingsResult {
     let username = sh("whoami").unwrap_or_default();
     let username = username.trim();
-    let home = sh(&format!("eval echo ~{}", username)).unwrap_or(format!("/home/{}", username));
+    // Previously: `sh(&format!("eval echo ~{}", username))` — a literal
+    // `eval` combined with string interpolation, doubling shell
+    // interpretation. Harmless today only because `username` always
+    // comes from `whoami`, but resolving $HOME natively avoids the
+    // pattern entirely rather than relying on that always being true.
+    let home = dirs::home_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or(format!("/home/{}", username));
     let dest = format!("{home}/.face");
     match sh(&format!("cp {} {} 2>&1", shell_escape(&path), shell_escape(&dest))) {
         Ok(_) => SettingsResult::ok(),
@@ -833,9 +870,12 @@ pub fn settings_get_night_light() -> NightLightConfig {
     let redshift_running = sh_ok("pgrep -x redshift");
     let enabled = wlsunset_running || redshift_running;
 
-    // Read saved config
-    let cfg_path = sh("echo ~/.config/blue-environment/night-light.json 2>/dev/null").unwrap_or_default();
-    let cfg_data = sh(&format!("cat {} 2>/dev/null", cfg_path.trim())).unwrap_or_default();
+    // Read saved config. Previously `sh("echo ~/...")` + `cat` — two
+    // process spawns to do what `dirs::home_dir()` + `std::fs::
+    // read_to_string` do directly, with no shell in the loop at all
+    // (same cleanup already applied to settings_set_avatar/
+    // settings_get_wallpapers elsewhere in this file).
+    let cfg_data = std::fs::read_to_string(night_light_config_path()).unwrap_or_default();
     let saved: serde_json::Value = serde_json::from_str(&cfg_data).unwrap_or_default();
 
     NightLightConfig {
@@ -848,14 +888,24 @@ pub fn settings_get_night_light() -> NightLightConfig {
     }
 }
 
+fn night_light_config_path() -> std::path::PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    base.join("blue-environment").join("night-light.json")
+}
+
 #[tauri::command]
 pub fn settings_set_night_light(config: NightLightConfig) -> SettingsResult {
-    // Save config
-    let cfg_dir = sh("echo ~/.config/blue-environment").unwrap_or_default();
-    sh_ok(&format!("mkdir -p {}", cfg_dir.trim()));
+    // Save config — plain std::fs, not `sh("echo '...' > path")`
+    // (line previously did its own manual `'` escaping before this
+    // cleanup; writing bytes directly has zero shell-quoting surface to
+    // get wrong in the first place, which is strictly safer, not just
+    // tidier).
+    let path = night_light_config_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let json = serde_json::to_string(&config).unwrap_or_default();
-    let cfg_path = format!("{}/night-light.json", cfg_dir.trim());
-    sh_ok(&format!("echo '{}' > {}", json.replace('\'', "'\\''"), cfg_path));
+    let _ = std::fs::write(&path, json);
 
     if !config.enabled {
         sh_ok("pkill -x wlsunset 2>/dev/null; pkill -x redshift 2>/dev/null");
@@ -890,8 +940,7 @@ pub fn settings_set_night_light(config: NightLightConfig) -> SettingsResult {
 
 #[tauri::command]
 pub fn settings_get_panel_config() -> PanelConfig {
-    let cfg_path = sh("echo ~/.config/blue-environment/panel.json 2>/dev/null").unwrap_or_default();
-    let data = sh(&format!("cat {} 2>/dev/null", cfg_path.trim())).unwrap_or_default();
+    let data = std::fs::read_to_string(panel_config_path()).unwrap_or_default();
     let v: serde_json::Value = serde_json::from_str(&data).unwrap_or_default();
 
     PanelConfig {
@@ -906,15 +955,21 @@ pub fn settings_get_panel_config() -> PanelConfig {
     }
 }
 
+fn panel_config_path() -> std::path::PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    base.join("blue-environment").join("panel.json")
+}
+
 #[tauri::command]
 pub fn settings_save_panel_config(config: PanelConfig) -> SettingsResult {
-    let cfg_dir = sh("echo ~/.config/blue-environment").unwrap_or_default();
-    sh_ok(&format!("mkdir -p {}", cfg_dir.trim()));
+    let path = panel_config_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let json = serde_json::to_string_pretty(&config).unwrap_or_default();
-    let cfg_path = format!("{}/panel.json", cfg_dir.trim());
-    match sh(&format!("printf '%s' {} > {}", shell_escape(&json), cfg_path)) {
+    match std::fs::write(&path, json) {
         Ok(_) => SettingsResult::ok(),
-        Err(e) => SettingsResult::err(e),
+        Err(e) => SettingsResult::err(e.to_string()),
     }
 }
 
@@ -983,13 +1038,20 @@ pub fn settings_set_dpms_timeout(seconds: u64) -> SettingsResult {
 
 #[tauri::command]
 pub fn settings_get_wallpapers(directory: Option<String>) -> Vec<String> {
+    // `directory`, when provided, is an untrusted Tauri command
+    // argument straight from the frontend — it must be shell-escaped
+    // before use in a `sh -c` string (it previously wasn't, which was
+    // a direct shell-injection hole via a plain folder picker).
     let dir = directory.unwrap_or_else(|| {
-        sh("echo ~/Pictures 2>/dev/null").unwrap_or_else(|_| "~/Pictures".into())
+        dirs::home_dir()
+            .map(|p| p.join("Pictures").to_string_lossy().into_owned())
+            .unwrap_or_else(|| "~/Pictures".into())
     });
+    let dir_q = shell_escape(&dir);
     let exts = "jpg jpeg png webp bmp svg";
     let mut paths: Vec<String> = Vec::new();
     for ext in exts.split_whitespace() {
-        let found = sh(&format!("find {} -maxdepth 3 -iname '*.{}' 2>/dev/null | head -50", dir, ext))
+        let found = sh(&format!("find {} -maxdepth 3 -iname '*.{}' 2>/dev/null | head -50", dir_q, ext))
             .unwrap_or_default();
         paths.extend(found.lines().map(String::from));
     }
