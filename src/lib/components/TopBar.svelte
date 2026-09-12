@@ -12,7 +12,7 @@
   import { t } from '../stores/language';
   import { createEventDispatcher } from 'svelte';
 
-  export let openWindows: { id: string; appId: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
+  export let openWindows: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
   export let currentWorkspace = 0;
   export let workspaceCount = 4;
   export let isStartMenuOpen = false;
