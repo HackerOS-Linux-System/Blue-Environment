@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Camera, Download, Copy, Trash2, Timer, Monitor, Crop, RefreshCw, Check, Square } from 'lucide-svelte';
-  import { SystemBridge } from '../../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import { takeScreenshotUnified } from '../../../utils/compositorBridge';
 
   type CaptureMode = 'fullscreen' | 'window' | 'region';
@@ -45,7 +45,12 @@
 
           const ts = new Date().toISOString().replace(/[:.]/g, '-');
           const outPath = `${await SystemBridge.getHomePath()}/Pictures/Screenshots/screenshot-${ts}.png`;
-          await SystemBridge.executeCommand(`mkdir -p "$(dirname '${outPath}')" && grim -g "${geom}" "${outPath}" 2>/dev/null || import -geometry "${geom}" "${outPath}" 2>/dev/null`);
+          // `outPath` is built entirely from an internal home-path
+          // lookup + fixed timestamp filename, and `geom` from `slurp`'s
+          // own trusted "WxH+X+Y" output — neither is free user input,
+          // so realistic risk here was low, but quoted anyway to close
+          // out this audit with zero remaining unescaped interpolations.
+          await SystemBridge.executeCommand(`mkdir -p "$(dirname ${shellQuote(outPath)})" && grim -g ${shellQuote(geom)} ${shellQuote(outPath)} 2>/dev/null || import -geometry ${shellQuote(geom)} ${shellQuote(outPath)} 2>/dev/null`);
           dataUrl = await SystemBridge.readFileAsDataURL(outPath);
           savedPath = outPath;
         } else if (mode === 'window') {
