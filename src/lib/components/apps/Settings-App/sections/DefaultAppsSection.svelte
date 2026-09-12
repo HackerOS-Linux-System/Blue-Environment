@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Check, ChevronDown, FileText, Globe, Mail, Music, Film, Image, Archive, Code2, Terminal, FileDown, CalendarDays } from 'lucide-svelte';
-  import { SystemBridge } from '../../../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../../../utils/systemBridge';
   import { t } from '../../../../stores/language';
 
   interface AppRole { id: string; labelKey: string; descKey: string; icon: any; mimeTypes: string[]; current: string | null; alternatives: AppOption[]; }
@@ -35,22 +35,27 @@
   function out(r: any): string { return typeof r === 'string' ? r : r?.stdout ?? ''; }
 
   async function getXdgDefault(mimeType: string): Promise<string> {
+    // mimeType/desktop/mime here all come from this file's own fixed
+    // ROLES/BLUE_ALTS constants or from filenames already found under
+    // /usr/share/applications/, not free-typed user input — realistic
+    // risk is low. Quoted with shellQuote() anyway for defense in depth
+    // and consistency with the rest of this audit.
     try {
-      const result = await SystemBridge.executeCommand(`xdg-mime query default '${mimeType}' 2>/dev/null`);
+      const result = await SystemBridge.executeCommand(`xdg-mime query default ${shellQuote(mimeType)} 2>/dev/null`);
       return out(result).trim().replace(/\.desktop$/, '');
     } catch { return ''; }
   }
   async function setXdgDefault(mimeType: string, desktop: string): Promise<void> {
-    try { await SystemBridge.executeCommand(`xdg-mime default '${desktop}.desktop' '${mimeType}' 2>/dev/null`); } catch {}
+    try { await SystemBridge.executeCommand(`xdg-mime default ${shellQuote(desktop + '.desktop')} ${shellQuote(mimeType)} 2>/dev/null`); } catch {}
   }
   async function findAlternatives(mimeTypes: string[]): Promise<AppOption[]> {
     if (mimeTypes.length === 0) return [];
     try {
       const mime = mimeTypes[0];
-      const result = await SystemBridge.executeCommand(`grep -rl 'MimeType.*${mime.split('/')[0]}' /usr/share/applications/ 2>/dev/null | head -20`);
+      const result = await SystemBridge.executeCommand(`grep -rl ${shellQuote('MimeType.*' + mime.split('/')[0])} /usr/share/applications/ 2>/dev/null | head -20`);
       const apps: AppOption[] = [];
       for (const file of out(result).trim().split('\n').filter(Boolean)) {
-        const content = await SystemBridge.executeCommand(`cat '${file}' 2>/dev/null`).catch(() => '');
+        const content = await SystemBridge.executeCommand(`cat ${shellQuote(file)} 2>/dev/null`).catch(() => '');
         const text = out(content);
         const name = text.match(/^Name=(.+)$/m)?.[1]?.trim() ?? '';
         const exec = text.match(/^Exec=(.+)$/m)?.[1]?.trim() ?? '';
