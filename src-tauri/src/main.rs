@@ -13,6 +13,7 @@ mod window_tracker;
 mod ai;
 mod weather;
 mod parental_controls;
+mod screen_time;
 mod packages;
 mod icon_resolver;
 mod feed_parser;
@@ -206,7 +207,7 @@ fn main() {
         blue_virt::bv_delete_vm, blue_virt::bv_start_vm, blue_virt::bv_stop_vm,
         blue_screenshot::take_screenshot, blue_screenshot::default_screenshot_path, get_wallpapers, get_wallpaper_preview, resolve_default_wallpaper, load_distro_info, system_power,
         get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
-        get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi,
+        get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi, get_wifi_radio_enabled,
         get_saved_wifi_connections, forget_wifi_network, rename_saved_wifi_connection,
         update_saved_wifi_password, connect_saved_wifi_connection,
         get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair, bluetooth_forget, get_bluetooth_rssi,
@@ -232,6 +233,9 @@ fn main() {
         parental_controls::parental_controls_set_allowed_hours,
         parental_controls::parental_controls_check_launch,
         parental_controls::parental_controls_record_usage,
+        screen_time::screen_time_record_usage,
+        screen_time::screen_time_get_summary,
+        screen_time::screen_time_clear_history,
         get_dnf_packages, get_flatpak_packages, get_appimage_packages,
         install_dnf_package, remove_dnf_package, update_dnf_package,
         get_native_packages, get_detected_backend,
@@ -288,6 +292,7 @@ fn main() {
         SettingsApp::settings_bluetooth_remove,
         SettingsApp::settings_bluetooth_scan,
         SettingsApp::settings_bluetooth_toggle,
+        SettingsApp::settings_bluetooth_get_powered,
         SettingsApp::settings_get_battery,
         SettingsApp::settings_get_power_profiles,
         SettingsApp::settings_set_power_profile,
