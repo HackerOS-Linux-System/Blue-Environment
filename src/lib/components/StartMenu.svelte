@@ -11,9 +11,10 @@
   import { createEventDispatcher } from 'svelte';
   import { openInBlueWeb } from '../utils/openInBlueWeb';
   import { normalizeUrl } from './apps/Blue-Web/types';
+  import { configStore } from '../utils/configStore';
 
   interface SystemApp { id: string; name: string; comment: string; icon: string; exec: string; categories: string[]; desktop_file: string; is_external: boolean; }
-  interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; }
+  interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; cloneId?: string; }
   type AnyApp = SystemApp | InternalApp;
 
   export let isOpen = false;
@@ -61,6 +62,7 @@
     [AppId.BLUE_NOTIFICATIONS]: ['Utility'], [AppId.BLUE_EMOJI]: ['Utility'],
     [AppId.BLUE_NEWS]: ['Internet'],
     [AppId.BLUE_DOWNLOADER]: ['Internet'],
+    [AppId.BLUE_SECURITY]: ['System'], [AppId.BLUE_HELP]: ['System'],
   };
 
   function getCategory(app: AnyApp): string {
@@ -129,6 +131,25 @@
         categories: INTERNAL_APP_CATEGORIES[app.id as string] || ['Other'],
         isInternal: true,
       })
+    )
+    .concat(
+      // "Cloned Apps" (Settings → Cloned Apps) show up here as their own
+      // launchable entries, not just from inside Settings — see
+      // windowManager.ts's openApp(), which already resolves a
+      // `clone:<id>` app id back to the underlying app + custom title.
+      // Filed under "Other" rather than inheriting the base app's own
+      // category, since a clone is more of a personal shortcut than a
+      // fresh instance of "a browser" or "an office app".
+      ($configStore.clonedApps ?? []).map(
+        (entry): InternalApp => ({
+          id: `clone:${entry.id}`,
+          name: entry.label,
+          icon: APPS[entry.baseAppId as AppId]?.icon ?? Box,
+          categories: ['Other'],
+          isInternal: true,
+          cloneId: entry.id,
+        })
+      )
     );
 
   $: allApps = (() => {
