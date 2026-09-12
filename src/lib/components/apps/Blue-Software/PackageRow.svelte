@@ -2,6 +2,7 @@
   import { Package, Loader2 } from 'lucide-svelte';
   import type { PackageInfo, SoftwareTab } from './types';
   import SourceBadge from './SourceBadge.svelte';
+  import AppIconGlyph from '../../AppIconGlyph.svelte';
   import { createEventDispatcher } from 'svelte';
 
   export let pkg: PackageInfo;
@@ -9,17 +10,20 @@
   export let busy: boolean;
 
   const dispatch = createEventDispatcher<{ action: 'install' | 'remove' | 'update' }>();
-
-  function imgError(e: Event) { (e.currentTarget as HTMLElement).style.display = 'none'; }
 </script>
 
 <div class="flex items-center gap-3 p-3 bg-slate-800/40 hover:bg-slate-800/70 rounded-xl border border-white/5 transition-colors">
   <div class="w-9 h-9 bg-slate-700 rounded-lg flex items-center justify-center shrink-0">
-    {#if pkg.icon}
-      <img src={pkg.icon} alt="" class="w-7 h-7 object-contain" on:error={imgError} />
-    {:else}
-      <Package size={18} class="text-slate-400" />
-    {/if}
+    <!-- Previously a raw `<img src={pkg.icon}>` — `pkg.icon` is a
+         `file://...` path from icon_resolver.rs, which a Tauri v2
+         webview can't load directly without going through
+         `convertFileSrc()` (see AppIconGlyph.svelte's doc for the full
+         explanation) — every package in this list was silently
+         falling back to no icon at all before this fix, regardless of
+         whether resolve_icon() found a real one on disk. Falls back to
+         the same generic `Package` glyph as before when there's no
+         icon. -->
+    <AppIconGlyph icon={pkg.icon || Package} name={pkg.name} size={28} />
   </div>
   <div class="flex-1 min-w-0">
     <div class="flex items-center gap-2 flex-wrap">
