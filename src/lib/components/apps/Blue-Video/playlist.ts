@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { SystemBridge } from '../../../utils/systemBridge';
+import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 
 export interface VideoItem { name: string; url: string; }
 
@@ -30,5 +30,9 @@ export function createPlaylist() {
 }
 
 export async function openInMPV(url: string): Promise<void> {
-  await SystemBridge.executeCommand(`mpv ${JSON.stringify(url)} 2>/dev/null || vlc ${JSON.stringify(url)} 2>/dev/null &`).catch(() => {});
+  // Previously JSON.stringify(url) — that's double-quoting, which the
+  // shell still expands ($()/backticks) inside; a crafted/pasted URL
+  // containing such syntax would execute as a command. shellQuote()
+  // (real single-quoting) is what actually neutralizes the shell.
+  await SystemBridge.executeCommand(`mpv ${shellQuote(url)} 2>/dev/null || vlc ${shellQuote(url)} 2>/dev/null &`).catch(() => {});
 }
