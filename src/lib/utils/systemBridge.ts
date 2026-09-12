@@ -29,6 +29,14 @@ export interface SystemTheme {
 }
 
 
+/** See UserConfig.clonedApps's doc comment for what this does and, more
+ * importantly, what it doesn't do yet (per-app data isolation). */
+export interface ClonedAppEntry {
+    id: string;
+    baseAppId: string;
+    label: string;
+}
+
 export interface UserConfig {
     wallpaper: string;
     theme: string;
@@ -46,6 +54,32 @@ export interface UserConfig {
     nightLightSchedule: 'manual' | 'sunset';
     nightLightStartHour: number;
     nightLightEndHour: number;
+    /** Settings-App > "On-screen Keyboard" toggle. Defaults to `false`
+     * (opt-in) — most users have a physical keyboard, and an always-on
+     * floating overlay would just be in the way. See
+     * OnscreenKeyboard.svelte's module doc for what this actually does
+     * and, importantly, what it can't do yet (type into native/external
+     * windows — that needs a compositor-side virtual-keyboard protocol
+     * that doesn't exist yet; this only reaches focused elements inside
+     * Blue-Environment's own webview). */
+    onscreenKeyboardEnabled?: boolean;
+    /** "Cloned Apps" (Settings-App/sections/ClonedAppsSection.svelte) —
+     * a second, independently-titled launch entry for an existing app,
+     * modelled after Android's "clone app to use two accounts" feature.
+     * `id` is a fresh random id (not an AppId — clones aren't real
+     * registry entries), `baseAppId` is the underlying AppId being
+     * cloned, `label` is the user-chosen display name.
+     *
+     * Scope note, read before assuming this gives real per-clone data
+     * isolation: today this only gives a clone its own window title and
+     * a `launchArgs.cloneProfileId` value passed to the app component.
+     * Whether an app's *data* (accounts, cookies, local files) is
+     * actually separate per clone depends entirely on whether that
+     * app's own code reads `cloneProfileId` and keys its storage by it
+     * — none of the existing apps do this yet. Until an app opts in,
+     * "cloning" it just gives you a second window/icon pointed at the
+     * same shared data, same as opening it twice normally. */
+    clonedApps?: ClonedAppEntry[];
     appsEnabled: Record<string, boolean>;
     accounts: Record<string, any>;
     aiConfig?: AIConfig;
@@ -275,12 +309,25 @@ if (isTauri) {
 
 let mockWifi = {
     connectedSSID: 'BlueNet 5G',
+    /** Mock stand-in for the real radio-power state `get_wifi_radio_enabled`
+     * reads via `nmcli radio wifi` — kept as its own field, not derived
+     * from `connectedSSID`, for the same reason the real fix does the
+     * same thing in ControlCenter.svelte: "radio is on" and "currently
+     * connected to a network" are different questions, and conflating
+     * them was the whole bug. */
+    radioEnabled: true,
     networks: [
         { ssid: 'BlueNet 5G',  signal: 92, secure: true,  in_use: true,  bssid: 'AA:BB:CC:DD:EE:FF', frequency: '5 GHz' },
         { ssid: 'BlueNet 2.4', signal: 75, secure: true,  in_use: false, bssid: 'AA:BB:CC:DD:EE:FE', frequency: '2.4 GHz' },
         { ssid: 'Free WiFi',   signal: 40, secure: false, in_use: false, bssid: '11:22:33:44:55:66', frequency: '2.4 GHz' },
     ],
 };
+
+/** Mock stand-in for `settings_bluetooth_get_powered`'s real
+ * `bluetoothctl show` check — see mockWifi.radioEnabled's doc for why
+ * this needs to be its own tracked value rather than inferred from
+ * anything else. */
+let mockBtPowered = true;
 
 let mockBt = [
     { name: 'Sony WH-1000XM4',      mac: '00:11:22:33:44', device_type: 'audio-headphones', connected: true,  paired: true, trusted: true, battery: 72   },
@@ -406,6 +453,27 @@ async function pluginDialogOpenFile(
 // ============================================================================
 // Main SystemBridge object
 // ============================================================================
+
+/**
+ * Safely single-quotes a string for embedding in a `sh -c` command
+ * string passed to `SystemBridge.executeCommand()`. This is the ONLY
+ * safe way to inline an arbitrary, untrusted string into such a
+ * command: POSIX single quotes disable interpretation of every shell
+ * special character (`$`, backticks, `\`, `"`, spaces) inside them
+ * except `'` itself, which is escaped by closing the quote, appending
+ * an escaped literal quote, and reopening it.
+ *
+ * Security note: `JSON.stringify(x)` is NOT a substitute for this. It
+ * produces a *double*-quoted string, and POSIX double quotes still let
+ * the shell interpret `$(...)` and backticks inside them — so
+ * `executeCommand(`cmd ${JSON.stringify(x)}`)` remains exploitable by
+ * any `x` containing command substitution syntax. Several call sites in
+ * this codebase used exactly that pattern (notepad/document autosave,
+ * video playback URLs) before this audit; use shellQuote() instead.
+ */
+export function shellQuote(s: string): string {
+    return `'${s.replace(/'/g, "'\\''")}'`;
+}
 
 export const SystemBridge = {
     // --- Environment ---
@@ -673,7 +741,20 @@ export const SystemBridge = {
     },
 
     disconnectWifi: async () => { if (isTauri) await invoke('disconnect_wifi'); else mockWifi.connectedSSID = ''; },
-    toggleWifi:     async (enabled: boolean) => { if (isTauri) await invoke('toggle_wifi', { enabled }); else if (!enabled) mockWifi.connectedSSID = ''; },
+    toggleWifi:     async (enabled: boolean) => {
+        if (isTauri) await invoke('toggle_wifi', { enabled });
+        mockWifi.radioEnabled = enabled;
+        if (!enabled) mockWifi.connectedSSID = '';
+    },
+    /** The actual Wi-Fi radio power state — see get_wifi_radio_enabled's
+     * doc comment (src-tauri/src/commands/network.rs) for the bug this
+     * exists to fix: it is NOT the same thing as "is connected to a
+     * network right now", which is what ControlCenter.svelte was
+     * wrongly using to derive its on/off toggle before this fix. */
+    getWifiRadioEnabled: async (): Promise<boolean> => {
+        if (isTauri) { try { return await invoke('get_wifi_radio_enabled'); } catch { return true; } }
+        return mockWifi.radioEnabled;
+    },
 
     /** Every saved Wi-Fi connection profile — see the Rust command's doc
      * comment (src-tauri/src/commands/network.rs) for why this is a
@@ -748,6 +829,27 @@ export const SystemBridge = {
         if (!dev) return;
         if (dev.connected) await SystemBridge.bluetoothDisconnect(mac);
         else               await SystemBridge.bluetoothConnect(mac);
+    },
+
+    /** Actual Bluetooth *adapter* power state (`bluetoothctl show` →
+     * `Powered: yes`/`no`) — previously nothing in the app read this at
+     * all; Control Center's Bluetooth toggle tracked a bare local
+     * boolean with zero connection to the real adapter (see
+     * ControlCenter.svelte's fix). Backed by
+     * `settings_bluetooth_get_powered` (SettingsApp/mod.rs), which
+     * already existed and was already registered as a Tauri command,
+     * just never called from anywhere. */
+    getBluetoothPowered: async (): Promise<boolean> => {
+        if (isTauri) { try { return await invoke('settings_bluetooth_get_powered'); } catch { return true; } }
+        return mockBtPowered;
+    },
+    /** Actually powers the adapter on/off, via `settings_bluetooth_toggle`
+     * (SettingsApp/mod.rs) — that command already existed and was
+     * already registered too; Control Center's toggle just never called
+     * it, flipping only its own local display state instead. */
+    setBluetoothPowered: async (enabled: boolean): Promise<void> => {
+        if (isTauri) { try { await invoke('settings_bluetooth_toggle', { enabled }); } catch { /* best effort, mirrors toggleWifi's own error handling */ } }
+        mockBtPowered = enabled;
     },
 
     // --- Brightness ---
