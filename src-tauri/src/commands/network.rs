@@ -69,13 +69,57 @@ pub fn connect_wifi_real(ssid: String, password: String) -> Result<String, Strin
 
 #[tauri::command]
 pub fn disconnect_wifi() -> Result<(), String> {
-    Command::new("nmcli").args(["dev", "disconnect", "wlan0"]).spawn().map_err(|e| e.to_string())?;
+    // Previously hardcoded "wlan0" — wrong on most modern distros, which
+    // use predictable network interface names (wlp3s0, wlo1, ...), so
+    // this silently did nothing on the majority of real systems. Ask
+    // nmcli for the actually-connected Wi-Fi device instead of assuming
+    // a name.
+    let list = Command::new("nmcli")
+        .args(["-t", "-f", "DEVICE,TYPE,STATE", "dev"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&list.stdout);
+    let device = stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() == 3 && parts[1] == "wifi" && parts[2] == "connected" {
+                Some(parts[0].to_string())
+            } else {
+                None
+            }
+        })
+        .next()
+        .ok_or_else(|| "no connected Wi-Fi device found".to_string())?;
+
+    Command::new("nmcli")
+        .args(["dev", "disconnect", &device])
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn toggle_wifi(enabled: bool) {
     let _ = Command::new("nmcli").args(["radio", "wifi", if enabled { "on" } else { "off" }]).spawn();
+}
+
+/// Reads the *actual* Wi-Fi radio power state (`nmcli radio wifi`,
+/// which prints exactly `enabled` or `disabled`) — as opposed to
+/// "currently connected to a network", which is a completely different
+/// thing the frontend was previously (wrongly) treating as the same
+/// concept. See ControlCenter.svelte's fix for the full bug this closes:
+/// the on/off toggle was derived from connection status, not radio
+/// power, so it could show "off" while the radio was genuinely on (and
+/// therefore still connectable/scannable) any time the device simply
+/// wasn't associated with a network at that moment.
+#[tauri::command]
+pub fn get_wifi_radio_enabled() -> bool {
+    Command::new("nmcli")
+        .args(["radio", "wifi"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "enabled")
+        .unwrap_or(true) // fail open to "enabled" — matches nmcli's own default assumption absent evidence otherwise, and avoids permanently locking the UI into a false "off" state on a transient command failure
 }
 
 /// Lists every *saved* Wi-Fi connection profile (nmcli calls these
