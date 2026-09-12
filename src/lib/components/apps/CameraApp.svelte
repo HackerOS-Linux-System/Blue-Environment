@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { SystemBridge } from '../../utils/systemBridge';
+  import { SystemBridge, toAssetUrl } from '../../utils/systemBridge';
   import {
     Camera, Video, Image, FlipHorizontal, Settings, Circle, Square,
     RefreshCw, AlertTriangle, SwitchCamera, Grid3x3, X, Info,
@@ -337,10 +337,15 @@
     <div class="flex items-center justify-center gap-8 px-4 py-4 relative">
       <div class="w-14 h-14 rounded-xl overflow-hidden bg-slate-800 border border-white/10 shrink-0">
         {#if captures.length > 0}
+          <!-- `captures[0].url` is a `file://<path>` string (this
+               component builds it a few lines up after saving a
+               photo/video) — same webview-loading fix as
+               AppIconGlyph.svelte/BlueVideoApp.svelte: a plain
+               `file://` src silently fails in the real Tauri app. -->
           {#if captures[0].type === 'photo'}
-            <img src={captures[0].url} class="w-full h-full object-cover" alt="" />
+            <img src={toAssetUrl(captures[0].url)} class="w-full h-full object-cover" alt="" />
           {:else}
-            <video src={captures[0].url} class="w-full h-full object-cover">
+            <video src={toAssetUrl(captures[0].url)} class="w-full h-full object-cover">
               <track kind="captions" />
             </video>
           {/if}
