@@ -45,7 +45,13 @@
     const expandedDir = dir.startsWith('~/') ? dir.replace('~', '$HOME') : dir;
     const expandedOut = `${expandedDir}/${name}.${format}`;
 
-    await SystemBridge.executeCommand(`mkdir -p "${expandedDir}"`).catch(() => {});
+    // `expandedDir` comes from the editable "destination folder" text
+    // field in this dialog, so it must be single-quote-escaped the same
+    // way `getCmd()` below already (correctly) escapes `output`/`files`
+    // — a double-quoted, unescaped interpolation here was a shell
+    // injection hole via that text field.
+    const dirQ = `'${expandedDir.replace(/'/g, "'\\''")}'`;
+    await SystemBridge.executeCommand(`mkdir -p ${dirQ}`).catch(() => {});
 
     const cmd = getCmd(format, expandedOut, files);
     log = `Running: ${cmd}\n`;
