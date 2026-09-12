@@ -3,7 +3,7 @@
   import {
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
-    Sparkles, Puzzle, Layers,
+    Sparkles, Puzzle, Layers, Clock, Keyboard, Copy,
   } from 'lucide-svelte';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
@@ -27,6 +27,9 @@
   import AboutSection from './sections/AboutSection.svelte';
   import SecuritySection from './sections/SecuritySection.svelte';
   import ParentalControlsSection from './sections/ParentalControlsSection.svelte';
+  import ScreenTimeSection from './sections/ScreenTimeSection.svelte';
+  import KeyboardSection from './sections/KeyboardSection.svelte';
+  import ClonedAppsSection from './sections/ClonedAppsSection.svelte';
   import DefaultAppsSection from './sections/DefaultAppsSection.svelte';
   import MonitorsSection from '../../settings/MonitorsSection.svelte';
   import PrintersSection from '../../settings/PrintersSection.svelte';
@@ -47,11 +50,14 @@
     { id: 'monitors', labelKey: 'settings.tab.monitors', icon: Monitor, group: 'Hardware' },
     { id: 'printers', labelKey: 'settings.tab.printers', icon: Printer, group: 'Hardware' },
     { id: 'power', labelKey: 'settings.tab.power', icon: BatteryCharging, group: 'Hardware' },
+    { id: 'keyboard', labelKey: 'settings.tab.keyboard', icon: Keyboard, group: 'Hardware' },
     { id: 'apps', labelKey: 'settings.tab.applications', icon: LayoutGrid, group: 'System' },
     { id: 'default_apps', labelKey: 'settings.tab.default_apps', icon: LayoutGrid, group: 'System' },
     { id: 'users', labelKey: 'settings.tab.users', icon: Users, group: 'System' },
     { id: 'security', labelKey: 'settings.tab.security', icon: Shield, group: 'Account' },
     { id: 'parental_controls', labelKey: 'settings.tab.parental_controls', icon: ShieldCheck, group: 'Account' },
+    { id: 'screen_time', labelKey: 'settings.tab.screen_time', icon: Clock, group: 'Account' },
+    { id: 'cloned_apps', labelKey: 'settings.tab.cloned_apps', icon: Copy, group: 'Account' },
     { id: 'accounts', labelKey: 'settings.tab.accounts', icon: UserCircle, group: 'Account' },
     { id: 'about', labelKey: 'settings.tab.about', icon: Info, group: 'Account' },
   ];
@@ -64,7 +70,8 @@
     Account: 'settings.group.account',
   };
 
-  let activeTab: SettingsTab = 'display';
+  export let initialTab: SettingsTab | undefined = undefined;
+  let activeTab: SettingsTab = initialTab ?? 'display';
   let query = '';
   let config: UserConfig | null = null;
   let customThemeCount = 0;
@@ -195,6 +202,9 @@
       {:else if activeTab === 'accounts'}<AccountsSection {config} {onSave} />
       {:else if activeTab === 'security'}<SecuritySection />
       {:else if activeTab === 'parental_controls'}<ParentalControlsSection />
+      {:else if activeTab === 'screen_time'}<ScreenTimeSection />
+      {:else if activeTab === 'keyboard'}<KeyboardSection {config} {onSave} />
+      {:else if activeTab === 'cloned_apps'}<ClonedAppsSection {config} {onSave} />
       {:else if activeTab === 'about'}<AboutSection />
       {/if}
     </div>
