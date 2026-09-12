@@ -23,8 +23,28 @@
   let error: string | null = null;
   let isGitRepo = false;
 
+  // Security note: `run()` sends its argument straight to a `sh -c`
+  // shell (via SystemBridge.executeCommand). Every piece of this string
+  // that isn't a fixed literal — file paths from the repo's own file
+  // list, the commit message the user typed, `cwd` itself — MUST go
+  // through shq() before being embedded. Single-quoting is the only
+  // POSIX-shell-safe way to inline an arbitrary string: unlike double
+  // quotes, it disables *every* special character inside it (including
+  // `$`, backticks, and `\`), so there is no combination of characters
+  // in a file name or commit message that can break out of it.
+  //
+  // Previously several call sites below used `"${path}"` (double
+  // quotes, unescaped) instead — which meant simply opening someone
+  // else's cloned repository containing a maliciously named file (e.g.
+  // `foo"; touch ~/PWNED; echo "`) and clicking "Stage" would run
+  // arbitrary shell commands. Fixed by routing every interpolated value
+  // through shq().
+  function shq(s: string): string {
+    return `'${s.replace(/'/g, "'\\''")}'`;
+  }
+
   async function run(cmd: string): Promise<string> {
-    const r = await SystemBridge.executeCommand(`cd "${cwd}" && ${cmd} 2>&1`);
+    const r = await SystemBridge.executeCommand(`cd ${shq(cwd)} && ${cmd} 2>&1`);
     return typeof r === 'string' ? r : (r as any)?.stdout || '';
   }
 
@@ -63,22 +83,26 @@
 
   $: if (cwd) refresh();
 
-  async function stageFile(path: string) { await run(`git add "${path}"`); refresh(); }
-  async function unstageFile(path: string) { await run(`git reset HEAD "${path}"`); refresh(); }
+  async function stageFile(path: string) { await run(`git add ${shq(path)}`); refresh(); }
+  async function unstageFile(path: string) { await run(`git reset HEAD ${shq(path)}`); refresh(); }
   async function discardFile(path: string) {
     const ok = await dialogConfirm({ title: 'Discard changes', message: `Discard changes to ${path}? This cannot be undone.`, confirmLabel: 'Discard', danger: true });
     if (!ok) return;
-    await run(`git checkout -- "${path}"`); refresh();
+    await run(`git checkout -- ${shq(path)}`); refresh();
   }
   async function stageAll() { await run('git add -A'); refresh(); }
   async function commit() {
     if (!commitMsg.trim()) return;
-    await run(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`);
+    // Previously escaped only `"` (commitMsg.replace(/"/g, '\\"')),
+    // which still let `$(...)`/backticks inside a typed commit message
+    // execute as shell command substitution. shq() (single-quoting)
+    // closes that.
+    await run(`git commit -m ${shq(commitMsg)}`);
     commitMsg = ''; refresh();
   }
   async function push() { loading = true; const out = await run('git push 2>&1'); error = out.includes('error') ? out : null; loading = false; refresh(); }
   async function pull() { loading = true; const out = await run('git pull 2>&1'); error = out.includes('error') ? out : null; loading = false; refresh(); }
-  async function showDiff(path: string) { selectedFile = path; diff = (await run(`git diff HEAD -- "${path}"`)) || '(no diff)'; tab = 'diff'; }
+  async function showDiff(path: string) { selectedFile = path; diff = (await run(`git diff HEAD -- ${shq(path)}`)) || '(no diff)'; tab = 'diff'; }
 
   const STATUS_COLOR: Record<string, string> = { M: 'text-yellow-400', A: 'text-green-400', D: 'text-red-400', '?': 'text-slate-400', R: 'text-blue-400' };
 
@@ -191,7 +215,7 @@
       <div class="flex-1 overflow-y-auto">
         {#each commits as c (c.hash)}
           <div class="px-3 py-2.5 border-b border-white/5 hover:bg-white/5 cursor-pointer"
-            on:click={() => run(`git show ${c.hash}`).then((d) => { diff = d; tab = 'diff'; })} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => run(`git show ${c.hash}`).then((d) => { diff = d; tab = 'diff'; }))(); } }}>
+            on:click={() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; })} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; }))(); } }}>
             <div class="flex items-center gap-2 mb-0.5">
               <code class="text-blue-400 text-[10px] font-mono">{c.hash}</code>
               <span class="text-[10px] text-slate-500 ml-auto">{c.date}</span>
