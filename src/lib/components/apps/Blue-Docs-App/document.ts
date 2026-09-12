@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import type { DocFile, DocFormat } from './types';
 import { emptyPresentation } from './types';
-import { SystemBridge } from '../../../utils/systemBridge';
+import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 import { exportPptx, importPptx } from './pptxFile';
 
 const AUTOSAVE_INTERVAL = 20_000;
@@ -122,7 +122,13 @@ export function createDocumentState() {
         await SystemBridge.saveFile(doc.path, dataUrl);
       } else {
         const expandedPath = doc.path.startsWith('~/') ? doc.path.replace('~', '$HOME') : doc.path;
-        await SystemBridge.executeCommand(`mkdir -p "$(dirname '${expandedPath}')" && printf '%s' ${JSON.stringify(doc.content)} > '${expandedPath}'`);
+        // Previously: unescaped `'${expandedPath}'` (breaks if the path
+        // itself contains a `'`) and `${JSON.stringify(doc.content)}`
+        // (JSON's double-quoting still lets the shell expand
+        // `$(...)`/backticks embedded in ordinary document text — see
+        // systemBridge.ts's shellQuote() doc for why). A document whose
+        // text contained a backtick command would run it on save.
+        await SystemBridge.executeCommand(`mkdir -p "$(dirname ${shellQuote(expandedPath)})" && printf '%s' ${shellQuote(doc.content)} > ${shellQuote(expandedPath)}`);
       }
       docs.update((ds) => ds.map((d) => (d.id === doc.id ? { ...d, modified: false } : d)));
       return true;
