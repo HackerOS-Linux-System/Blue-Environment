@@ -1,4 +1,4 @@
-import { SystemBridge } from '../../../utils/systemBridge';
+import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 
 function out(r: any): string {
   return typeof r === 'string' ? r : (r?.stdout ?? '') + (r?.stderr ?? '');
@@ -20,7 +20,7 @@ export async function applyResolution(res: string): Promise<void> {
 async function applyXrandrMode(w: string, h: string): Promise<void> {
   const o = await SystemBridge.executeCommand(`xrandr | grep ' connected' | head -1 | cut -d' ' -f1`);
   const mon = out(o).trim();
-  if (mon) await SystemBridge.executeCommand(`xrandr --output "${mon}" --mode ${w}x${h} 2>&1`);
+  if (mon) await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon)} --mode ${w}x${h} 2>&1`);
 }
 
 export async function applyRefreshRate(rate: number): Promise<void> {
@@ -38,7 +38,7 @@ export async function applyRefreshRate(rate: number): Promise<void> {
 async function applyXrandrRate(rate: number): Promise<void> {
   const o = await SystemBridge.executeCommand(`xrandr | grep ' connected' | head -1 | cut -d' ' -f1`);
   const mon = out(o).trim();
-  if (mon) await SystemBridge.executeCommand(`xrandr --output "${mon}" --rate ${rate} 2>&1`);
+  if (mon) await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon)} --rate ${rate} 2>&1`);
 }
 
 export async function getAvailableModes(): Promise<{ resolution: string; rates: number[] }[]> {
@@ -117,7 +117,7 @@ export async function applyNightLight(
   if (!enabled) {
     const o = await SystemBridge.executeCommand(`xrandr | grep ' connected' | head -1 | cut -d' ' -f1`);
     const mon = out(o).trim();
-    if (mon) await SystemBridge.executeCommand(`xrandr --output "${mon}" --gamma 1:1:1 2>/dev/null || true`);
+    if (mon) await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon)} --gamma 1:1:1 2>/dev/null || true`);
     return;
   }
   const session = await SystemBridge.getSessionType();
