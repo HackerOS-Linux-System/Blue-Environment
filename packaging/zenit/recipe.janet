@@ -77,6 +77,33 @@
         :brew (try-run (string "brew install " pkgs))
         false))))
 
+# ---------------------------------------------------------------------
+# `cargo` i `git` są potrzebne w DWÓCH niezależnych krokach tego recipe
+# (budowa powłoki blue-environment poniżej ORAZ budowa osobnego projektu
+# HackerOS-Comp dalej) -- wydzielone jako funkcje, żeby nie duplikować
+# tej samej logiki instalowania dwa razy.
+# ---------------------------------------------------------------------
+
+(defn ensure-cargo! []
+  (unless (have? "cargo")
+    (eprint "recipe.janet: brak 'cargo' -- próbuję zainstalować (" (detect-pm) ")...")
+    (pm-install {:apt "cargo" :dnf "cargo" :pacman "rust" :zypper "cargo" :apk "cargo" :brew "rust"})
+    (unless (have? "cargo")
+      (eprint "recipe.janet: 'cargo' nadal niedostępne -- próbuję rustup (oficjalny instalator)...")
+      (try-run "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+      (def cargo-bin-dir (string (os/getenv "HOME") "/.cargo/bin"))
+      (when (os/stat (string cargo-bin-dir "/cargo") :mode)
+        (os/setenv "PATH" (string cargo-bin-dir ":" (os/getenv "PATH"))))))
+  (unless (have? "cargo")
+    (fail "nie udało się zapewnić 'cargo' -- zainstaluj Rust ręcznie (rustup) i uruchom ponownie")))
+
+(defn ensure-git! []
+  (unless (have? "git")
+    (eprint "recipe.janet: brak 'git' -- próbuję zainstalować (" (detect-pm) ")...")
+    (pm-install {:apt "git" :dnf "git" :pacman "git" :zypper "git" :apk "git" :brew "git"}))
+  (unless (have? "git")
+    (fail "nie udało się zapewnić 'git' -- zainstaluj go ręcznie (menedżer pakietów dystrybucji) i uruchom ponownie")))
+
 # packaging/zenit/recipe.janet leży dwa poziomy pod korzeniem repo
 # (packaging/zenit -> packaging -> <root>) -- zpk zawsze ustawia cwd
 # recipe na katalog z zpk.build, więc korzeń repo liczymy względem
@@ -118,17 +145,7 @@
     # cargo -- pakiet dystrybucyjny, w ostateczności rustup (działa
     # identycznie na każdej dystrybucji, nie wymaga roota).
     # -----------------------------------------------------------
-    (unless (have? "cargo")
-      (eprint "recipe.janet: brak 'cargo' -- próbuję zainstalować (" (detect-pm) ")...")
-      (pm-install {:apt "cargo" :dnf "cargo" :pacman "rust" :zypper "cargo" :apk "cargo" :brew "rust"})
-      (unless (have? "cargo")
-        (eprint "recipe.janet: 'cargo' nadal niedostępne -- próbuję rustup (oficjalny instalator)...")
-        (try-run "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
-        (def cargo-bin-dir (string (os/getenv "HOME") "/.cargo/bin"))
-        (when (os/stat (string cargo-bin-dir "/cargo") :mode)
-          (os/setenv "PATH" (string cargo-bin-dir ":" (os/getenv "PATH"))))))
-    (unless (have? "cargo")
-      (fail "nie udało się zapewnić 'cargo' -- zainstaluj Rust ręcznie (rustup) i uruchom ponownie"))
+    (ensure-cargo!)
 
     # -----------------------------------------------------------
     # Nagłówki GTK/WebKit/libsoup -- Tauri na Linuksie linkuje się z
@@ -173,6 +190,69 @@
 (unless (os/stat bin-path :mode)
   (fail (string "nie znaleziono zbudowanej binarki: " bin-path)))
 
+# ---------------------------------------------------------------------
+# HackerOS-Comp -- kompozytor Wayland dla tej sesji. To OSOBNY projekt
+# (osobne repo, osobny workspace Cargo) -- w odróżnieniu od
+# blue-environment (powłoki, budowanej wyżej z repo-root tego samego
+# repo), tutaj świeżo KLONUJEMY całe repo z GitHuba i budujemy je
+# `cargo build --release` we własnym katalogu roboczym, poza `stage`
+# (żeby do pakietu nie wpadło przypadkiem całe sklonowane źródło --
+# do stage trafia POTEM wyłącznie sama zbudowana binarka).
+# ---------------------------------------------------------------------
+
+(def compositor-repo-url "https://github.com/HackerOS-Linux-System/HackerOS-Comp.git")
+(def compositor-bin-name "hackeros-comp")
+
+(def compositor-prebuilt (os/getenv "ZPK_PACKAGING_PREBUILT_COMP_BIN"))
+
+(var compositor-bin-path nil)
+
+(if (and compositor-prebuilt (> (length compositor-prebuilt) 0))
+  # Analogicznie do ZPK_PACKAGING_PREBUILT_BIN wyżej -- operator/CI
+  # zbudował już HackerOS-Comp wcześniej w tym samym biegu, więc nie
+  # klonujemy i nie budujemy drugi raz.
+  (set compositor-bin-path compositor-prebuilt)
+  (do
+    (ensure-git!)
+    (ensure-cargo!)
+
+    # -----------------------------------------------------------
+    # Nagłówki wymagane przez Smithay (HackerOS-Comp ma
+    # backend_udev/backend_gbm włączone w Cargo.toml bezwarunkowo,
+    # nawet że domyślnym backendem w main.rs jest winit) -- bez nich
+    # `cargo build` pada na etapie linkowania crate'ów *-sys
+    # (libwayland/libxkbcommon/libinput/libgbm/libudev/EGL), analogicznie
+    # do sekcji webkit2gtk/gtk3/libsoup3 dla blue-environment wyżej.
+    # -----------------------------------------------------------
+    (unless (try-run "pkg-config --exists wayland-server xkbcommon libinput gbm libudev egl")
+      (eprint "recipe.janet: brak nagłówków Wayland/libinput/gbm/udev/EGL wymaganych przez HackerOS-Comp (Smithay) -- próbuję zainstalować (" (detect-pm) ")...")
+      (pm-install {:apt "libwayland-dev libxkbcommon-dev libinput-dev libgbm-dev libudev-dev libegl1-mesa-dev libgles2-mesa-dev libseat-dev"
+                   :dnf "wayland-devel libxkbcommon-devel libinput-devel mesa-libgbm-devel systemd-devel mesa-libEGL-devel mesa-libGLES-devel libseat-devel"
+                   :pacman "wayland libxkbcommon libinput mesa systemd-libs libglvnd seatd"
+                   :zypper "wayland-devel libxkbcommon-devel libinput-devel mesa-libgbm-devel libudev-devel Mesa-libEGL-devel libseat-devel"
+                   :apk "wayland-dev libxkbcommon-dev libinput-dev mesa-dev eudev-dev libseat-dev"
+                   :brew nil})
+      (unless (try-run "pkg-config --exists wayland-server xkbcommon libinput gbm libudev egl")
+        (eprint "recipe.janet: uwaga -- nadal nie widzę wayland-server/xkbcommon/libinput/gbm/libudev/egl przez pkg-config; jeśli build `cargo` HackerOS-Comp zaraz padnie, doinstaluj je ręcznie dla swojej dystrybucji")))
+
+    # Katalog roboczy pod klon -- NIE `stage` (patrz komentarz wyżej) i
+    # NIE `repo-root` (to inne repo, nie ma po co mieszać go z drzewem
+    # Blue-Environment). ZPK_PACKAGING_WORKDIR pozwala go nadpisać (np.
+    # w CI z ograniczonym /tmp); domyślnie TMPDIR, a w ostateczności /tmp.
+    (def work-root (or (os/getenv "ZPK_PACKAGING_WORKDIR") (os/getenv "TMPDIR") "/tmp"))
+    (def compositor-src-dir (string work-root "/zpk-build-hackeros-comp-src"))
+
+    # Świeży klon za każdym razem -- prościej i pewniej niż `git pull`
+    # w potencjalnie rozjechanym katalogu z poprzedniego, przerwanego builda.
+    (try-run (string "rm -rf " compositor-src-dir))
+    (run (string "git clone --depth 1 " compositor-repo-url " " compositor-src-dir))
+    (run (string "cd " compositor-src-dir " && cargo build --release"))
+
+    (set compositor-bin-path (string compositor-src-dir "/target/release/" compositor-bin-name))))
+
+(unless (os/stat compositor-bin-path :mode)
+  (fail (string "nie znaleziono zbudowanej binarki kompozytora: " compositor-bin-path)))
+
 (def share-dir (string stage "/usr/share/Blue-Environment"))
 (def apps-dir (string stage "/usr/share/applications"))
 (ensure-dir-p share-dir)
@@ -186,11 +266,18 @@
 (when (os/stat icon-src :mode)
   (spit (string share-dir "/icon.png") (slurp icon-src)))
 
+# HackerOS-Comp -- w odróżnieniu od blue-environment (prywatnej binarki
+# tej apki, w usr/share/Blue-Environment/) trafia do usr/bin/ jako
+# zwykłe, systemowe polecenie.
+(def bin-dir (string stage "/usr/bin"))
+(ensure-dir-p bin-dir)
+(def dest-compositor-bin (string bin-dir "/" compositor-bin-name))
+(spit dest-compositor-bin (slurp compositor-bin-path))
+(run (string "chmod +x " dest-compositor-bin))
+
 # Wpis .desktop wskazujący bezpośrednio na zainstalowaną binarkę --
-# ten pakiet nie zawiera kompozytora Wayland (compositor/) ani CLI
-# `blue` (launcher/), więc nie instalujemy sesji w
-# usr/share/wayland-sessions/ (patrz build_deb w build.hl dla pełnego
-# wariantu, gdy oba te komponenty są obecne).
+# menu/launcher aplikacji (usr/share/applications), NIE sesja logowania
+# (ta jest osobno, niżej).
 (spit (string apps-dir "/blue-environment.desktop")
       (string "[Desktop Entry]\n"
               "Name=Blue Environment\n"
@@ -199,3 +286,15 @@
               "Icon=" share-dir "/icon.png\n"
               "Type=Application\n"
               "Categories=System;\n"))
+
+# Sesja Wayland dla menedżera logowania -- ten pakiet ZAWIERA już
+# kompozytor (hackeros-comp, wyżej), więc w odróżnieniu od wcześniejszej
+# wersji tego recipe instalujemy też wpis sesji, kopiując GOTOWY plik z
+# config/Blue-Environment.desktop (repo Blue-Environment), zamiast
+# generować go ręcznie jak wpis dla usr/share/applications powyżej.
+(def sessions-dir (string stage "/usr/share/wayland-sessions"))
+(ensure-dir-p sessions-dir)
+(def session-desktop-src (string repo-root "/config/Blue-Environment.desktop"))
+(unless (os/stat session-desktop-src :mode)
+  (fail (string "nie znaleziono pliku sesji: " session-desktop-src)))
+(spit (string sessions-dir "/Blue-Environment.desktop") (slurp session-desktop-src))
