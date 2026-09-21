@@ -4,6 +4,7 @@ extern crate libc;
 
 mod types;
 mod commands;
+mod backend;
 mod logging;
 
 mod session;
@@ -128,6 +129,28 @@ use commands::packages::*;
 use commands::misc::*;
 
 fn main() {
+    // ── Backend gate (config.hk → [backend] compositor) ───────────────────
+    // Must run before anything else (logging, Tauri): on the labwc backend
+    // this call *replaces the process* with `labwc -s "<this binary>
+    // --labwc-child"`, and labwc then launches the shell as its startup
+    // client. With the classic `hackeros-comp` backend it returns
+    // immediately and everything below runs exactly as it always did.
+    let cli_args: Vec<String> = std::env::args().skip(1).collect();
+    if cli_args.first().map(|a| a == "--ctl").unwrap_or(false) {
+        // `blue-environment --ctl toggle-start-menu` — talks to the running
+        // shell (this is what the generated labwc keybinds call).
+        std::process::exit(backend::shell_ipc::run_cli(&cli_args[1..]));
+    }
+    if cli_args.iter().any(|a| a == "--backend-info") {
+        println!("{}", serde_json::to_string_pretty(&backend::info()).unwrap_or_default());
+        return;
+    }
+    if let backend::StartupAction::LaunchLabwc { binary, config } = backend::plan_startup(&cli_args) {
+        let problem = backend::exec_labwc(&binary, &config, &cli_args);
+        // Only reached if exec failed — keep going as a plain shell.
+        eprintln!("[blue-backend] {problem} — starting the shell without a compositor backend");
+    }
+
     // Must be first — everything below this point may log, and before
     // this call every `tracing::*!` in the codebase was a silent no-op
     // (see logging.rs's module doc for why). The guard has to live for
@@ -170,6 +193,8 @@ fn main() {
     .plugin(tauri_plugin_global_shortcut::Builder::new().build())
     .invoke_handler(tauri::generate_handler![
         get_session_type,
+        get_battery_status,
+        commands::backend::backend_get_info, commands::backend::backend_set_compositor, commands::backend::focus_shell,
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
         exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
@@ -327,14 +352,52 @@ fn main() {
         BlueDocs::docs_export_docx,
     ])
     .setup(|app| {
-        // ── Compositor IPC relay ──────────────────────────────────────────
-        // Listens to the compositor's Unix socket and re-emits events
-        // as Tauri events so the frontend can react to window list changes,
-        // workspace switches, screenshot completions, etc.
-        let app_handle = app.handle().clone();
-        std::thread::spawn(move || {
-            compositor_ipc_relay(app_handle);
+        use tauri::{Emitter, Manager};
+
+        // ── Backend events ────────────────────────────────────────────────
+        // Backend threads (labwc window tracker, clipboard watcher, control
+        // socket) deliver their events to the UI through this sink — the
+        // same event names HackerOS-Comp's IPC relay uses.
+        let sink_handle = app.handle().clone();
+        backend::set_event_sink(std::sync::Arc::new(move |name: &str, payload: serde_json::Value| {
+            let _ = sink_handle.emit(name, payload);
+        }));
+
+        // Control socket: `blue-environment --ctl <command>` (labwc keybinds,
+        // scripts, or HackerOS-Comp if it ever wants to use it too).
+        let ipc_handle = app.handle().clone();
+        backend::shell_ipc::start_server(move |cmd, arg| {
+            if cmd == "restart-shell" {
+                system_power("restart_shell".to_string());
+                return;
+            }
+            let _ = ipc_handle.emit("shell:command", serde_json::json!({ "cmd": cmd, "arg": arg }));
         });
+
+        if backend::is_labwc() {
+            // ── labwc backend: everything is native, no HackerOS-Comp ─────
+            backend::toplevels::start();
+            backend::clipboard::start_watcher(|text| {
+                add_to_clipboard_history(text.clone());
+                backend::emit("clipboard:changed", serde_json::json!({ "text": text }));
+            });
+            // The shell is the desktop: cover the whole output (labwc's
+            // `<margin>` for the top bar only affects *native* windows) —
+            // the windowRule in rc.xml keeps it beneath them.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+                let _ = window.set_fullscreen(true);
+            }
+        } else {
+            // ── Compositor IPC relay (HackerOS-Comp) ──────────────────────
+            // Listens to the compositor's Unix socket and re-emits events
+            // as Tauri events so the frontend can react to window list
+            // changes, workspace switches, screenshot completions, etc.
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                compositor_ipc_relay(app_handle);
+            });
+        }
 
         // Debug-only — verifies the web-* capability scoping
         // content_blocking.rs/the title-favicon bridge rely on actually
