@@ -3,7 +3,7 @@ import type { WindowState, ExternalWindow } from '../types';
 import { AppId } from '../types';
 import { APPS } from '../constants';
 import { SystemBridge } from '../utils/systemBridge';
-import { CompositorBridge } from '../utils/compositorBridge';
+import { CompositorBridge, isLabwcBackend } from '../utils/compositorBridge';
 import { configStore } from '../utils/configStore';
 import { notificationManager } from '../utils/notificationManager';
 
@@ -88,6 +88,10 @@ export function activateSwitcherItem(item: SwitcherItem) {
   if (item.isExternal) {
     SystemBridge.focusExternalWindow(item.id);
   } else {
+    // On labwc, native windows are real compositor windows stacked *above*
+    // the shell, so a Blue window could stay hidden behind them — clear them
+    // out of the way (minimize) and focus the shell first.
+    isLabwcBackend().then((labwc) => { if (labwc) CompositorBridge.raiseShell(); });
     focusWindow(item.id);
   }
 }
