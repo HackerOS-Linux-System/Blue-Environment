@@ -256,6 +256,15 @@ pub fn load_distro_info() -> std::collections::HashMap<String, String> {
 
 #[tauri::command]
 pub fn system_power(action: String) {
+    // Log out on the labwc backend: ask labwc to exit (`labwc -e`) — that
+    // ends the whole session cleanly instead of `pkill`-ing the user.
+    if action == "logout" && crate::backend::is_labwc() {
+        std::thread::spawn(|| {
+            crate::backend::shell_ipc::cleanup();
+            crate::backend::labwc_exit();
+        });
+        return;
+    }
     let cmd = match action.as_str() {
         "shutdown"  => "shutdown -h now",
         "reboot"    => "reboot",
@@ -274,6 +283,8 @@ pub fn system_power(action: String) {
         // ever restarts the shell side.
         "restart_shell" => {
             if let Ok(exe) = std::env::current_exe() {
+                // Free the control socket first so the new instance can bind it.
+                crate::backend::shell_ipc::cleanup();
                 let _ = Command::new(exe).spawn();
             }
             std::process::exit(0);
