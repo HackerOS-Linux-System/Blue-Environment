@@ -1,5 +1,5 @@
 # ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
-# Blue Environment v0.7
+# Blue Environment v0.8
 
 Production-grade Wayland desktop environment for LegendaryOS, built on
 [Smithay](https://github.com/Smithay/smithay) (compositor) and
@@ -184,6 +184,63 @@ blue-environment/
                                        foreign-toplevel-management, output-management,
                                        screencopy
 ```
+
+## Compositor backends (hackeros-comp / labwc)
+
+Blue Environment can run on two compositors. The choice is made in the
+`[backend]` section of `config.hk` (HackerOS Configuration Format):
+
+```
+[backend]
+-> compositor => labwc            ! or: hackeros-comp  (the default)
+-> labwc_binary => labwc          ! optional: name or full path
+-> labwc_args =>                  ! optional: extra labwc arguments
+-> labwc_config_dir =>            ! optional: default ~/.config/labwc
+-> generate_labwc_config => true  ! create a default labwc config if none exists
+```
+
+**Which file?** An existing `config.hk` is used wherever it already is
+(`$BLUE_CONFIG_HK`, `$XDG_CONFIG_HOME/Blue-Environment/`,
+`~/.config/Blue-Environment/`, then `/etc/xdg/Blue-Environment/`). If there
+is none, a default one is created at `~/.config/Blue-Environment/config.hk`.
+
+**Start-up** — the classic `blue-environment` invocation reads that file:
+
+| `compositor` | What happens |
+|---|---|
+| `hackeros-comp` | Nothing changes: the binary runs as the shell, exactly as before. |
+| `labwc` | Missing labwc config is generated (never overwriting anything), then the process becomes `labwc -s "blue-environment --labwc-child"`; labwc launches the shell. **HackerOS-Comp is not required.** |
+| `labwc`, but labwc isn't installed | Warning, then the classic behaviour. |
+
+If a display session already exists, labwc is not nested (force with
+`--start-backend`); `--no-backend` always just runs the shell;
+`--backend-info` prints what was detected.
+
+**What works natively on labwc** (`src-tauri/src/backend/`):
+
+* window list / focus / minimize / maximize / close for every native and
+  XWayland window — `wlr-foreign-toplevel-management`, pushed to the UI as the
+  same `compositor:window-list` / `compositor:window-focused` events
+  HackerOS-Comp emits;
+* system-wide clipboard history, including copies made in external apps
+  (`wl-paste --watch`, needs `wl-clipboard`);
+* global shortcuts while a native app has focus: labwc keybinds call
+  `blue-environment --ctl <command>` (`toggle-start-menu`, `fullscreen-menu`,
+  `toggle-control-center`, `toggle-clipboard`, `open-terminal`, `screenshot`,
+  `lock`, `show-desktop`, …) which talks to the running shell over
+  `$XDG_RUNTIME_DIR/blue-environment.sock`;
+* the `CompositorBridge` command set (focus/close/… , screenshots via `grim`,
+  lock, reload, workspace count) translated to labwc equivalents;
+* native windows look like Blue windows: the generated `rc.xml` selects the
+  `Blue-Environment` labwc theme (same palette as the shell's own window
+  chrome) and reserves the top bar area with `<margin>`.
+
+The ready-made configuration lives in `src-tauri/resources/labwc/` (HackerOS
+ships it in `/etc/skel/.config/labwc` and `/usr/share/themes/Blue-Environment`).
+Known limits: Alt+Tab is labwc's own switcher (native windows only); Blue's
+in-shell windows live in the shell layer, i.e. beneath native windows; live
+workspace switching / DPMS timeout have no labwc IPC and are keybind/idle-daemon
+matters.
 
 ## Keyboard Shortcuts
 
