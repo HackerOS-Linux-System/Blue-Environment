@@ -8,7 +8,7 @@
     Gamepad2, Settings, LogOut, Moon, ExternalLink, LayoutGrid, X,
   } from 'lucide-svelte';
   import AppIconGlyph from './AppIconGlyph.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { openInBlueWeb } from '../utils/openInBlueWeb';
   import { normalizeUrl } from './apps/Blue-Web/types';
   import { configStore } from '../utils/configStore';
@@ -99,13 +99,27 @@
 
   $: if (isOpen) loadApps();
 
+  // Stale-while-revalidate: once the list has been loaded, re-opening the
+  // menu shows it instantly and only refreshes it in the background if it
+  // is older than a minute — it used to show "Loading…" and re-run the
+  // whole fetch on every single open.
+  let loadedAt = 0;
   function loadApps() {
-    loading = true;
-    Promise.all([SystemBridge.getSystemApps(false), SystemBridge.getRecentApps()]).then(([apps, recent]) => {
-      systemApps = apps as SystemApp[];
-      recentApps = recent;
+    const fresh = Date.now() - loadedAt < 60_000;
+    if (loadedAt > 0) {
       loading = false;
-    });
+      if (fresh) { SystemBridge.getRecentApps().then((r) => (recentApps = r)).catch(() => {}); return; }
+    } else {
+      loading = true;
+    }
+    Promise.all([SystemBridge.getSystemApps(false), SystemBridge.getRecentApps()])
+      .then(([apps, recent]) => {
+        systemApps = apps as SystemApp[];
+        recentApps = recent;
+        loadedAt = Date.now();
+      })
+      .catch(() => {})
+      .finally(() => (loading = false));
   }
 
   $: internalApps = Object.values(APPS)
@@ -195,6 +209,29 @@
     return groupedApps[activeCategory] || [];
   })();
 
+  // ── Incremental grid rendering ─────────────────────────────────────
+  // "Installed apps" can hold several hundred entries. Mounting every tile
+  // (each with an <img>) in one go froze the shell for seconds; instead
+  // render a first screenful and add more as the person scrolls (or right
+  // away while the viewport isn't full yet).
+  const TILE_CHUNK = 48;
+  let visibleLimit = TILE_CHUNK;
+  let gridEl: HTMLDivElement | undefined;
+  $: { activeCategory; searchTerm; isOpen; visibleLimit = TILE_CHUNK; }
+  $: shownTiles = currentTiles.slice(0, visibleLimit);
+  $: if (isOpen && isFullScreen && shownTiles.length < currentTiles.length) fillViewport();
+
+  async function fillViewport() {
+    await tick();
+    if (gridEl && gridEl.scrollHeight <= gridEl.clientHeight + 200 && visibleLimit < currentTiles.length) {
+      visibleLimit += TILE_CHUNK;
+    }
+  }
+  function onGridScroll() {
+    if (!gridEl || visibleLimit >= currentTiles.length) return;
+    if (gridEl.scrollTop + gridEl.clientHeight > gridEl.scrollHeight - 500) visibleLimit += TILE_CHUNK;
+  }
+
   function handleLaunch(app: AnyApp) {
     if ('isInternal' in app) dispatch('openApp', { appId: app.id, isExternal: false });
     else dispatch('openApp', { appId: app.id, isExternal: app.is_external, exec: app.exec });
@@ -217,7 +254,7 @@
 </script>
 
 {#if isOpen && isFullScreen}
-  <div class="absolute inset-0 bg-slate-900/97 backdrop-blur-xl flex" style="z-index:{zIndex};" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}>
+  <div class="absolute inset-0 bg-slate-900 flex" style="z-index:{zIndex};" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}>
     <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" on:click|stopPropagation>
       <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
@@ -257,7 +294,7 @@
           <X size={18} />
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto px-8 pb-8">
+      <div class="flex-1 overflow-y-auto px-8 pb-8" bind:this={gridEl} on:scroll={onGridScroll}>
         {#if loading}
           <div class="flex items-center gap-2 text-slate-500 text-sm"><Loader2 size={16} class="animate-spin" /> Loading…</div>
         {:else}
@@ -276,11 +313,12 @@
             </div>
           {:else}
             <div class="grid grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {#each currentTiles as app (app.id)}
+              {#each shownTiles as app (app.id)}
                 {@const external = !('isInternal' in app)}
                 <button on:click={() => handleLaunch(app)}
                   title={external ? app.comment || app.name : app.name}
-                  class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border border-transparent hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-all group text-center">
+                  style="content-visibility:auto; contain-intrinsic-size:auto 112px;"
+                  class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border border-transparent hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-colors group text-center">
                   {#if external}
                     <span class="absolute top-2 right-2 w-4 h-4 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-slate-500 group-hover:text-blue-400 transition-colors" title="Installed system app">
                       <ExternalLink size={9} />
