@@ -93,7 +93,38 @@ fn find_icon_path(icon_name: &str) -> String {
     crate::icon_resolver::resolve_icon(icon_name)
 }
 
+/// In-memory copy of the last scan. The on-disk cache (`apps.json`) still
+/// exists, but re-reading/parsing it *and* re-resolving icons for every
+/// external app on every Start Menu open was a measurable part of the
+/// "Installed apps" freeze — this makes repeat opens instant.
+static MEM_CACHE: once_cell::sync::Lazy<std::sync::Mutex<Option<(std::time::Instant, Vec<CachedApp>)>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+const MEM_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(120);
+
+pub fn clear_memory_cache() {
+    if let Ok(mut g) = MEM_CACHE.lock() {
+        *g = None;
+    }
+}
+
 pub fn scan_desktop_apps(force_refresh: bool) -> Vec<CachedApp> {
+    if !force_refresh {
+        if let Ok(g) = MEM_CACHE.lock() {
+            if let Some((at, apps)) = g.as_ref() {
+                if at.elapsed() < MEM_CACHE_TTL {
+                    return apps.clone();
+                }
+            }
+        }
+    }
+    let apps = scan_desktop_apps_uncached(force_refresh);
+    if let Ok(mut g) = MEM_CACHE.lock() {
+        *g = Some((std::time::Instant::now(), apps.clone()));
+    }
+    apps
+}
+
+fn scan_desktop_apps_uncached(force_refresh: bool) -> Vec<CachedApp> {
     if !force_refresh {
         if let Some(cached) = cache::load_app_cache() {
             let mut all = cached;
