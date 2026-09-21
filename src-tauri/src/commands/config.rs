@@ -45,6 +45,14 @@ pub fn get_clipboard_history() -> Vec<ClipboardItem> {
 #[tauri::command]
 pub fn add_to_clipboard_history(content: String) {
     let mut history: Vec<ClipboardItem> = get_clipboard_history();
+    // Both the frontend poller and the labwc system-wide watcher
+    // (backend::clipboard) feed this — collapse duplicates so the same
+    // copy is never listed twice: identical to the newest entry → nothing
+    // to do; identical to an older one → move it to the top.
+    if history.first().map(|h| h.content == content).unwrap_or(false) {
+        return;
+    }
+    history.retain(|h| h.content != content);
     history.insert(0, ClipboardItem {
         id: chrono::Utc::now().timestamp_millis().to_string(),
                    content,
