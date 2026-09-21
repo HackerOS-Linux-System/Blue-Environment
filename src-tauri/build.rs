@@ -3,6 +3,10 @@ fn main() {
         tauri_build::Attributes::new().app_manifest(
             tauri_build::AppManifest::new().commands(&[
         "get_session_type",
+        "get_battery_status",
+        "backend_get_info",
+        "backend_set_compositor",
+        "focus_shell",
         "get_system_apps",
         "get_recent_apps",
         "record_app_launch",
