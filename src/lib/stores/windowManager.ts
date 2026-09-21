@@ -3,6 +3,7 @@ import type { WindowState, ExternalWindow } from '../types';
 import { AppId } from '../types';
 import { APPS } from '../constants';
 import { SystemBridge } from '../utils/systemBridge';
+import { CompositorBridge } from '../utils/compositorBridge';
 import { configStore } from '../utils/configStore';
 import { notificationManager } from '../utils/notificationManager';
 
@@ -122,6 +123,9 @@ export const topmostVisibleWindowId = derived(visibleWindows, ($visible) => {
   return pool.reduce((top, w) => (w.zIndex > top.zIndex ? w : top)).id;
 });
 
+let unlistenWindowEvents: Array<() => void> = [];
+let repollDebounce: ReturnType<typeof setTimeout> | undefined;
+
 export function startExternalWindowPolling() {
   if (pollTimer) return;
   const poll = async () => {
@@ -132,12 +136,26 @@ export function startExternalWindowPolling() {
     }
   };
   poll();
+  // The interval stays as a safety net: the compositor backend (labwc's
+  // toplevel tracker, HackerOS-Comp's IPC relay) pushes
+  // `compositor:window-list` / `compositor:window-focused` whenever a window
+  // opens, closes, is minimized or changes focus — re-read right away
+  // (debounced) so the taskbar / Alt-Tab list reacts instantly.
   pollTimer = setInterval(poll, 2000);
+  const repoll = () => {
+    clearTimeout(repollDebounce);
+    repollDebounce = setTimeout(poll, 80);
+  };
+  CompositorBridge.onWindowList(repoll).then((u) => unlistenWindowEvents.push(u)).catch(() => {});
+  CompositorBridge.onWindowFocused(repoll).then((u) => unlistenWindowEvents.push(u)).catch(() => {});
 }
 
 export function stopExternalWindowPolling() {
   clearInterval(pollTimer);
   pollTimer = undefined;
+  clearTimeout(repollDebounce);
+  unlistenWindowEvents.forEach((u) => u());
+  unlistenWindowEvents = [];
 }
 
 /**
