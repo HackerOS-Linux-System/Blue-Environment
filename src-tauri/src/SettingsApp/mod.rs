@@ -547,8 +547,12 @@ pub fn settings_bluetooth_toggle(enabled: bool) -> SettingsResult {
 /// `.contains(...)` correctly treats as "not powered" rather than
 /// erroring.
 #[tauri::command]
-pub fn settings_bluetooth_get_powered() -> bool {
-    sh("bluetoothctl show 2>/dev/null").unwrap_or_default().contains("Powered: yes")
+pub async fn settings_bluetooth_get_powered() -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || -> bool {
+        sh("bluetoothctl show 2>/dev/null").unwrap_or_default().contains("Powered: yes")
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -987,6 +991,37 @@ pub struct CompositorCommand {
 
 #[tauri::command]
 pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult {
+    // labwc backend: there is no HackerOS-Comp socket — translate the same
+    // command set into native labwc actions (see `backend::labwc_command`).
+    if crate::backend::is_labwc() {
+        let mut payload = command.payload.clone();
+        if !payload.is_object() {
+            payload = serde_json::json!({});
+        }
+        return match command.cmd_type.as_str() {
+            // These spawn external tools / wait for labwc: keep them off the caller's thread.
+            "take_screenshot" | "reload_config" | "lock_screen" | "set_workspace_count" => {
+                let cmd_type = command.cmd_type.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = crate::backend::labwc_command(&cmd_type, &payload) {
+                        eprintln!("[blue-backend] {cmd_type}: {e}");
+                    }
+                });
+                SettingsResult::ok()
+            }
+            other => match crate::backend::labwc_command(other, &payload) {
+                Ok(()) => SettingsResult::ok(),
+                // Not a failure the person can act on — the feature simply
+                // has no labwc equivalent (DPMS timeout, HDR, workspace switching…).
+                Err(e) if e.contains("not supported") => {
+                    eprintln!("[blue-backend] {e}");
+                    SettingsResult::ok()
+                }
+                Err(e) => SettingsResult::err(e),
+            },
+        };
+    }
+
     let socket_path = {
         let runtime = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
