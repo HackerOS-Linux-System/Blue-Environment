@@ -38,7 +38,7 @@
   import { isLiveMode, liveModeChecked, checkLiveMode } from './lib/utils/liveMode';
   import { resolveActiveShellTheme } from './lib/data/builtinThemes';
   import { SystemBridge, toAssetUrl } from './lib/utils/systemBridge';
-  import { CompositorBridge, takeScreenshotUnified } from './lib/utils/compositorBridge';
+  import { CompositorBridge, takeScreenshotUnified, isLabwcBackend } from './lib/utils/compositorBridge';
   import { notificationManager } from './lib/utils/notificationManager';
 
   // Empty on purpose (was: a hardcoded `file:///usr/share/Blue-
@@ -203,7 +203,25 @@
     const closePanels = () => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; };
     const toggleClip = () => (isClipboardOpen = !isClipboardOpen);
     const openTerm = () => openApp(AppId.TERMINAL);
-    const showDesktop = () => { for (const w of get(windows)) minimizeWindow(w.id); };
+    const showDesktop = () => {
+      for (const w of get(windows)) minimizeWindow(w.id);
+      isLabwcBackend().then((labwc) => { if (labwc) CompositorBridge.showDesktopNative(); });
+    };
+    // Alt+Tab pressed while the Blue shell has focus: labwc consumes the key
+    // (its keybind) and forwards it here instead, so step Blue's own
+    // switcher exactly as the Tab key handler would. Alt release — which the
+    // webview still receives — commits the choice (keyboardShortcuts.ts).
+    const stepSwitcher = (dir: 1 | -1) => {
+      const wins = switcherItems;
+      if (wins.length === 0) return;
+      if (!switcherVisible) {
+        const cur = wins.findIndex((w) => w.id === get(activeWindowId));
+        switcherIndex = cur === -1 ? (dir > 0 ? 0 : wins.length - 1) : (cur + dir + wins.length) % wins.length;
+        switcherVisible = true;
+      } else {
+        switcherIndex = (switcherIndex + dir + wins.length) % wins.length;
+      }
+    };
     const takeScreenshot = async () => {
       const path = await takeScreenshotUnified('full').catch(() => null);
       notificationManager.add({
@@ -238,14 +256,25 @@
         case 'lock': lockScreen(); break;
         case 'show-desktop': showDesktop(); break;
         case 'close-panels': closePanels(); break;
+        case 'switcher-next': stepSwitcher(1); break;
+        case 'switcher-prev': stepSwitcher(-1); break;
         case 'open-app': if (arg) openApp(arg); break;
       }
+    });
+
+    const unlistenLaunchFailed = CompositorBridge.onLaunchFailed((command, detail) => {
+      notificationManager.add({
+        title: 'Could not start application',
+        message: `${command}\n${detail}`,
+        appId: 'settings', icon: '',
+      });
     });
 
     SystemBridge.getBackendInfo().then((info) => { if (info) backendActive = info.active; });
 
     return () => {
       unlistenShell.then((f) => f());
+      unlistenLaunchFailed.then((f) => f());
       unsubConfig();
       window.removeEventListener('blue:close-panels', closePanels);
       window.removeEventListener('blue:toggle-clipboard', toggleClip);
