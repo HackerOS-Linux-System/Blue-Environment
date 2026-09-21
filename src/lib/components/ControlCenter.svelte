@@ -3,7 +3,8 @@
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
-  import { dialogPrompt, dialogAlert, dialogConfirm } from '../stores/dialog';
+  import { dialogPrompt, dialogAlert, dialogConfirm, activeDialog } from '../stores/dialog';
+  import { get } from 'svelte/store';
   import { t } from '../stores/language';
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 
@@ -65,7 +66,10 @@
       // background re-scan every few seconds, not gated on the
       // `wifiScanning` flag so the list quietly refreshes signal %
       // without flashing the "Scanning…" spinner state each time.
-      wifiPollTimer = setInterval(() => { scanWifi(true); }, 4000);
+      // Skipped while a dialog (e.g. the password prompt) is up: nothing
+      // to gain from re-rendering the list underneath it, and it keeps the
+      // typing path free of any background work.
+      wifiPollTimer = setInterval(() => { if (!get(activeDialog)) scanWifi(true); }, 4000);
     } else if (wifiPollTimer) {
       clearInterval(wifiPollTimer);
       wifiPollTimer = undefined;
@@ -300,25 +304,27 @@
 
   async function refresh() {
     if (!isOpen) return;
-    const stats = await SystemBridge.getSystemStats();
+    // All four probes are independent (and each one is now an async
+    // command running off the UI thread) — run them concurrently instead of
+    // one after another, which is what made opening the panel feel slow.
+    const [stats, wifiOn, btOn, audioSinks] = await Promise.all([
+      SystemBridge.getSystemStats(),
+      // Previously wifiEnabled was derived from `stats.wifiSSID !==
+      // 'Disconnected'` — "am I connected", not "is the radio on" — so a
+      // powered-on radio with no active connection showed as Off. Ask the
+      // radio state itself.
+      SystemBridge.getWifiRadioEnabled(),
+      SystemBridge.getBluetoothPowered(),
+      SystemBridge.getAudioSinks(),
+    ]);
+    if (!isOpen) return;
     volume = stats.volume;
     brightness = stats.brightness >= 0 ? stats.brightness : 80;
     battery = stats.battery;
     isCharging = stats.isCharging;
     wifiSSID = stats.wifiSSID;
-    // Previously derived from `stats.wifiSSID !== 'Disconnected'` — i.e.
-    // "am I currently connected to a network", which is a different
-    // question from "is the radio powered on" and was getting
-    // overwritten back to a wrong value on every refresh regardless of
-    // what the on/off toggle had just set. A powered-on radio with no
-    // active connection (the normal state right after turning Wi-Fi on,
-    // before picking a network) would incorrectly show as "Off" here,
-    // and — since nothing anywhere checked this flag before allowing a
-    // scan/connect — a user could still browse and connect to networks
-    // while it displayed "Off": the toggle was purely decorative.
-    wifiEnabled = await SystemBridge.getWifiRadioEnabled();
-    btEnabled = await SystemBridge.getBluetoothPowered();
-    const audioSinks = await SystemBridge.getAudioSinks();
+    wifiEnabled = wifiOn;
+    btEnabled = btOn;
     sinks = audioSinks;
     const def = (audioSinks as AudioSink[]).find((s) => s.is_default);
     if (def) { volume = def.volume; muted = def.muted; }
@@ -370,7 +376,7 @@
 </script>
 
 {#if isOpen}
-  <div class="absolute right-4 w-80 border rounded-2xl shadow-2xl p-3 z-50 backdrop-blur-xl {shellThemeId === 'hydra' ? 'bg-slate-900/98 border-pink-500/30' : 'bg-slate-900/98 border-white/10'}"
+  <div class="absolute right-4 w-80 border rounded-2xl shadow-2xl p-3 z-50 {shellThemeId === 'hydra' ? 'bg-slate-900/98 border-pink-500/30' : 'bg-slate-900/98 border-white/10'}"
     style="{panelPosition === 'top' ? `top:${panelSize + 8}px;` : `bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}"
   >
     <div class="grid grid-cols-2 gap-2 mb-2">
