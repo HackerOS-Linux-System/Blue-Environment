@@ -42,7 +42,7 @@
 </script>
 
 {#if isUrl && resolvedSrc && !failed}
-  <img src={resolvedSrc} alt={name} width={size} height={size} class="object-contain {isHydra ? 'hydra-icon-glow' : ''}" on:error={() => (failed = true)} />
+  <img src={resolvedSrc} alt={name} width={size} height={size} loading="lazy" decoding="async" class="object-contain {isHydra ? 'hydra-icon-glow' : ''}" on:error={() => (failed = true)} />
 {:else if typeof icon !== 'string' && !failed}
   <div class={isHydra ? 'hydra-icon-glow' : ''} style={isHydra ? 'display:contents;' : undefined}>
     <svelte:component this={icon} {size} />
