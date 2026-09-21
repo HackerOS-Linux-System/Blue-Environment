@@ -91,6 +91,14 @@ export const CompositorBridge = {
     onWindowClosed:         (cb: (id: number) => void)                       => listen('compositor:window-closed', d => cb(d.id)),
     onWorkspaceSwitched:    (cb: (index: number, count: number) => void)     => listen('compositor:workspace-switched', d => cb(d.index, d.count)),
     onToggleStartMenu:      (cb: () => void)                                 => listen('compositor:toggle-start-menu', () => cb()),
+    /// Commands sent to the running shell with `blue-environment --ctl <cmd>`
+    /// (see src-tauri/src/backend/shell_ipc.rs) — this is how compositor-level
+    /// keybinds (labwc's rc.xml, or anything else) reach the shell while a
+    /// native app has keyboard focus.
+    onShellCommand:         (cb: (cmd: string, arg?: string | null) => void) => listen('shell:command', d => cb(d.cmd, d.arg)),
+    /// A new text selection landed on the system clipboard (labwc backend's
+    /// `wl-paste --watch`; also fires for copies made inside native apps).
+    onClipboardChanged:     (cb: (text: string) => void)                    => listen('clipboard:changed', d => cb(d.text)),
     onIdleChanged:          (cb: (idle: boolean) => void)                    => listen('compositor:idle-changed', d => cb(d.idle)),
     onScreenshotReady:      (cb: (path: string) => void)                     => listen('compositor:screenshot-ready', d => cb(d.path)),
     /// Candidate-window (IME popup) visibility/geometry — informational
