@@ -10,6 +10,8 @@ pub const COMMANDS: &[&str] = &[
     "toggle-control-center",
     "toggle-notifications",
     "toggle-clipboard",
+    "switcher-next",
+    "switcher-prev",
     "open-terminal",
     "screenshot",
     "lock",
