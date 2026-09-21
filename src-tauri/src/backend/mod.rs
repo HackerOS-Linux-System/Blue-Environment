@@ -1,5 +1,6 @@
 pub mod clipboard;
 pub mod labwc_config;
+pub mod launcher;
 pub mod shell_ipc;
 pub mod toplevels;
 
@@ -389,7 +390,32 @@ pub fn exec_labwc(binary: &Path, cfg: &BackendConfig, args: &[String]) -> String
         .cloned()
         .collect();
 
-    let mut cmd = Command::new(binary);
+    // A session D-Bus is needed by most modern apps (GTK4/libadwaita, Firefox
+    // remoting, portals, file choosers…). From a display manager it already
+    // exists; started from a bare TTY it often doesn't — then either point
+    // at the user bus systemd runs, or wrap labwc in `dbus-run-session`.
+    let mut wrap_dbus = false;
+    let mut bus_env: Option<String> = None;
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::getuid() }));
+        let bus = Path::new(&runtime).join("bus");
+        if bus.exists() {
+            bus_env = Some(format!("unix:path={}", bus.display()));
+        } else if find_in_path("dbus-run-session").is_some() {
+            wrap_dbus = true;
+        }
+    }
+
+    let mut cmd = if wrap_dbus {
+        let mut c = Command::new("dbus-run-session");
+        c.arg("--").arg(binary);
+        c
+    } else {
+        Command::new(binary)
+    };
+    if let Some(addr) = bus_env {
+        cmd.env("DBUS_SESSION_BUS_ADDRESS", addr);
+    }
     if let Some(dir) = &cfg.labwc_config_dir {
         cmd.arg("-C").arg(dir);
     }
@@ -455,6 +481,16 @@ pub fn labwc_command(cmd_type: &str, payload: &serde_json::Value) -> Result<(), 
                 }
                 _ => Err("half-screen tiling is a labwc keybind (Super+Left/Right), not available over the toplevel protocol".into()),
             }
+        }
+        // Native windows always sit above the shell (which is the desktop), so
+        // "go to the desktop / to a Blue window" = minimize the native windows
+        // and give the shell keyboard focus.
+        "raise_shell" | "show_desktop" => {
+            for t in list.iter().filter(|t| !toplevels::is_shell_window(t) && !t.minimized) {
+                toplevels::send(Cmd::SetMinimized(t.id, true));
+            }
+            focus_shell_window();
+            Ok(())
         }
         "get_window_list" => Ok(()), // list is pushed as `compositor:window-list` on every change
         "reload_config" => run_labwc_flag("-r"),
