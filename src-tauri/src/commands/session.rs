@@ -44,6 +44,12 @@ pub fn launch_process(command: String, app_id: Option<String>) {
     if let Some(id) = app_id {
         cache::record_app_launch(&id);
     }
+    // labwc backend: explicit session environment, own session (setsid),
+    // captured stderr and a visible error if the app fails to start.
+    if crate::backend::is_labwc() {
+        crate::backend::launcher::launch(command);
+        return;
+    }
     let session = session::detect_session();
     std::thread::spawn(move || {
         let mut cmd = Command::new("sh");
