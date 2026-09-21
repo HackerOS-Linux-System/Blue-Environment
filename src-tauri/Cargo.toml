@@ -221,6 +221,13 @@ webkit2gtk = { version = "2.0", features = ["v2_24"] }
 # their types in `content_blocking.rs`.
 glib = "0.18"
 gio = "0.18"
+# labwc backend (src/backend/toplevels.rs): native window list/focus/close
+# through `wlr-foreign-toplevel-management-v1`, so the shell needs no
+# HackerOS-Comp IPC when it runs on labwc. Pure-Rust wayland-backend (no
+# libwayland-client link requirement). Compile-checked and exercised
+# against a real labwc 0.7.1 (headless).
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [target.'cfg(windows)'.dependencies]
 # Same reasoning as the linux block above — WebView2's
