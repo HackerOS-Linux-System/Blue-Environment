@@ -4,11 +4,29 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// One long-lived `System` instead of `System::new_all()` on every call —
+/// building a full snapshot (every process, disk, component…) was slow
+/// enough to visibly stall the shell each time the Control Center opened,
+/// and CPU usage needs two refreshes to be meaningful anyway. Keeping the
+/// instance means each call only refreshes CPU + memory and gets a real
+/// delta since the previous poll.
+static SYS: once_cell::sync::Lazy<std::sync::Mutex<sysinfo::System>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(sysinfo::System::new()));
+
+/// `async` + blocking thread: this shells out (nmcli, pactl, uname) and
+/// samples network/disk counters — none of which may run on the UI thread.
 #[tauri::command]
-pub fn get_system_stats() -> SystemStats {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub async fn get_system_stats() -> Result<SystemStats, String> {
+    tokio::task::spawn_blocking(collect_system_stats).await.map_err(|e| e.to_string())
+}
+
+fn collect_system_stats() -> SystemStats {
+    let (cpu, ram) = {
+        let mut sys = SYS.lock().unwrap_or_else(|e| e.into_inner());
+        sys.refresh_cpu();
+        sys.refresh_memory();
+        (sys.global_cpu_info().cpu_usage(), (sys.used_memory() as f32 / sys.total_memory().max(1) as f32) * 100.0)
+    };
 
     let volume = get_pipewire_volume().unwrap_or_else(get_alsa_volume);
     let wifi_ssid = Command::new("nmcli")
@@ -32,8 +50,8 @@ pub fn get_system_stats() -> SystemStats {
     let (net_rx_mb, net_tx_mb, disk_read_mb, disk_write_mb) = get_network_disk_rates();
 
     SystemStats {
-        cpu: sys.global_cpu_info().cpu_usage(),  // FIX: was global_cpu_usage()
-        ram: (sys.used_memory() as f32 / sys.total_memory() as f32) * 100.0,
+        cpu,
+        ram,
         battery,
         is_charging,
         volume,
@@ -166,31 +184,35 @@ pub fn get_alsa_volume() -> i32 {
 }
 
 #[tauri::command]
-pub fn get_audio_sinks() -> Vec<AudioSink> {
-    let mut sinks = Vec::new();
-    let default_out = Command::new("pactl").args(["get-default-sink"]).output()
-    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-    .unwrap_or_default();
+pub async fn get_audio_sinks() -> Result<Vec<AudioSink>, String> {
+    tokio::task::spawn_blocking(move || -> Vec<AudioSink> {
+        let mut sinks = Vec::new();
+        let default_out = Command::new("pactl").args(["get-default-sink"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
 
-    if let Ok(o) = Command::new("pactl").args(["--format=json", "list", "sinks"]).output() {
-        let text = String::from_utf8_lossy(&o.stdout);
-        if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(arr) = arr.as_array() {
-                for s in arr {
-                    let id = s["index"].as_u64().unwrap_or(0) as u32;
-                    let name = s["name"].as_str().unwrap_or("").to_string();
-                    let desc = s["description"].as_str().unwrap_or("").to_string();
-                    let muted = s["mute"].as_bool().unwrap_or(false);
-                    let vol_left = s["volume"]["front-left"]["value_percent"]
-                    .as_str()
-                    .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok())
-                    .unwrap_or(0.0);
-                    sinks.push(AudioSink { id, is_default: name == default_out, name, description: desc, volume: vol_left, muted });
+        if let Ok(o) = Command::new("pactl").args(["--format=json", "list", "sinks"]).output() {
+            let text = String::from_utf8_lossy(&o.stdout);
+            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(arr) = arr.as_array() {
+                    for s in arr {
+                        let id = s["index"].as_u64().unwrap_or(0) as u32;
+                        let name = s["name"].as_str().unwrap_or("").to_string();
+                        let desc = s["description"].as_str().unwrap_or("").to_string();
+                        let muted = s["mute"].as_bool().unwrap_or(false);
+                        let vol_left = s["volume"]["front-left"]["value_percent"]
+                        .as_str()
+                        .and_then(|v| v.trim_end_matches('%').parse::<f32>().ok())
+                        .unwrap_or(0.0);
+                        sinks.push(AudioSink { id, is_default: name == default_out, name, description: desc, volume: vol_left, muted });
+                    }
                 }
             }
         }
-    }
-    sinks
+        sinks
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -214,4 +236,47 @@ pub fn toggle_sink_mute(sink_name: String) -> Result<(), String> {
 #[tauri::command]
 pub fn set_volume(level: i32) {
     let _ = Command::new("pactl").args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", level.clamp(0, 150))]).spawn();
+}
+
+
+/// Lightweight battery probe for the top bar. Unlike `get_battery_info`
+/// (which pretends a desktop is "100 % charging"), this reports whether a
+/// battery exists at all so the UI can hide the indicator on desktops.
+#[derive(serde::Serialize)]
+pub struct BatteryStatus {
+    pub present: bool,
+    pub percentage: f32,
+    pub charging: bool,
+    /// "Charging" | "Discharging" | "Full" | "Not charging" | "Unknown"
+    pub status: String,
+}
+
+#[tauri::command]
+pub async fn get_battery_status() -> Result<BatteryStatus, String> {
+    tokio::task::spawn_blocking(read_battery_status).await.map_err(|e| e.to_string())
+}
+
+fn read_battery_status() -> BatteryStatus {
+    let none = BatteryStatus { present: false, percentage: 0.0, charging: false, status: "Unknown".into() };
+    let Ok(entries) = fs::read_dir("/sys/class/power_supply") else { return none };
+    let mut best: Option<BatteryStatus> = None;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        let kind = fs::read_to_string(dir.join("type")).unwrap_or_default();
+        if kind.trim() != "Battery" {
+            continue;
+        }
+        // Skip peripheral batteries (wireless mice, headsets…): scope is "Device".
+        if fs::read_to_string(dir.join("scope")).map(|s| s.trim() == "Device").unwrap_or(false) {
+            continue;
+        }
+        let Some(percentage) = fs::read_to_string(dir.join("capacity")).ok().and_then(|c| c.trim().parse::<f32>().ok()) else {
+            continue;
+        };
+        let status = fs::read_to_string(dir.join("status")).map(|s| s.trim().to_string()).unwrap_or_else(|_| "Unknown".into());
+        let charging = status == "Charging";
+        best = Some(BatteryStatus { present: true, percentage, charging, status });
+        break;
+    }
+    best.unwrap_or(none)
 }
