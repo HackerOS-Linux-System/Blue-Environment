@@ -5,6 +5,7 @@
   import {
     Search, Wifi, Bell, Command, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
     Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
+    Battery, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, BatteryWarning,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
@@ -119,6 +120,30 @@
 
   // --- Clipboard hover preview ---------------------------------------------
   let hasClipboardContent = false;
+
+  // --- Battery ------------------------------------------------------------
+  // Shown right next to the weather chip. Hidden entirely on machines with
+  // no battery (desktops) — `present` comes from /sys/class/power_supply
+  // (see `get_battery_status` in system_stats.rs), not a fake "100 %".
+  interface BatteryState { present: boolean; percentage: number; charging: boolean; status: string; }
+  let battery: BatteryState | null = null;
+  let batteryTimer: ReturnType<typeof setInterval>;
+  async function loadBattery() {
+    try { battery = await SystemBridge.getBatteryStatus(); } catch { /* keep last value */ }
+  }
+  function batteryIconFor(b: BatteryState) {
+    if (b.charging) return BatteryCharging;
+    if (b.percentage <= 10) return BatteryWarning;
+    if (b.percentage <= 25) return BatteryLow;
+    if (b.percentage <= 60) return BatteryMedium;
+    return BatteryFull;
+  }
+  function batteryColor(b: BatteryState): string {
+    if (b.charging) return 'text-green-400';
+    if (b.percentage <= 15) return 'text-red-400';
+    if (b.percentage <= 30) return 'text-amber-400';
+    return 'text-slate-300';
+  }
   let clipboardHoverPreviewEnabled = true;
   let showClipboardPreview = false;
   let latestClipboardItem: { id: string; content: string; timestamp: number } | null = null;
@@ -221,6 +246,9 @@
     checkClipboard();
     clipboardTimer = setInterval(checkClipboard, 4000);
 
+    loadBattery();
+    batteryTimer = setInterval(loadBattery, 30_000);
+
     unsubConfig = configStore.subscribe((cfg) => {
       const pinned = cfg.pinnedApps as AppId[] | undefined;
       if (pinned && Array.isArray(pinned) && pinned.length > 0) pinnedApps = pinned;
@@ -251,6 +279,7 @@
     clearInterval(clockTimer);
     clearInterval(weatherTimer);
     clearInterval(clipboardTimer);
+    clearInterval(batteryTimer);
     clearTimeout(clipboardHoverTimer);
     clearTimeout(clockHoverTimer);
     unsubConfig?.();
@@ -381,6 +410,14 @@
             </button>
           </div>
         {/if}
+      </div>
+    {/if}
+
+    {#if battery?.present}
+      <div class="flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors select-none"
+           title="Battery: {Math.round(battery.percentage)}% — {battery.status}">
+        <svelte:component this={batteryIconFor(battery)} size={15} class={batteryColor(battery)} />
+        <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}">{Math.round(battery.percentage)}%</span>
       </div>
     {/if}
 
