@@ -518,8 +518,12 @@ pub fn get_disk_metrics() -> Vec<DiskEntry> {
 }
 
 #[tauri::command]
-pub fn get_network_metrics() -> Vec<NetInterface> {
-    get_net_interfaces()
+pub async fn get_network_metrics() -> Result<Vec<NetInterface>, String> {
+    tokio::task::spawn_blocking(move || -> Vec<NetInterface> {
+        get_net_interfaces()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
