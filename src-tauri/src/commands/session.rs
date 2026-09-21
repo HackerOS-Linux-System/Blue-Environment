@@ -11,9 +11,16 @@ pub fn get_session_type() -> String {
     session::session_info()
 }
 
+// NOTE: `async` on purpose. A plain `fn` Tauri command runs on the main
+// (UI) thread, so scanning every .desktop file and resolving icons froze
+// the whole shell for seconds (e.g. opening "Installed apps"). `async`
+// commands run on Tauri's runtime instead, and the blocking work is moved
+// to a dedicated blocking thread.
 #[tauri::command]
-pub fn get_system_apps(force_refresh: bool) -> Vec<CachedApp> {
-    apps::scan_desktop_apps(force_refresh)
+pub async fn get_system_apps(force_refresh: bool) -> Result<Vec<CachedApp>, String> {
+    tokio::task::spawn_blocking(move || apps::scan_desktop_apps(force_refresh))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -28,6 +35,7 @@ pub fn record_app_launch(app_id: String) {
 
 #[tauri::command]
 pub fn invalidate_app_cache() {
+    apps::clear_memory_cache();
     cache::invalidate_app_cache();
 }
 
@@ -53,9 +61,14 @@ pub fn launch_process(command: String, app_id: Option<String>) {
     });
 }
 
+// `async` + blocking thread: the HackerOS-Comp path waits up to ~250 ms on
+// its socket and the X11 fallback shells out to wmctrl/xdotool — both must
+// stay off the UI thread (this is polled every couple of seconds).
 #[tauri::command]
-pub fn get_external_windows() -> Vec<window_tracker::ExternalWindow> {
-    window_tracker::get_external_windows()
+pub async fn get_external_windows() -> Result<Vec<window_tracker::ExternalWindow>, String> {
+    tokio::task::spawn_blocking(window_tracker::get_external_windows)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
