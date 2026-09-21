@@ -57,6 +57,15 @@ async function send(type: string, payload: Record<string, unknown> = {}): Promis
     }
 }
 
+/** True when the shell runs on the labwc backend (cached after the first call). */
+let labwcProbe: Promise<boolean> | null = null;
+export function isLabwcBackend(): Promise<boolean> {
+    if (!labwcProbe) {
+        labwcProbe = invoke<{ active?: string }>('backend_get_info').then((i) => i?.active === 'labwc').catch(() => false);
+    }
+    return labwcProbe;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 export const CompositorBridge = {
@@ -73,6 +82,9 @@ export const CompositorBridge = {
     setWorkspaceCount:      (count: number)                                   => send('set_workspace_count', { count }),
     setDpmsTimeout:         (seconds: number)                                 => send('set_dpms_timeout', { seconds }),
     lockScreen:             ()                                                => send('lock_screen'),
+    /// labwc backend only: minimize native windows and focus the shell (so a Blue window can come to the front).
+    raiseShell:             ()                                                => send('raise_shell'),
+    showDesktopNative:      ()                                                => send('show_desktop'),
     takeScreenshot:         (path: string, mode: 'full'|'focused' = 'full')  => send('take_screenshot', { path, mode }),
     setKeyboardLayout:      (layout: string, variant?: string)                => send('set_keyboard_layout', { layout, variant: variant ?? null }),
     setCursor:              (theme: string, size: number)                     => send('set_cursor', { theme, size }),
@@ -98,6 +110,9 @@ export const CompositorBridge = {
     onShellCommand:         (cb: (cmd: string, arg?: string | null) => void) => listen('shell:command', d => cb(d.cmd, d.arg)),
     /// A new text selection landed on the system clipboard (labwc backend's
     /// `wl-paste --watch`; also fires for copies made inside native apps).
+    /// An external app failed to start (labwc backend launcher): the command
+    /// and the tail of its stderr, so the person sees *why*.
+    onLaunchFailed:         (cb: (command: string, detail: string) => void) => listen('shell:launch-failed', d => cb(d.command, d.detail)),
     onClipboardChanged:     (cb: (text: string) => void)                    => listen('clipboard:changed', d => cb(d.text)),
     onIdleChanged:          (cb: (idle: boolean) => void)                    => listen('compositor:idle-changed', d => cb(d.idle)),
     onScreenshotReady:      (cb: (path: string) => void)                     => listen('compositor:screenshot-ready', d => cb(d.path)),
