@@ -37,10 +37,44 @@ pub fn get_external_windows() -> Vec<ExternalWindow> {
     // development inside a different desktop environment/X11 session),
     // which is the only scenario where those tools still pull their
     // weight.
-    if let Some(native) = get_wayland_windows_via_compositor_ipc() {
+    //
+    // On the **labwc** backend there is no HackerOS-Comp at all — the
+    // native list comes from labwc's `wlr-foreign-toplevel-management`
+    // (see `backend::toplevels`), which covers XWayland windows too.
+    if crate::backend::is_labwc() {
+        if let Some(native) = get_windows_via_labwc() {
+            return native;
+        }
+    } else if let Some(native) = get_wayland_windows_via_compositor_ipc() {
         return native;
     }
     try_wmctrl().or_else(try_xdotool).unwrap_or_default()
+}
+
+/// labwc backend: the shell's window list, straight from the compositor.
+/// `None` only when the toplevel tracker isn't (yet) connected, so the
+/// caller can fall back to wmctrl/xdotool.
+fn get_windows_via_labwc() -> Option<Vec<ExternalWindow>> {
+    use crate::backend::toplevels;
+    toplevels::start(); // idempotent — normally already started at boot
+    if !toplevels::is_running() {
+        return None;
+    }
+    Some(
+        toplevels::list()
+            .into_iter()
+            .filter(|t| !toplevels::is_shell_window(t))
+            .map(|t| ExternalWindow {
+                id: format!("{COMPOSITOR_ID_PREFIX}{}", t.id),
+                pid: 0,
+                icon_path: resolve_icon_by_name(&t.app_id),
+                class: t.app_id,
+                title: t.title,
+                is_minimized: t.minimized,
+                desktop: 0,
+            })
+            .collect(),
+    )
 }
 
 fn try_wmctrl() -> Option<Vec<ExternalWindow>> {
@@ -249,6 +283,10 @@ fn compositor_socket_path() -> std::path::PathBuf {
 /// to shell out to `swaymsg`/`xdotool`/`wmctrl` for native Wayland
 /// windows.
 fn send_compositor_command(cmd_type: &str, id: u64) {
+    if crate::backend::is_labwc() {
+        let _ = crate::backend::labwc_command(cmd_type, &serde_json::json!({ "id": id }));
+        return;
+    }
     use std::io::Write;
     use std::os::unix::net::UnixStream;
     let Ok(mut stream) = UnixStream::connect(compositor_socket_path()) else { return };
