@@ -669,6 +669,29 @@ export const SystemBridge = {
         return [];
     },
 
+    // --- Battery (top bar) ---
+    // `present: false` on machines without a battery → the indicator hides.
+    getBatteryStatus: async (): Promise<{ present: boolean; percentage: number; charging: boolean; status: string }> => {
+        if (isTauri) return await invoke('get_battery_status');
+        return { present: true, percentage: 82, charging: false, status: 'Discharging' };
+    },
+
+    // --- Compositor backend (hackeros-comp | labwc) ---
+    getBackendInfo: async (): Promise<{ configured: string; active: string; config_path: string; labwc_available: boolean; hackeros_comp_available: boolean; toplevel_tracking: boolean; clipboard_watcher: boolean } | null> => {
+        if (isTauri) { try { return await invoke('backend_get_info'); } catch { return null; } }
+        return null;
+    },
+    setBackendCompositor: async (compositor: 'hackeros-comp' | 'labwc'): Promise<string> => {
+        if (isTauri) return await invoke('backend_set_compositor', { compositor });
+        return '';
+    },
+    /** Gives the shell's own window keyboard focus at the compositor level
+     * (needed when a text field opens while a native app holds focus). */
+    focusShell: async (): Promise<boolean> => {
+        if (isTauri) { try { return await invoke('focus_shell'); } catch { return false; } }
+        return false;
+    },
+
     // --- System stats ---
     getSystemStats: async () => {
         if (isTauri) {
