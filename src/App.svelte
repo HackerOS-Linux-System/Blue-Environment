@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { configStore } from './lib/utils/configStore';
   import { initLanguage } from './lib/stores/language';
   import {
@@ -37,6 +38,8 @@
   import { isLiveMode, liveModeChecked, checkLiveMode } from './lib/utils/liveMode';
   import { resolveActiveShellTheme } from './lib/data/builtinThemes';
   import { SystemBridge, toAssetUrl } from './lib/utils/systemBridge';
+  import { CompositorBridge, takeScreenshotUnified } from './lib/utils/compositorBridge';
+  import { notificationManager } from './lib/utils/notificationManager';
 
   // Empty on purpose (was: a hardcoded `file:///usr/share/Blue-
   // Environment/wallpapers/default.png` path used unconditionally,
@@ -49,6 +52,9 @@
   // on an empty url(), so the `background: linear-gradient(...)`
   // fallback in this element's own style (see below) shows through
   // instead of a broken-image icon.
+  // Which compositor backend the shell runs on (hackeros-comp | labwc) —
+  // exposed as `data-backend` on the root element for CSS/debugging.
+  let backendActive = '';
   let wallpaper = '';
   let theme = 'dark';
   let desktopPath = 'HOME/Desktop';
@@ -197,15 +203,56 @@
     const closePanels = () => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; };
     const toggleClip = () => (isClipboardOpen = !isClipboardOpen);
     const openTerm = () => openApp(AppId.TERMINAL);
+    const showDesktop = () => { for (const w of get(windows)) minimizeWindow(w.id); };
+    const takeScreenshot = async () => {
+      const path = await takeScreenshotUnified('full').catch(() => null);
+      notificationManager.add({
+        title: path ? 'Screenshot saved' : 'Screenshot failed',
+        message: path || 'No screenshot tool available (install grim).',
+        appId: AppId.BLUE_SCREEN, icon: '',
+      });
+    };
     window.addEventListener('blue:close-panels', closePanels);
     window.addEventListener('blue:toggle-clipboard', toggleClip);
     window.addEventListener('blue:open-terminal', openTerm);
+    // These three were dispatched by keyboardShortcuts.ts (Print, Super+L,
+    // Super+D) but nothing ever listened for them.
+    window.addEventListener('blue:show-desktop', showDesktop);
+    window.addEventListener('blue:screenshot', takeScreenshot);
+    const lockScreen = () => { CompositorBridge.lockScreen(); };
+    window.addEventListener('blue:lock-screen', lockScreen);
+
+    // ── Compositor-level shortcuts ───────────────────────────────────────
+    // `blue-environment --ctl <cmd>` (labwc keybinds) and HackerOS-Comp's
+    // own `toggle_start_menu` both end up here, so shortcuts work while a
+    // native app has keyboard focus and this webview receives no key events.
+    const unlistenShell = CompositorBridge.onShellCommand((cmd, arg) => {
+      switch (cmd) {
+        case 'toggle-start-menu': isStartMenuOpen = !isStartMenuOpen; if (!isStartMenuOpen) isStartMenuFullScreen = false; break;
+        case 'fullscreen-menu': isStartMenuOpen = true; isStartMenuFullScreen = true; break;
+        case 'toggle-control-center': isControlCenterOpen = !isControlCenterOpen; break;
+        case 'toggle-notifications': isNotificationsOpen = !isNotificationsOpen; break;
+        case 'toggle-clipboard': isClipboardOpen = !isClipboardOpen; break;
+        case 'open-terminal': openApp(AppId.TERMINAL); break;
+        case 'screenshot': takeScreenshot(); break;
+        case 'lock': lockScreen(); break;
+        case 'show-desktop': showDesktop(); break;
+        case 'close-panels': closePanels(); break;
+        case 'open-app': if (arg) openApp(arg); break;
+      }
+    });
+
+    SystemBridge.getBackendInfo().then((info) => { if (info) backendActive = info.active; });
 
     return () => {
+      unlistenShell.then((f) => f());
       unsubConfig();
       window.removeEventListener('blue:close-panels', closePanels);
       window.removeEventListener('blue:toggle-clipboard', toggleClip);
       window.removeEventListener('blue:open-terminal', openTerm);
+      window.removeEventListener('blue:show-desktop', showDesktop);
+      window.removeEventListener('blue:screenshot', takeScreenshot);
+      window.removeEventListener('blue:lock-screen', lockScreen);
     };
   });
 
@@ -282,6 +329,7 @@
 <div
   class="relative w-full h-full overflow-hidden select-none"
   data-theme={theme}
+  data-backend={backendActive}
   style="background-size:cover; background-position:center; background-color:{fallbackBgColor}; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}{fallbackGradient};"
   on:click|self={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; }}
 >
