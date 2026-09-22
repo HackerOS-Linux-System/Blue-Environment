@@ -233,8 +233,25 @@
   }
 
   function handleLaunch(app: AnyApp) {
+    // `app.is_external` is NOT "is this a real OS app" — it only flags the
+    // small set of bundled LegendaryOS/HackerOS apps that `get_system_apps`
+    // finds outside the normal .desktop scan (see cache::list_external_apps
+    // in the Rust backend). Every *other* SystemApp here — i.e. every
+    // ordinary installed application found via .desktop files, which is
+    // the whole "Installed apps" grid and most search results — also had
+    // `is_external: false`, so this used to send `isExternal: false` for
+    // them too. `openApp()` only launches a real process when `isExternal`
+    // is true; otherwise it looks the id up in the internal `APPS`
+    // registry, which a real system app's id is never in, and silently
+    // does nothing. That's why installed/"extern" apps didn't start: not a
+    // labwc-only issue, this path is shared by every backend.
+    //
+    // Anything reaching this branch (not `isInternal`) came from
+    // `get_system_apps` and is by construction always a real external
+    // command with a non-empty `exec` (apps.rs skips desktop entries with
+    // no Exec) — so it must always be launched as a process.
     if ('isInternal' in app) dispatch('openApp', { appId: app.id, isExternal: false });
-    else dispatch('openApp', { appId: app.id, isExternal: app.is_external, exec: app.exec });
+    else dispatch('openApp', { appId: app.id, isExternal: true, exec: app.exec });
     SystemBridge.recordAppLaunch(app.id);
     dispatch('close');
   }
