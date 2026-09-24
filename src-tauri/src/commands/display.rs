@@ -258,10 +258,10 @@ pub fn load_distro_info() -> std::collections::HashMap<String, String> {
 pub fn system_power(action: String) {
     // Log out on the labwc backend: ask labwc to exit (`labwc -e`) — that
     // ends the whole session cleanly instead of `pkill`-ing the user.
-    if action == "logout" && crate::backend::is_labwc() {
+    if action == "logout" && crate::backend::is_native() {
         std::thread::spawn(|| {
             crate::backend::shell_ipc::cleanup();
-            crate::backend::labwc_exit();
+            crate::backend::exit_compositor();
         });
         return;
     }
