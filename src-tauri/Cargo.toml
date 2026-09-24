@@ -221,11 +221,16 @@ webkit2gtk = { version = "2.0", features = ["v2_24"] }
 # their types in `content_blocking.rs`.
 glib = "0.18"
 gio = "0.18"
-# labwc backend (src/backend/toplevels.rs): native window list/focus/close
-# through `wlr-foreign-toplevel-management-v1`, so the shell needs no
-# HackerOS-Comp IPC when it runs on labwc. Pure-Rust wayland-backend (no
-# libwayland-client link requirement). Compile-checked and exercised
-# against a real labwc 0.7.1 (headless).
+# Native compositor backends (src/backend/toplevels.rs): window list/focus/
+# close through `wlr-foreign-toplevel-management-v1`, so the shell needs no
+# HackerOS-Comp IPC when it runs on labwc, sway or wayfire — all three are
+# wlroots-based and implement the same protocol. Pure-Rust wayland-backend
+# (no libwayland-client link requirement). Compile-checked and exercised
+# against real labwc 0.7.1 and sway 1.9 instances (headless); wayfire's
+# support for the same protocol is confirmed from its own plugin metadata
+# (see src/backend/wayfire_config.rs) but could not be run end-to-end in
+# the environment this was verified in (wayfire requires a real DRM render
+# device even with the headless backend; none was available there).
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
