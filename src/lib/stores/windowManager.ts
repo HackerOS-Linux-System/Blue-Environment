@@ -3,7 +3,7 @@ import type { WindowState, ExternalWindow } from '../types';
 import { AppId } from '../types';
 import { APPS } from '../constants';
 import { SystemBridge } from '../utils/systemBridge';
-import { CompositorBridge, isLabwcBackend } from '../utils/compositorBridge';
+import { CompositorBridge, isNativeBackend } from '../utils/compositorBridge';
 import { configStore } from '../utils/configStore';
 import { notificationManager } from '../utils/notificationManager';
 
@@ -88,10 +88,10 @@ export function activateSwitcherItem(item: SwitcherItem) {
   if (item.isExternal) {
     SystemBridge.focusExternalWindow(item.id);
   } else {
-    // On labwc, native windows are real compositor windows stacked *above*
+    // On every native backend, native windows are real compositor windows stacked *above*
     // the shell, so a Blue window could stay hidden behind them — clear them
     // out of the way (minimize) and focus the shell first.
-    isLabwcBackend().then((labwc) => { if (labwc) CompositorBridge.raiseShell(); });
+    isNativeBackend().then((native) => { if (native) CompositorBridge.raiseShell(); });
     focusWindow(item.id);
   }
 }
@@ -140,7 +140,7 @@ export function startExternalWindowPolling() {
     }
   };
   poll();
-  // The interval stays as a safety net: the compositor backend (labwc's
+  // The interval stays as a safety net: the compositor backend (a native backend's
   // toplevel tracker, HackerOS-Comp's IPC relay) pushes
   // `compositor:window-list` / `compositor:window-focused` whenever a window
   // opens, closes, is minimized or changes focus — re-read right away
@@ -204,6 +204,10 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
     SystemBridge.recordAppLaunch(appId);
     return;
   }
+
+  // Native backend: native windows sit above the shell, so a freshly opened
+  // Blue window would be hidden behind them — clear them out of the way.
+  isNativeBackend().then((native) => { if (native) CompositorBridge.raiseShell(); });
 
   const wins = get(windows);
   const ws = get(currentWorkspace);
