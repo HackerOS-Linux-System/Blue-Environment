@@ -12,7 +12,7 @@
     externalWindows, getSwitcherItems,
   } from './lib/stores/windowManager';
   import { initKeyboardShortcuts } from './lib/stores/keyboardShortcuts';
-  import { shellOverlayOpen } from './lib/stores/overlayState';
+  import { shellOverlayOpen, blockingOverlayOpen } from './lib/stores/overlayState';
   import { hasCompletedWelcome } from './lib/components/apps/Blue-Welcome-App/welcome';
   import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
   import OnscreenKeyboard from './lib/components/OnscreenKeyboard.svelte';
@@ -38,7 +38,7 @@
   import { isLiveMode, liveModeChecked, checkLiveMode } from './lib/utils/liveMode';
   import { resolveActiveShellTheme } from './lib/data/builtinThemes';
   import { SystemBridge, toAssetUrl } from './lib/utils/systemBridge';
-  import { CompositorBridge, takeScreenshotUnified, isLabwcBackend } from './lib/utils/compositorBridge';
+  import { CompositorBridge, takeScreenshotUnified, isNativeBackend } from './lib/utils/compositorBridge';
   import { notificationManager } from './lib/utils/notificationManager';
 
   // Empty on purpose (was: a hardcoded `file:///usr/share/Blue-
@@ -52,7 +52,7 @@
   // on an empty url(), so the `background: linear-gradient(...)`
   // fallback in this element's own style (see below) shows through
   // instead of a broken-image icon.
-  // Which compositor backend the shell runs on (hackeros-comp | labwc) —
+  // Which compositor backend the shell runs on (hackeros-comp | labwc | sway | wayfire) —
   // exposed as `data-backend` on the root element for CSS/debugging.
   let backendActive = '';
   let wallpaper = '';
@@ -205,9 +205,9 @@
     const openTerm = () => openApp(AppId.TERMINAL);
     const showDesktop = () => {
       for (const w of get(windows)) minimizeWindow(w.id);
-      isLabwcBackend().then((labwc) => { if (labwc) CompositorBridge.showDesktopNative(); });
+      isNativeBackend().then((native) => { if (native) CompositorBridge.showDesktopNative(); });
     };
-    // Alt+Tab pressed while the Blue shell has focus: labwc consumes the key
+    // Alt+Tab pressed while the Blue shell has focus: the compositor consumes the key
     // (its keybind) and forwards it here instead, so step Blue's own
     // switcher exactly as the Tab key handler would. Alt release — which the
     // webview still receives — commits the choice (keyboardShortcuts.ts).
@@ -241,7 +241,7 @@
     window.addEventListener('blue:lock-screen', lockScreen);
 
     // ── Compositor-level shortcuts ───────────────────────────────────────
-    // `blue-environment --ctl <cmd>` (labwc keybinds) and HackerOS-Comp's
+    // `blue-environment --ctl <cmd>` (labwc/sway/wayfire keybinds) and HackerOS-Comp's
     // own `toggle_start_menu` both end up here, so shortcuts work while a
     // native app has keyboard focus and this webview receives no key events.
     const unlistenShell = CompositorBridge.onShellCommand((cmd, arg) => {
@@ -262,6 +262,12 @@
       }
     });
 
+    // Shell overlays are drawn by the shell, which on every native backend sits beneath
+    // native windows — tuck those away while any overlay is open.
+    const unsubOverlayPeek = blockingOverlayOpen.subscribe((open) => {
+      isNativeBackend().then((native) => { if (native) CompositorBridge.peekNatives(open); });
+    });
+
     const unlistenLaunchFailed = CompositorBridge.onLaunchFailed((command, detail) => {
       notificationManager.add({
         title: 'Could not start application',
@@ -275,6 +281,7 @@
     return () => {
       unlistenShell.then((f) => f());
       unlistenLaunchFailed.then((f) => f());
+      unsubOverlayPeek();
       unsubConfig();
       window.removeEventListener('blue:close-panels', closePanels);
       window.removeEventListener('blue:toggle-clipboard', toggleClip);
