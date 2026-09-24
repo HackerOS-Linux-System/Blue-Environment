@@ -676,12 +676,12 @@ export const SystemBridge = {
         return { present: true, percentage: 82, charging: false, status: 'Discharging' };
     },
 
-    // --- Compositor backend (hackeros-comp | labwc) ---
-    getBackendInfo: async (): Promise<{ configured: string; active: string; config_path: string; labwc_available: boolean; hackeros_comp_available: boolean; toplevel_tracking: boolean; clipboard_watcher: boolean } | null> => {
+    // --- Compositor backend (hackeros-comp | labwc | sway | wayfire) ---
+    getBackendInfo: async (): Promise<{ configured: string; active: string; config_path: string; backend_available: boolean; config_prepared: boolean; hackeros_comp_available: boolean; toplevel_tracking: boolean; clipboard_watcher: boolean } | null> => {
         if (isTauri) { try { return await invoke('backend_get_info'); } catch { return null; } }
         return null;
     },
-    setBackendCompositor: async (compositor: 'hackeros-comp' | 'labwc'): Promise<string> => {
+    setBackendCompositor: async (compositor: 'hackeros-comp' | 'labwc' | 'sway' | 'wayfire'): Promise<string> => {
         if (isTauri) return await invoke('backend_set_compositor', { compositor });
         return '';
     },
