@@ -46,7 +46,7 @@ pub fn launch_process(command: String, app_id: Option<String>) {
     }
     // labwc backend: explicit session environment, own session (setsid),
     // captured stderr and a visible error if the app fails to start.
-    if crate::backend::is_labwc() {
+    if crate::backend::is_native() {
         crate::backend::launcher::launch(command);
         return;
     }
