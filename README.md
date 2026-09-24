@@ -1,5 +1,5 @@
 # ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
-# Blue Environment v0.8
+# Blue Environment v0.7
 
 Production-grade Wayland desktop environment for LegendaryOS, built on
 [Smithay](https://github.com/Smithay/smithay) (compositor) and
@@ -185,18 +185,22 @@ blue-environment/
                                        screencopy
 ```
 
-## Compositor backends (hackeros-comp / labwc)
+## Compositor backends (hackeros-comp / labwc / sway / wayfire)
 
-Blue Environment can run on two compositors. The choice is made in the
+Blue Environment can run on four compositors. The choice is made in the
 `[backend]` section of `config.hk` (HackerOS Configuration Format):
 
 ```
 [backend]
--> compositor => labwc            ! or: hackeros-comp  (the default)
--> labwc_binary => labwc          ! optional: name or full path
--> labwc_args =>                  ! optional: extra labwc arguments
--> labwc_config_dir =>            ! optional: default ~/.config/labwc
--> generate_labwc_config => true  ! create a default labwc config if none exists
+-> compositor => wayfire          ! or: labwc, sway, hackeros-comp (the default)
+-> labwc_binary => labwc          ! optional, one set per backend (<name> is
+-> labwc_args =>                  ! labwc, sway or wayfire — only the active
+-> labwc_config_dir =>            ! one's settings are read):
+-> generate_labwc_config => true  !   <name>_binary / <name>_args /
+-> sway_binary => sway            !   <name>_config_dir / generate_<name>_config
+-> generate_sway_config => true
+-> wayfire_binary => wayfire
+-> generate_wayfire_config => true
 ```
 
 **Which file?** An existing `config.hk` is used wherever it already is
@@ -209,38 +213,97 @@ is none, a default one is created at `~/.config/Blue-Environment/config.hk`.
 | `compositor` | What happens |
 |---|---|
 | `hackeros-comp` | Nothing changes: the binary runs as the shell, exactly as before. |
-| `labwc` | Missing labwc config is generated (never overwriting anything), then the process becomes `labwc -s "blue-environment --labwc-child"`; labwc launches the shell. **HackerOS-Comp is not required.** |
-| `labwc`, but labwc isn't installed | Warning, then the classic behaviour. |
+| `labwc` / `sway` / `wayfire` | Missing config is generated (never overwriting anything — see below), then Blue becomes that compositor, which starts the shell itself. **HackerOS-Comp is not required.** |
+| chosen compositor isn't installed | Warning, then the classic behaviour. |
 
-If a display session already exists, labwc is not nested (force with
-`--start-backend`); `--no-backend` always just runs the shell;
+If a display session already exists, the compositor is not nested (force
+with `--start-backend`); `--no-backend` always just runs the shell;
 `--backend-info` prints what was detected.
 
-**What works natively on labwc** (`src-tauri/src/backend/`):
+**What's shared across all three** (`src-tauri/src/backend/`) — labwc, sway
+and wayfire are all wlroots-based and implement the same protocols, so this
+code is written once and just works on any of them:
 
 * window list / focus / minimize / maximize / close for every native and
-  XWayland window — `wlr-foreign-toplevel-management`, pushed to the UI as the
-  same `compositor:window-list` / `compositor:window-focused` events
+  XWayland window — `wlr-foreign-toplevel-management`, pushed to the UI as
+  the same `compositor:window-list` / `compositor:window-focused` events
   HackerOS-Comp emits;
 * system-wide clipboard history, including copies made in external apps
   (`wl-paste --watch`, needs `wl-clipboard`);
-* global shortcuts while a native app has focus: labwc keybinds call
-  `blue-environment --ctl <command>` (`toggle-start-menu`, `fullscreen-menu`,
-  `toggle-control-center`, `toggle-clipboard`, `open-terminal`, `screenshot`,
-  `lock`, `show-desktop`, …) which talks to the running shell over
+* global shortcuts while a native app has focus: each backend's keybinds
+  call `blue-environment --ctl <command>` (`toggle-start-menu`,
+  `fullscreen-menu`, `toggle-control-center`, `toggle-clipboard`,
+  `open-terminal`, `screenshot`, `lock`, `show-desktop`, `switcher-next`,
+  `switcher-prev`, …), which talks to the running shell over
   `$XDG_RUNTIME_DIR/blue-environment.sock`;
-* the `CompositorBridge` command set (focus/close/… , screenshots via `grim`,
-  lock, reload, workspace count) translated to labwc equivalents;
-* native windows look like Blue windows: the generated `rc.xml` selects the
-  `Blue-Environment` labwc theme (same palette as the shell's own window
-  chrome) and reserves the top bar area with `<margin>`.
+* the `CompositorBridge` command set (focus/close/…, screenshots via
+  `grim`, lock, reload, workspace count) translated to each backend's own
+  mechanism, with a "not supported here" error where a backend genuinely
+  has no equivalent (e.g. labwc has no fixed workspace count to change on
+  sway/wayfire, wayfire has no live config-reload in this version);
+* launching native apps goes through `backend/launcher.rs`: explicit
+  session environment (`WAYLAND_DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, …),
+  own session (`setsid`), stderr drained to
+  `~/.cache/Blue-Environment/launch.log`, and a notification with the
+  reason if the app exits with an error right after start. Starting a
+  compositor from a bare TTY with no session bus is wrapped in
+  `dbus-run-session` automatically;
+* Alt+Tab is decided by who has focus: with the Blue shell focused, the
+  compositor hands the key to Blue's own switcher (Blue windows + native
+  windows, Alt release commits); with a native app focused it's that
+  compositor's own switcher (native windows only). Choosing a Blue window
+  minimizes native windows first (`raise_shell`), since native windows are
+  stacked above the shell on every one of these backends;
+* shell overlays (Start menu, Control Center, the switcher…) temporarily
+  minimize native windows while open and restore them afterward, since the
+  shell sits beneath native windows and would otherwise be hidden by a
+  maximized app.
 
-The ready-made configuration lives in `src-tauri/resources/labwc/` (HackerOS
-ships it in `/etc/skel/.config/labwc` and `/usr/share/themes/Blue-Environment`).
-Known limits: Alt+Tab is labwc's own switcher (native windows only); Blue's
-in-shell windows live in the shell layer, i.e. beneath native windows; live
-workspace switching / DPMS timeout have no labwc IPC and are keybind/idle-daemon
-matters.
+**What differs per backend** — only two things, each isolated in its own
+`*_config.rs` module:
+
+* **how the shell gets started.** labwc takes a startup command directly on
+  its command line (`-s`). sway and wayfire only start programs named
+  *inside their own config* (an `exec` line for sway, an `[autostart]`
+  entry for wayfire), so Blue makes sure such a line exists:
+  * **no config at all** → Blue writes a complete default (keybinds,
+    floating-by-default, theming) with the shell already wired in;
+  * **a config already exists** (prepared by HackerOS, or the person's
+    own) → for sway, Blue never touches it — it generates a separate tiny
+    file that does `include "<their config>"` plus the one `exec` line
+    sway needs (a real, documented sway directive), and launches with
+    that instead. wayfire's `.ini` format has no confirmed equivalent to
+    `include`, so there Blue makes the smallest possible edit instead: it
+    adds one `[autostart]` line, only if one isn't already there, and
+    changes nothing else in the file. Either way, a distro-shipped stock
+    config (e.g. the `sway`/`wayfire` package's own default) is never
+    mistaken for "already prepared" — only a file that actually starts
+    Blue, or one the person has clearly customised themselves, counts.
+  * **the shipped/generated default is floating, not tiling** — sway
+    tiles by default (i3 heritage); Blue adds `for_window [all] floating
+    enable` so it behaves like a normal desktop instead.
+* **config format** for keybinds/theming/window rules — `labwc_config`,
+  `sway_config` and `wayfire_config` each generate a sensible default in
+  that backend's own syntax, matching the shell's own window-chrome
+  palette, only when nothing is already there.
+
+**Verification.** labwc and sway were both run and driven end-to-end in a
+real headless instance (window tracking, clipboard, global shortcuts
+including Alt+Tab, config generation in every branch above, `swaymsg
+reload`/`exit`). wayfire's plugin configuration (`[autostart]`,
+`foreign-toplevel`, `wm-actions`, `[input]`, `[decoration]`) is written
+against its own shipped plugin documentation and its `main.cpp` source (for
+`SIGTERM`-based clean shutdown), and the config-generation logic is unit
+tested the same way as sway's, but the compositor itself could not be
+started in the environment this was built in — wayfire requires a real DRM
+render device even with `WLR_BACKENDS=headless`, which wasn't available
+there. If something in the wayfire config needs adjusting in practice,
+that's the most likely place.
+
+Known limits: Blue's in-shell windows live in the shell layer, i.e.
+beneath native windows; live workspace switching / DPMS timeout have no
+IPC on sway/wayfire and are keybind/idle-daemon matters; wayfire has no
+live config-reload in this version (settings changes need a fresh login).
 
 ## Keyboard Shortcuts
 
