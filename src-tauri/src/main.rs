@@ -130,23 +130,25 @@ use commands::misc::*;
 
 fn main() {
     // ── Backend gate (config.hk → [backend] compositor) ───────────────────
-    // Must run before anything else (logging, Tauri): on the labwc backend
-    // this call *replaces the process* with `labwc -s "<this binary>
-    // --labwc-child"`, and labwc then launches the shell as its startup
-    // client. With the classic `hackeros-comp` backend it returns
-    // immediately and everything below runs exactly as it always did.
+    // Must run before anything else (logging, Tauri): on a native backend
+    // (labwc, sway or wayfire) this call *replaces the process* with that
+    // compositor, which then launches the shell itself (labwc directly via
+    // `-s`; sway/wayfire from an `exec`/`[autostart]` line in their own
+    // config — see `backend::exec_native`). With the classic `hackeros-comp`
+    // backend it returns immediately and everything below runs exactly as
+    // it always did.
     let cli_args: Vec<String> = std::env::args().skip(1).collect();
     if cli_args.first().map(|a| a == "--ctl").unwrap_or(false) {
         // `blue-environment --ctl toggle-start-menu` — talks to the running
-        // shell (this is what the generated labwc keybinds call).
+        // shell (this is what the generated compositor keybinds call).
         std::process::exit(backend::shell_ipc::run_cli(&cli_args[1..]));
     }
     if cli_args.iter().any(|a| a == "--backend-info") {
         println!("{}", serde_json::to_string_pretty(&backend::info()).unwrap_or_default());
         return;
     }
-    if let backend::StartupAction::LaunchLabwc { binary, config } = backend::plan_startup(&cli_args) {
-        let problem = backend::exec_labwc(&binary, &config, &cli_args);
+    if let backend::StartupAction::LaunchNative { kind, binary, config } = backend::plan_startup(&cli_args) {
+        let problem = backend::exec_native(kind, &binary, &config, &cli_args);
         // Only reached if exec failed — keep going as a plain shell.
         eprintln!("[blue-backend] {problem} — starting the shell without a compositor backend");
     }
@@ -374,16 +376,19 @@ fn main() {
             let _ = ipc_handle.emit("shell:command", serde_json::json!({ "cmd": cmd, "arg": arg }));
         });
 
-        if backend::is_labwc() {
-            // ── labwc backend: everything is native, no HackerOS-Comp ─────
+        if backend::is_native() {
+            // ── Native backend (labwc / sway / wayfire): everything is
+            // native, no HackerOS-Comp required — window list, focus and
+            // clipboard all come from the standard wlroots protocols.
             backend::toplevels::start();
             backend::clipboard::start_watcher(|text| {
                 add_to_clipboard_history(text.clone());
                 backend::emit("clipboard:changed", serde_json::json!({ "text": text }));
             });
-            // The shell is the desktop: cover the whole output (labwc's
-            // `<margin>` for the top bar only affects *native* windows) —
-            // the windowRule in rc.xml keeps it beneath them.
+            // The shell is the desktop: cover the whole output. Each
+            // backend's generated config keeps native windows from
+            // overlapping the reserved top-bar area and floats them like a
+            // normal desktop instead of tiling (see `*_config.rs`).
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(false);
                 let _ = window.set_fullscreen(true);
