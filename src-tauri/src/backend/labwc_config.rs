@@ -65,7 +65,10 @@ pub fn params_from_user_settings() -> Params {
     p
 }
 
-fn layout_for_language(lang: &str) -> String {
+/// Maps a UI language code (`pl`, `de-DE`, …) to an XKB layout name.
+/// Shared with `sway_config`/`wayfire_config` — all three backends need the
+/// same mapping when reading Blue's own `settings.json`.
+pub(crate) fn layout_for_language(lang: &str) -> String {
     let code = lang.split(['-', '_']).next().unwrap_or("en").to_lowercase();
     match code.as_str() {
         "en" | "" => "us".into(),
@@ -130,6 +133,17 @@ fn write_new(path: &Path, content: &str, executable: bool, out: &mut Generated) 
         }
         Err(_) => {} // already exists (or unwritable) — leave it alone
     }
+}
+
+/// Whether a usable labwc config (the person's own, or a previous Blue
+/// run's generated default) is already present — used by [`super::info`]
+/// diagnostics; mirrors the same `present()` check `ensure_default_config`
+/// uses to decide what (if anything) it needs to generate.
+pub fn has_prepared_config(custom_dir: Option<&Path>) -> bool {
+    let user = user_config_dir(custom_dir);
+    let system = if custom_dir.is_some() { Vec::new() } else { system_config_dirs() };
+    let is_blue = |p: &Path| fs::read_to_string(p).map(|t| t.contains("Blue Environment") || t.contains("Blue-Environment")).unwrap_or(false);
+    user.join("rc.xml").exists() || system.iter().any(|d| is_blue(&d.join("rc.xml")))
 }
 
 /// Makes sure a usable labwc configuration exists. Returns the list of
