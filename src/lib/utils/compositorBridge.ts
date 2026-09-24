@@ -57,13 +57,18 @@ async function send(type: string, payload: Record<string, unknown> = {}): Promis
     }
 }
 
-/** True when the shell runs on the labwc backend (cached after the first call). */
-let labwcProbe: Promise<boolean> | null = null;
-export function isLabwcBackend(): Promise<boolean> {
-    if (!labwcProbe) {
-        labwcProbe = invoke<{ active?: string }>('backend_get_info').then((i) => i?.active === 'labwc').catch(() => false);
+/** True when the shell runs on a native compositor backend (labwc, sway or
+ * wayfire — anything Blue drives itself over wlroots protocols, as opposed
+ * to hackeros-comp's own IPC). Cached after the first call. Reads the
+ * `is_native` flag from the backend itself rather than comparing `active`
+ * against a hardcoded name, so this needs no changes when another native
+ * backend is added. */
+let nativeBackendProbe: Promise<boolean> | null = null;
+export function isNativeBackend(): Promise<boolean> {
+    if (!nativeBackendProbe) {
+        nativeBackendProbe = invoke<{ is_native?: boolean }>('backend_get_info').then((i) => i?.is_native === true).catch(() => false);
     }
-    return labwcProbe;
+    return nativeBackendProbe;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -82,8 +87,10 @@ export const CompositorBridge = {
     setWorkspaceCount:      (count: number)                                   => send('set_workspace_count', { count }),
     setDpmsTimeout:         (seconds: number)                                 => send('set_dpms_timeout', { seconds }),
     lockScreen:             ()                                                => send('lock_screen'),
-    /// labwc backend only: minimize native windows and focus the shell (so a Blue window can come to the front).
+    /// Native backends only (labwc/sway/wayfire): minimize native windows and focus the shell (so a Blue window can come to the front).
     raiseShell:             ()                                                => send('raise_shell'),
+    /// Native backends only (labwc/sway/wayfire): a shell overlay is open/closed — native windows are tucked away while it is up (they would otherwise hide it).
+    peekNatives:            (open: boolean)                                   => send(open ? 'overlay_open' : 'overlay_close'),
     showDesktopNative:      ()                                                => send('show_desktop'),
     takeScreenshot:         (path: string, mode: 'full'|'focused' = 'full')  => send('take_screenshot', { path, mode }),
     setKeyboardLayout:      (layout: string, variant?: string)                => send('set_keyboard_layout', { layout, variant: variant ?? null }),
@@ -105,12 +112,12 @@ export const CompositorBridge = {
     onToggleStartMenu:      (cb: () => void)                                 => listen('compositor:toggle-start-menu', () => cb()),
     /// Commands sent to the running shell with `blue-environment --ctl <cmd>`
     /// (see src-tauri/src/backend/shell_ipc.rs) — this is how compositor-level
-    /// keybinds (labwc's rc.xml, or anything else) reach the shell while a
+    /// keybinds (labwc/sway/wayfire, or anything else) reach the shell while a
     /// native app has keyboard focus.
     onShellCommand:         (cb: (cmd: string, arg?: string | null) => void) => listen('shell:command', d => cb(d.cmd, d.arg)),
-    /// A new text selection landed on the system clipboard (labwc backend's
+    /// A new text selection landed on the system clipboard (a native backend's
     /// `wl-paste --watch`; also fires for copies made inside native apps).
-    /// An external app failed to start (labwc backend launcher): the command
+    /// An external app failed to start (the native-backend launcher): the command
     /// and the tail of its stderr, so the person sees *why*.
     onLaunchFailed:         (cb: (command: string, detail: string) => void) => listen('shell:launch-failed', d => cb(d.command, d.detail)),
     onClipboardChanged:     (cb: (text: string) => void)                    => listen('clipboard:changed', d => cb(d.text)),
