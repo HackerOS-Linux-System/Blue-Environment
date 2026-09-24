@@ -41,7 +41,7 @@ pub fn get_external_windows() -> Vec<ExternalWindow> {
     // On the **labwc** backend there is no HackerOS-Comp at all — the
     // native list comes from labwc's `wlr-foreign-toplevel-management`
     // (see `backend::toplevels`), which covers XWayland windows too.
-    if crate::backend::is_labwc() {
+    if crate::backend::is_native() {
         if let Some(native) = get_windows_via_labwc() {
             return native;
         }
@@ -283,8 +283,8 @@ fn compositor_socket_path() -> std::path::PathBuf {
 /// to shell out to `swaymsg`/`xdotool`/`wmctrl` for native Wayland
 /// windows.
 fn send_compositor_command(cmd_type: &str, id: u64) {
-    if crate::backend::is_labwc() {
-        let _ = crate::backend::labwc_command(cmd_type, &serde_json::json!({ "id": id }));
+    if crate::backend::is_native() {
+        let _ = crate::backend::native_command(cmd_type, &serde_json::json!({ "id": id }));
         return;
     }
     use std::io::Write;
