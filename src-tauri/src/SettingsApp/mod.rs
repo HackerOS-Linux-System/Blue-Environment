@@ -993,7 +993,7 @@ pub struct CompositorCommand {
 pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult {
     // labwc backend: there is no HackerOS-Comp socket — translate the same
     // command set into native labwc actions (see `backend::labwc_command`).
-    if crate::backend::is_labwc() {
+    if crate::backend::is_native() {
         let mut payload = command.payload.clone();
         if !payload.is_object() {
             payload = serde_json::json!({});
@@ -1003,13 +1003,13 @@ pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult
             "take_screenshot" | "reload_config" | "lock_screen" | "set_workspace_count" => {
                 let cmd_type = command.cmd_type.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = crate::backend::labwc_command(&cmd_type, &payload) {
+                    if let Err(e) = crate::backend::native_command(&cmd_type, &payload) {
                         eprintln!("[blue-backend] {cmd_type}: {e}");
                     }
                 });
                 SettingsResult::ok()
             }
-            other => match crate::backend::labwc_command(other, &payload) {
+            other => match crate::backend::native_command(other, &payload) {
                 Ok(()) => SettingsResult::ok(),
                 // Not a failure the person can act on — the feature simply
                 // has no labwc equivalent (DPMS timeout, HDR, workspace switching…).
