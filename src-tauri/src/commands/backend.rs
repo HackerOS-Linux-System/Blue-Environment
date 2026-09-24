@@ -12,7 +12,7 @@ pub async fn backend_get_info() -> Result<backend::BackendInfo, String> {
 #[tauri::command]
 pub async fn backend_set_compositor(compositor: String) -> Result<String, String> {
     let kind = backend::BackendKind::parse(&compositor)
-        .ok_or_else(|| format!("unknown compositor '{compositor}' (expected hackeros-comp or labwc)"))?;
+        .ok_or_else(|| format!("unknown compositor '{compositor}' (expected hackeros-comp, labwc, sway or wayfire)"))?;
     tokio::task::spawn_blocking(move || backend::set_compositor(kind).map(|p| p.display().to_string()))
         .await
         .map_err(|e| e.to_string())?
@@ -27,6 +27,6 @@ pub async fn backend_set_compositor(compositor: String) -> Result<String, String
 #[tauri::command]
 pub async fn focus_shell(window: tauri::WebviewWindow) -> bool {
     let toolkit = window.set_focus().is_ok();
-    let compositor = if backend::is_labwc() { backend::focus_shell_window() } else { false };
+    let compositor = if backend::is_native() { backend::focus_shell_window() } else { false };
     toolkit || compositor
 }
