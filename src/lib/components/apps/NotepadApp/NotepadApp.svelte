@@ -3,10 +3,19 @@
   import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import {
     Save, FolderOpen, Plus, X, FileText, Download,
-    Bold, Italic, Hash, Search, SpellCheck,
+    Bold, Italic, Hash, Search, SpellCheck, Code2,
   } from 'lucide-svelte';
   import SaveAsDialog from './SaveAsDialog.svelte';
   import { autocorrectAt } from '../../../utils/autocorrect';
+  // Reused straight from Blue Code rather than pulling in a second
+  // highlighting engine — Monaco is already a dependency this app ships
+  // (Blue-Code-App/MonacoEditor.svelte), so "syntax highlighting in
+  // Notepad" is a toggle between the plain `<textarea>` below and this
+  // same editor component, not a separate implementation to maintain.
+  // `getLang` maps a filename's extension to a Monaco language id —
+  // see languageMap.ts.
+  import MonacoEditor from '../Blue-Code-App/MonacoEditor.svelte';
+  import { getLang } from '../Blue-Code-App/languageMap';
 
   /** Set when launched from Explorer with "open this file" — see
    * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
@@ -26,6 +35,35 @@
   let autosaveTimer: ReturnType<typeof setInterval>;
   let findInputEl: HTMLInputElement;
   let autocorrectEnabled = true;
+  // Notepad's own setting (not the global Settings app — this is a
+  // per-app preference, toggled from Notepad's own toolbar, the way
+  // the request asked for) for whether to render the active tab through
+  // Monaco (real tokenizer-based syntax highlighting) instead of the
+  // plain textarea. Off by default: Notepad's whole appeal for a quick
+  // note is being a plain text box, not an IDE — this is opt-in, not a
+  // replacement for Blue Code.
+  const HIGHLIGHT_PREF_KEY = 'blue-notepad-syntax-highlighting';
+  let syntaxHighlightingEnabled = false;
+  try { syntaxHighlightingEnabled = localStorage.getItem(HIGHLIGHT_PREF_KEY) === '1'; } catch {}
+
+  function toggleSyntaxHighlighting() {
+    syntaxHighlightingEnabled = !syntaxHighlightingEnabled;
+    try { localStorage.setItem(HIGHLIGHT_PREF_KEY, syntaxHighlightingEnabled ? '1' : '0'); } catch {}
+  }
+
+  // Monaco needs a real language id (falls back to 'plaintext' for a
+  // name with no recognized extension, e.g. a still-untitled tab) —
+  // highlighting only actually activates when both the setting is on
+  // AND there's a real language to highlight, so an untitled/plaintext
+  // note still gets the plain textarea even with the setting enabled.
+  $: activeLang = activeTab ? getLang(activeTab.title) : 'plaintext';
+  $: monacoActive = syntaxHighlightingEnabled && activeLang !== 'plaintext';
+
+  function handleMonacoMount(e: CustomEvent<{ editor: any; monaco: any }>) {
+    e.detail.editor.onDidChangeCursorPosition((ev: any) => {
+      cursorPos = { line: ev.position.lineNumber, col: ev.position.column };
+    });
+  }
 
   $: activeTab = tabs.find((t) => t.id === activeId) ?? null;
 
@@ -52,8 +90,26 @@
     }, 30000);
 
     if (openPath) openFileByPath(openPath);
+
+    // handleKeyDown below is bound directly to the plain textarea, so it
+    // never fires while Monaco has focus (Monaco owns its own DOM node
+    // and its own keydown handling for things like its find widget) —
+    // without this, Ctrl+S would silently do nothing the moment syntax
+    // highlighting is turned on for a tab.
+    window.addEventListener('keydown', handleGlobalSaveShortcut, { capture: true });
   });
-  onDestroy(() => clearInterval(autosaveTimer));
+  onDestroy(() => {
+    clearInterval(autosaveTimer);
+    window.removeEventListener('keydown', handleGlobalSaveShortcut, { capture: true });
+  });
+
+  function handleGlobalSaveShortcut(e: KeyboardEvent) {
+    if (!monacoActive) return; // plain textarea's own on:keydown already covers this case
+    if (e.ctrlKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (e.shiftKey) saveAs(); else saveFile();
+    }
+  }
 
   async function saveToCacheNote(tab: NoteTab) {
     // Previously: `printf '%s' ${JSON.stringify(data)}` — JSON.stringify
@@ -273,6 +329,13 @@
       title={autocorrectEnabled ? 'Autocorrect: on — fixes common typos as you type' : 'Autocorrect: off'}>
       <SpellCheck size={15} />
     </button>
+    <button on:click={toggleSyntaxHighlighting}
+      class="p-1.5 rounded-lg text-xs font-medium {syntaxHighlightingEnabled ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-500'}"
+      title={syntaxHighlightingEnabled
+        ? `Syntax highlighting: on — active for recognized file types (currently: ${activeLang})`
+        : 'Syntax highlighting: off — click to highlight code by file extension (.js, .py, .rs, .json…)'}>
+      <Code2 size={15} />
+    </button>
     {#if activeTab?.path}
       <div class="ml-auto text-xs text-slate-600 truncate max-w-[200px] font-mono" title={activeTab.path}>{activeTab.path}</div>
     {/if}
@@ -310,7 +373,24 @@
   {/if}
 
   <div class="flex-1 overflow-hidden">
-    {#if activeTab}
+    {#if activeTab && monacoActive}
+      <!-- Note: autocorrect and the Bold/Italic/Heading textarea-selection
+           helpers above only make sense for the plain-text surface — with
+           highlighting on, Monaco's own editing behavior (its own find
+           widget on Ctrl+F, its own tab handling, etc.) takes over, which
+           is the expected trade-off of turning a note into "a bit of code
+           being edited" rather than a hidden bug. -->
+      {#key activeTab.id}
+        <MonacoEditor
+          language={activeLang}
+          value={activeTab.content}
+          theme="vs-dark"
+          fontSize={13}
+          on:change={(e) => updateContent(activeTab.id, e.detail)}
+          on:mount={handleMonacoMount}
+        />
+      {/key}
+    {:else if activeTab}
       <textarea
         bind:this={textareaEl}
         value={activeTab.content}
