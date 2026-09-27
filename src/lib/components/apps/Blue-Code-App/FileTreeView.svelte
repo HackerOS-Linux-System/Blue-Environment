@@ -6,8 +6,37 @@
   export let nodes: FileNode[];
   export let level = 0;
   export let selectedDir: string;
+  /** relative-path (from the workspace root) → single-letter git status
+   * ('M'/'A'/'D'/'U'/'?') — see Sidebar.svelte's `gitStatusMap`, built
+   * from `git_repo_status` (BlueCodeApp/git.rs). Empty object when the
+   * workspace isn't a git repo or hasn't loaded yet; every lookup below
+   * is `?? undefined`-safe for that case. */
+  export let gitStatus: Record<string, string> = {};
+  export let rootPath = '';
 
   const dispatch = createEventDispatcher<{ openFile: string; toggleDir: FileNode; rename: FileNode; delete: FileNode }>();
+
+  const STATUS_COLOR: Record<string, string> = {
+    M: 'text-yellow-400', A: 'text-green-400', D: 'text-red-400', U: 'text-orange-400', '?': 'text-slate-500',
+  };
+  const STATUS_TITLE: Record<string, string> = {
+    M: 'Modified', A: 'Added', D: 'Deleted', U: 'Conflicted', '?': 'Untracked',
+  };
+
+  // Directories don't have their own git status line, but VS Code-style
+  // tools still tint a folder's name when *something* inside it changed
+  // — helps spot which subtree to look in without expanding every
+  // folder. Cheap enough as a plain prefix scan given typical project
+  // sizes; not memoized since Svelte only reruns this on `gitStatus`/
+  // `nodes` changes anyway.
+  function relativePath(path: string): string {
+    if (!rootPath) return path;
+    return path.startsWith(rootPath) ? path.slice(rootPath.length).replace(/^\/+/, '') : path;
+  }
+  function dirHasChanges(dirRelPath: string): boolean {
+    const prefix = dirRelPath ? `${dirRelPath}/` : '';
+    return Object.keys(gitStatus).some((p) => p.startsWith(prefix));
+  }
 </script>
 
 {#each nodes as node (node.path)}
@@ -20,8 +49,15 @@
       {#if node.type === 'directory'}
         <span class="text-slate-500 w-4 shrink-0">{#if node.expanded}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
       {/if}
-      {#if node.type === 'directory'}<Folder size={14} class="text-blue-400 shrink-0" />{:else}<FileCode size={14} class="text-yellow-400 shrink-0" />{/if}
-      <span class="truncate flex-1">{node.name}</span>
+      {#if node.type === 'directory'}
+        <Folder size={14} class="shrink-0 {dirHasChanges(relativePath(node.path)) ? 'text-yellow-400' : 'text-blue-400'}" />
+      {:else}<FileCode size={14} class="text-yellow-400 shrink-0" />{/if}
+      <span class="truncate flex-1 {node.type === 'file' && gitStatus[relativePath(node.path)] ? STATUS_COLOR[gitStatus[relativePath(node.path)]] : ''}">{node.name}</span>
+      {#if node.type === 'file' && gitStatus[relativePath(node.path)]}
+        <span class="text-[10px] font-bold w-3 text-center shrink-0 {STATUS_COLOR[gitStatus[relativePath(node.path)]]}" title={STATUS_TITLE[gitStatus[relativePath(node.path)]]}>
+          {gitStatus[relativePath(node.path)]}
+        </span>
+      {/if}
       <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 ml-auto shrink-0">
         {#if node.type === 'file'}
           <button on:click|stopPropagation={() => dispatch('openFile', node.path)} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Open"><FileCode size={11} /></button>
@@ -31,7 +67,7 @@
       </div>
     </div>
     {#if node.type === 'directory' && node.expanded && node.children}
-      <svelte:self nodes={node.children} level={level + 1} {selectedDir}
+      <svelte:self nodes={node.children} level={level + 1} {selectedDir} {gitStatus} {rootPath}
         on:openFile on:toggleDir on:rename on:delete />
     {/if}
   </div>
