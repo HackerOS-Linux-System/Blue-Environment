@@ -10,6 +10,7 @@
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
+  import { ICON_COMPONENTS } from '../utils/fileTypeAssociations';
   import { t } from '../stores/language';
   import { createEventDispatcher } from 'svelte';
 
@@ -222,6 +223,11 @@
   let pinnedApps: AppId[] = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS];
   let panelOpacity = 0.95;
   let panelHeight = 48;
+  // Settings > Panel > "App Launcher" — see systemBridge.ts's
+  // UserConfig.startButtonLabelMode/startButtonIcon doc comments.
+  let startButtonLabelMode: 'icon-and-label' | 'icon-only' = 'icon-and-label';
+  let startButtonIcon = '';
+  $: StartButtonIconComponent = startButtonIcon ? ICON_COMPONENTS[startButtonIcon] : null;
 
   let clockTimer: ReturnType<typeof setInterval>;
   let weatherTimer: ReturnType<typeof setInterval>;
@@ -254,6 +260,8 @@
       if (pinned && Array.isArray(pinned) && pinned.length > 0) pinnedApps = pinned;
       if (typeof cfg.panelOpacity === 'number') panelOpacity = cfg.panelOpacity;
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelHeight = cfg.panelSize;
+      startButtonLabelMode = cfg.startButtonLabelMode === 'icon-only' ? 'icon-only' : 'icon-and-label';
+      startButtonIcon = cfg.startButtonIcon ?? '';
 
       const prevEnabled = weatherEnabled;
       const prevCity = weatherCityOverride;
@@ -303,7 +311,7 @@
   class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
   style="height:{panelHeight}px; z-index:50; {shellThemeId === 'hydra'
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
-    : `background-color:rgba(15, 23, 42, ${panelOpacity});`}"
+    : `background-color:rgba(15, 23, 42, var(--panel-opacity, ${panelOpacity}));`}"
 >
   <!-- Left: Start + search -->
   <div class="flex items-center gap-3 w-1/3">
@@ -313,10 +321,16 @@
       title="Start (double-click for full screen)"
     >
       <div class="relative">
-        <Command size={18} class="group-hover:rotate-12 transition-transform duration-200" />
-        <div class="absolute -top-1 -right-1 w-1.5 h-1.5 bg-blue-500 rounded-full" />
+        {#if StartButtonIconComponent}
+          <svelte:component this={StartButtonIconComponent} size={18} class="group-hover:rotate-12 transition-transform duration-200" />
+        {:else}
+          <Command size={18} class="group-hover:rotate-12 transition-transform duration-200" />
+        {/if}
+        <div class="absolute -top-1 -right-1 w-1.5 h-1.5 theme-accent-gradient rounded-full" />
       </div>
-      <span class="font-bold text-sm tracking-tight hidden sm:block">Blue</span>
+      {#if startButtonLabelMode !== 'icon-only'}
+        <span class="font-bold text-sm tracking-tight hidden sm:block">Blue</span>
+      {/if}
     </button>
     <div
       class="hidden md:flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 rounded-full px-3 py-1 text-xs text-slate-400 cursor-text transition-colors w-44"
