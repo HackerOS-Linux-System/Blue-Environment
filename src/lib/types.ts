@@ -150,6 +150,11 @@ export interface UserConfig {
    * (this app keeps two separate UserConfig interfaces, kept in sync by
    * hand — see that file). */
   onscreenKeyboardEnabled?: boolean;
+  /** See the identical fields' doc in systemBridge.ts's UserConfig (two
+   * separate UserConfig interfaces, kept in sync by hand — see that
+   * file). Controls the Start button in TopBar.svelte. */
+  startButtonLabelMode?: 'icon-and-label' | 'icon-only';
+  startButtonIcon?: string;
   /** See systemBridge.ts's UserConfig.clonedApps doc for the full
    * explanation and scope caveat. */
   clonedApps?: ClonedAppEntry[];
