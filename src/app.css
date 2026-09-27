@@ -70,8 +70,27 @@ body {
 .theme-text-secondary{ color: var(--text-secondary); }
 .theme-accent        { background-color: var(--accent); }
 .theme-accent-text   { color: var(--accent); }
+/* `--accent-gradient` is set by ShellThemeStyle.svelte for a custom
+ * theme with a second accent color (`extras.accentSecondary` — see
+ * customThemes.ts); for every builtin theme (no second accent), it's
+ * still set, just to a flat, single-color "gradient" of `--accent`
+ * repeated, so `.theme-accent-gradient` always has something valid to
+ * paint without every caller needing its own `var(--accent-gradient,
+ * var(--accent))` fallback chain. */
+.theme-accent-gradient { background: var(--accent-gradient, var(--accent)); }
 .theme-border        { border-color: rgba(255,255,255,0.1); }
 [data-theme='light-glass'] .theme-border { border-color: rgba(0,0,0,0.1); }
+
+/* `--shell-anim-duration` — a custom theme's `extras.animationSpeed`
+ * ('none' | 'normal' | 'fast', see ShellThemeStyle.svelte for the exact
+ * ms values). Applied globally to Tailwind's own `transition-*`
+ * utility classes (which set `transition-duration` themselves at
+ * 150ms) by overriding the property after the fact — deliberately
+ * `!important`-free and scoped to a custom property rather than
+ * touching Tailwind's generated classes directly, so a component that
+ * sets an explicit inline `transition-duration` (a handful do, for a
+ * deliberately-tuned animation) still wins over this shell-wide default. */
+* { transition-duration: var(--shell-anim-duration, 150ms); }
 
 /* ── Light mode (ControlCenter's Dark/Light toggle) ──────────────────
  * `config.theme` already drives `data-theme` on the document root (see
