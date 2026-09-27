@@ -49,16 +49,19 @@
    *   control than "one background, one secondary background, one
    *   accent" — Hydra's current look doesn't need it.
    */
-  import { onDestroy } from 'svelte';
-  import { resolveActiveShellTheme, type ShellTheme } from '../data/builtinThemes';
+  import { onDestroy, onMount } from 'svelte';
+  import { resolveActiveShellThemeWithCustom, type ShellTheme } from '../data/builtinThemes';
   import { activeShellThemeId } from '../stores/shellTheme';
+  import { customShellThemes, ensureCustomThemesLoaded } from '../utils/customThemes';
 
   // Only `shellThemeId` is ever read — a bare string prop rather than
   // the full `UserConfig` type, so callers (App.svelte specifically)
   // don't need to thread an entire config object through just for this.
   export let shellThemeId: string | undefined = undefined;
 
-  $: activeShellTheme = resolveActiveShellTheme(shellThemeId);
+  onMount(() => { ensureCustomThemesLoaded(); });
+
+  $: activeShellTheme = resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
 
   $: applyTheme(activeShellTheme);
 
@@ -80,6 +83,11 @@
       root.style.removeProperty('--accent');
       root.style.removeProperty('--accent-hover');
       root.style.removeProperty('--shell-radius');
+      root.style.removeProperty('--wallpaper-blur');
+      root.style.removeProperty('--panel-opacity');
+      root.style.removeProperty('--accent-gradient');
+      root.style.removeProperty('--shell-font');
+      root.style.removeProperty('--shell-anim-duration');
       root.removeAttribute('data-shell-theme');
       root.removeAttribute('data-icon-style');
       return;
@@ -109,6 +117,42 @@
     } else {
       root.style.removeProperty('--shell-radius');
     }
+    // `extras` — the richer, opt-in knobs only a custom (user-created)
+    // theme sets (see `customThemes.ts` / `custom_shell_themes.rs`);
+    // absent on every builtin theme, in which case each of these is a
+    // harmless no-op (`removeProperty` on something never set).
+    const extras = theme.extras;
+    if (extras?.cornerRadiusPx !== undefined) {
+      // A precise pixel value always wins over the binary rounded/sharp
+      // toggle above when the person set one explicitly.
+      root.style.setProperty('--shell-radius', `${extras.cornerRadiusPx}px`);
+    }
+    if (extras?.wallpaperBlur !== undefined && extras.wallpaperBlur > 0) {
+      root.style.setProperty('--wallpaper-blur', `${extras.wallpaperBlur}px`);
+    } else {
+      root.style.removeProperty('--wallpaper-blur');
+    }
+    if (extras?.panelOpacity !== undefined) {
+      root.style.setProperty('--panel-opacity', String(extras.panelOpacity / 100));
+    } else {
+      root.style.removeProperty('--panel-opacity');
+    }
+    if (extras?.accentSecondary) {
+      root.style.setProperty('--accent-gradient', `linear-gradient(135deg, ${theme.colors.accent}, ${extras.accentSecondary})`);
+    } else {
+      // Falls back to a flat "gradient" of one color repeated, so any
+      // component using `var(--accent-gradient, var(--accent))` as a
+      // background always has *something* valid to paint even when the
+      // active theme has no second accent color.
+      root.style.setProperty('--accent-gradient', theme.colors.accent);
+    }
+    if (extras?.fontFamily) {
+      root.style.setProperty('--shell-font', extras.fontFamily);
+    } else {
+      root.style.removeProperty('--shell-font');
+    }
+    const animDuration = extras?.animationSpeed === 'fast' ? '80ms' : extras?.animationSpeed === 'none' ? '0ms' : '200ms';
+    root.style.setProperty('--shell-anim-duration', animDuration);
     // `iconStyle` — same "was defined, nothing read it" gap as
     // `cornerStyle` had. This app's whole icon set (lucide-svelte) is
     // outline-only by construction — there's no separate "filled"
