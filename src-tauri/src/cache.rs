@@ -34,7 +34,40 @@ pub fn ensure_dirs() {
 
 // ── User configuration ─────────────────────────────────────────────────────
 
+/// The whole-shell settings blob, round-tripped through
+/// `commands::config::save_config`/`load_config` as a JSON string (see
+/// those two — `save_config` takes and parses a raw `String` rather
+/// than a structured Tauri command argument, precisely so the frontend
+/// can send its entire `UserConfig` object in one call).
+///
+/// `#[serde(rename_all = "camelCase")]` here is not cosmetic — it fixes
+/// a real, severe bug this struct had until now. The frontend's
+/// `SystemBridge.saveConfig` (systemBridge.ts) does
+/// `JSON.stringify(config)` on a TypeScript object with genuinely
+/// camelCase keys (`panelOpacity`, `themeName`, `accentColor`,
+/// `displayScale`, `panelEnabled`, `nightLightEnabled`, …). Without this
+/// attribute, every multi-word field here has a *different* name
+/// (`panel_opacity`, `theme_name`, …) than the JSON key it's supposed to
+/// deserialize from. `serde_json::from_str::<UserConfig>` then fails —
+/// not per-field, for the *whole struct*, since none of these fields had
+/// `#[serde(default)]` either — and `save_config`'s
+/// `.unwrap_or_default()` silently swallows that error and writes a
+/// completely blank, all-default `UserConfig` to `settings.json` instead
+/// of whatever the person actually changed. The very first time any
+/// setting was ever saved, every *other* setting silently reset to its
+/// Rust default (empty wallpaper, empty theme, `panel_enabled: false`,
+/// …) on disk — invisible in the same session (the frontend also mirrors
+/// every save to `localStorage` and prefers that in-memory state while
+/// running), but restored as pure defaults on the next full app restart,
+/// since `load_config`'s result already isn't literal `"{}"` by that
+/// point, so the frontend trusts it over `localStorage` — see
+/// `loadConfig()`'s comment in systemBridge.ts. In short: nothing a
+/// person configured ever actually survived a restart. Single-word
+/// fields (`wallpaper`, `theme`, `language`) happened to still match by
+/// coincidence, which is likely why this went unnoticed — most of the
+/// UI still looked "mostly right" after a restart.
 #[derive(Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct UserConfig {
     pub wallpaper: String,
     pub theme: String,
@@ -52,6 +85,18 @@ pub struct UserConfig {
     pub night_light_schedule: String,
     pub night_light_start_hour: u32,
     pub night_light_end_hour: u32,
+    /// 'icon-and-label' | 'icon-only' — see TopBar.svelte's Start button
+    /// and PanelSection.svelte's "App Launcher" card. Empty string (the
+    /// `Default` value) is treated as 'icon-and-label' by the frontend,
+    /// matching the button's original, always-on label.
+    #[serde(default)]
+    pub start_button_label_mode: String,
+    /// A lucide icon name from the same closed set
+    /// `file_type_associations.rs`'s `ALLOWED_ICONS` already defines
+    /// (reused rather than duplicated — see that constant's doc
+    /// comment) — empty string means "use the default Command icon".
+    #[serde(default)]
+    pub start_button_icon: String,
 }
 
 pub fn save_user_config(config: &UserConfig) {
@@ -305,4 +350,66 @@ pub struct ThemeColors {
     pub secondary: String,
     pub text: String,
     pub accent: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for the config-persistence bug described in
+    /// `UserConfig`'s doc comment: every multi-word field must
+    /// (de)serialize under its camelCase name, since that's what the
+    /// frontend's `JSON.stringify` on its own camelCase TS object
+    /// actually produces.
+    #[test]
+    fn serializes_multi_word_fields_as_camel_case() {
+        let cfg = UserConfig {
+            panel_opacity: 0.9,
+            theme_name: "blue-default".to_string(),
+            accent_color: "blue".to_string(),
+            night_light_enabled: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"panelOpacity\""), "expected camelCase key, got: {json}");
+        assert!(json.contains("\"themeName\""), "expected camelCase key, got: {json}");
+        assert!(json.contains("\"accentColor\""), "expected camelCase key, got: {json}");
+        assert!(json.contains("\"nightLightEnabled\""), "expected camelCase key, got: {json}");
+        assert!(!json.contains("panel_opacity"), "must not contain the old snake_case key");
+    }
+
+    #[test]
+    fn round_trips_a_realistic_frontend_payload_without_losing_fields() {
+        // Exactly the shape SystemBridge.saveConfig actually sends —
+        // camelCase keys, straight from systemBridge.ts's own default
+        // object literal — this is the payload that used to silently
+        // deserialize into an all-default UserConfig before this
+        // struct had `#[serde(rename_all = "camelCase")]`.
+        let payload = r#"{
+            "wallpaper": "", "theme": "dark", "themeName": "blue-default",
+            "accentColor": "blue", "displayScale": 1.0, "desktopPath": "HOME/Desktop",
+            "panelEnabled": true, "panelPosition": "top", "panelSize": 40,
+            "panelOpacity": 0.9, "language": "en", "nightLightEnabled": false,
+            "nightLightTemperature": 4000, "nightLightSchedule": "manual",
+            "nightLightStartHour": 20, "nightLightEndHour": 6,
+            "startButtonLabelMode": "icon-only", "startButtonIcon": "Rocket"
+        }"#;
+        let parsed: UserConfig = serde_json::from_str(payload).expect("must deserialize a real frontend payload");
+        assert_eq!(parsed.theme_name, "blue-default");
+        assert!(parsed.panel_enabled, "panel_enabled must not have silently reset to its false default");
+        assert_eq!(parsed.panel_opacity, 0.9);
+        assert_eq!(parsed.panel_size, 40);
+        assert_eq!(parsed.start_button_label_mode, "icon-only");
+        assert_eq!(parsed.start_button_icon, "Rocket");
+    }
+
+    #[test]
+    fn missing_new_fields_default_to_empty_string_not_an_error() {
+        // A settings.json written before startButtonLabelMode/Icon
+        // existed must still load cleanly (`#[serde(default)]` on both).
+        let payload = r#"{"wallpaper": "", "theme": "dark"}"#;
+        let parsed: UserConfig = serde_json::from_str(payload).expect("old configs without the new fields must still parse");
+        assert_eq!(parsed.start_button_label_mode, "");
+        assert_eq!(parsed.start_button_icon, "");
+    }
 }
