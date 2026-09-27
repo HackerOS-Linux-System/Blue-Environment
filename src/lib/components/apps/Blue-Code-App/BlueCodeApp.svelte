@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { Code2, Plus, AlertCircle, FileCode, X } from 'lucide-svelte';
   import { createFileTree } from './fileTree';
   import { createEditorFiles } from './editorFiles';
@@ -9,6 +9,7 @@
   import Sidebar from './Sidebar.svelte';
   import StatusBar from './StatusBar.svelte';
   import CommandPalette from './CommandPalette.svelte';
+  import QuickOpen from './QuickOpen.svelte';
   import TerminalPane from './TerminalPane.svelte';
   import MonacoEditor from './MonacoEditor.svelte';
 
@@ -19,17 +20,31 @@
 
   const tree = createFileTree();
   const editor = createEditorFiles(tree.rootPath);
-  const { rootPath } = tree;
+  const { rootPath, fileTree } = tree;
   const { openFiles, activeIdx, activeFile, fileDiagnostics, errors, warnings, lspStatus, editorTheme, fontSize, cursorPos, revealLine } = editor;
 
   onMount(() => {
     if (openPath) editor.openFile(openPath);
+
+    // Window-level fallback for Ctrl+P/Ctrl+Shift+P: the Monaco
+    // `addCommand` bindings in handleEditorMount only exist once a file
+    // is open (Monaco isn't mounted at all on the empty-workspace
+    // screen) — without this, Quick Open would be unreachable by
+    // keyboard until the person opens a file some other way first.
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'p') return;
+      e.preventDefault(); // always: also stops the browser's own print dialog on Ctrl+P
+      if (e.shiftKey) showCommandPalette = true; else showQuickOpen = true;
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   });
 
   let sidebarTab: SidebarTab = 'files';
   let sidebarCollapsed = false;
   let showTerminal = true;
   let showCommandPalette = false;
+  let showQuickOpen = false;
   let commandInput = '';
   let monacoEditorRef: any;
   let monacoApi: any;
@@ -62,6 +77,7 @@
     { id: 'unfold-all', label: 'Unfold All', shortcut: '', action: () => monacoEditorRef?.getAction?.('editor.unfoldAll')?.run() },
     { id: 'rename', label: 'Rename Symbol', shortcut: 'F2', action: () => monacoEditorRef?.getAction?.('editor.action.rename')?.run() },
     { id: 'find-file', label: 'Search in Files', shortcut: 'Ctrl+Shift+F', action: () => { sidebarTab = 'search'; sidebarCollapsed = false; } },
+    { id: 'quick-open', label: 'Go to File…', shortcut: 'Ctrl+P', action: () => (showQuickOpen = true) },
     { id: 'close-tab', label: 'Close Active Tab', shortcut: 'Ctrl+W', action: () => editor.closeFile($activeIdx) },
   ] as CommandEntry[];
 
@@ -75,6 +91,10 @@
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => editor.saveFile($activeIdx));
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyMod.Shift | monacoApi.KeyCode.KeyS, editor.saveAll);
     monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyMod.Shift | monacoApi.KeyCode.KeyP, () => (showCommandPalette = true));
+    // Ctrl+P: Quick Open. Monaco's own default Ctrl+P binding (Quick
+    // Command, redundant with our Ctrl+Shift+P above) is overridden by
+    // registering ours the same way the two commands above already do.
+    monacoEditorRef.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyP, () => (showQuickOpen = true));
 
     // Problems panel jump-to-line: revealLine is set by editor.
     // openFileAtLine() and may arrive either before or after this mount
@@ -183,4 +203,8 @@
   <CommandPalette visible={showCommandPalette} input={commandInput} {commands}
     on:close={() => { showCommandPalette = false; commandInput = ''; }}
     on:input={(e) => (commandInput = e.detail)} />
+
+  <QuickOpen visible={showQuickOpen} fileTree={$fileTree}
+    on:open={(e) => { editor.openFile(e.detail); showQuickOpen = false; }}
+    on:close={() => (showQuickOpen = false)} />
 </div>
