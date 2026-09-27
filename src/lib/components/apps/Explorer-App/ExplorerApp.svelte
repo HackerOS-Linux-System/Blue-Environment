@@ -8,11 +8,12 @@
     SortAsc, SortDesc, Columns, Info, Check, AlertCircle, Loader2,
     Star, StarOff, Archive as ArchiveIcon, FileBox,
   } from 'lucide-svelte';
-  import { SystemBridge } from '../../../utils/systemBridge';
+  import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm, activeDialog } from '../../../stores/dialog';
   import { get } from 'svelte/store';
   import { configStore } from '../../../utils/configStore';
   import { activeShellThemeId } from '../../../stores/shellTheme';
+  import { fileTypeAssociations, ensureFileTypeAssociationsLoaded, resolveAssociationLocally } from '../../../utils/fileTypeAssociations';
 
   // Real (if partial — see this app's own comment further down for the
   // honest scope) Hydra retrofit: this app previously had zero
@@ -172,6 +173,7 @@
   }
 
   onMount(() => loadFiles(activeTab.path));
+  onMount(() => { ensureFileTypeAssociationsLoaded(); });
 
   function goBack() {
     const t = activeTab;
@@ -213,6 +215,18 @@
 
   function handleOpen(file: FileEntry) {
     if (file.is_dir) { navigateTo(file.path); return; }
+
+    // A user-defined "open with" (Settings > Custom File Types) takes
+    // priority over every built-in rule below — that's the whole point
+    // of letting someone associate their own file format with their own
+    // command, the way KDE's file-associations settings do.
+    const customMatch = resolveAssociationLocally(file.name, file.mime_type, get(fileTypeAssociations));
+    if (customMatch?.open_with_command) {
+      const cmd = customMatch.open_with_command.replaceAll('{path}', shellQuote(file.path));
+      SystemBridge.executeCommand(cmd).catch(() => notify('error', `Failed to open with custom command: ${customMatch.label || customMatch.pattern}`));
+      return;
+    }
+
     if (file.mime_type.startsWith('image/')) { openPreview(file); return; }
     if (file.mime_type.startsWith('text/')) {
       // Previously this also fell into `openPreview` — a read-only pane
