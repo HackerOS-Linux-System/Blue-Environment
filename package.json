@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "lint": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:allowlist": "node scripts/gen-tauri-allowlist.mjs",
+    "gen:allowlist:check": "node scripts/gen-tauri-allowlist.mjs --check",
+    "gen:i18n-report": "node scripts/check-i18n-keys.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
