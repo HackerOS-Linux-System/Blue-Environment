@@ -119,6 +119,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          # Bust every existing cache under the old prefix. The exact
+          # symptom this fixes: a "full match" cache restore of a
+          # `target/` built from an OLDER commit — one before two new
+          # `#[tauri::command]` functions (`backend_check_integration`,
+          # `backend_repair_integration`) existed — was being reused for
+          # a NEWER commit that references them, because this cache
+          # key's own components (matrix arch + binary-only flag) never
+          # change between commits, and Swatinem/rust-cache's automatic
+          # hash is based on Cargo.lock/Cargo.toml + toolchain version,
+          # not on this repo's actual `.rs` source (this repo also has
+          # no committed Cargo.lock — see the root .gitignore — so that
+          # part of the automatic hash couldn't help distinguish commits
+          # either). Cargo's own fingerprinting normally recompiles a
+          # changed crate regardless, and the log shows it correctly
+          # deciding to recompile `blue-environment` — but the still-odd
+          # end result was rustc reporting `#[tauri::command]`'s
+          # generated `__cmd__backend_check_integration` /
+          # `__tauri_command_name_backend_check_integration` helper
+          # items as simply missing, for exactly the two newest command
+          # functions and no others, identically on two independent
+          # runners (x86_64 and aarch64) in the same run. Bumping
+          # `prefix-key` (rust-cache's own documented mechanism for
+          # "start a new cache manually") forces every job to build with
+          # a genuinely empty cache once, discarding whatever the old
+          # `v0-rust-...` cache entries were holding, which is the
+          # direct, immediate fix for a poisoned/incorrectly-reused
+          # cache regardless of the exact underlying trigger. Bump this
+          # again (v3, v4, …) if a change ever needs to force a clean
+          # cache in the future.
+          prefix-key: "v1-rust"
           # `src-tauri` and `auth` are members of ONE cargo workspace
           # rooted at the repo root (see root Cargo.toml's
           # `[workspace] members`), so the actual build output — and
