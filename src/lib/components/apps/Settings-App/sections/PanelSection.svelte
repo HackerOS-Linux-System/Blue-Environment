@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { PanelTop, PanelBottom, Plus, X, GripVertical } from 'lucide-svelte';
+  import { PanelTop, PanelBottom, Plus, X, GripVertical, Rocket, Command } from 'lucide-svelte';
   import type { UserConfig } from '../../../../types';
   import { AppId } from '../../../../types';
   import { APPS } from '../../../../constants';
   import { t } from '../../../../stores/language';
   import { Layers } from 'lucide-svelte';
+  import { ICON_COMPONENTS, ICON_NAMES } from '../../../../utils/fileTypeAssociations';
 
   export let config: UserConfig;
   export let onSave: (p: Partial<UserConfig>) => Promise<void>;
@@ -164,6 +165,44 @@
         class="relative w-11 h-6 rounded-full transition-colors shrink-0 {config.networkHoverInfoEnabled ?? true ? 'bg-blue-600' : 'bg-slate-700'}">
         <span class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform {config.networkHoverInfoEnabled ?? true ? 'translate-x-5' : ''}" />
       </button>
+    </div>
+  </div>
+
+  <!-- App Launcher (Start button) — icon+label vs. icon-only, and a
+       custom icon. See systemBridge.ts's UserConfig.startButtonLabelMode
+       /startButtonIcon doc comments and TopBar.svelte's Start button. -->
+  <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
+    <h3 class="text-sm font-semibold text-white flex items-center gap-2"><Rocket size={15} class="text-blue-400" /> {$t('settings.panel.launcher_group')}</h3>
+    <p class="text-xs text-slate-500">{$t('settings.panel.launcher_group_desc')}</p>
+
+    <div class="flex items-center justify-between">
+      <div class="text-sm text-slate-200">{$t('settings.panel.launcher_label_mode')}</div>
+      <div class="flex bg-slate-900 rounded-lg p-0.5">
+        <button on:click={() => onSave({ startButtonLabelMode: 'icon-and-label' })}
+          class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {(config.startButtonLabelMode ?? 'icon-and-label') === 'icon-and-label' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">
+          {$t('settings.panel.launcher_icon_and_label')}
+        </button>
+        <button on:click={() => onSave({ startButtonLabelMode: 'icon-only' })}
+          class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors {config.startButtonLabelMode === 'icon-only' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">
+          {$t('settings.panel.launcher_icon_only')}
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <div class="text-sm text-slate-200 mb-1.5">{$t('settings.panel.launcher_icon')}</div>
+      <div class="grid grid-cols-10 gap-1.5 bg-slate-900 rounded-lg p-2 border border-white/10 max-h-24 overflow-y-auto">
+        <button on:click={() => onSave({ startButtonIcon: '' })} title="Command (default)"
+          class="aspect-square flex items-center justify-center rounded-lg transition-colors {!config.startButtonIcon ? 'bg-blue-500/30 ring-1 ring-blue-400 text-blue-400' : 'hover:bg-white/10 text-slate-400'}">
+          <Command size={16} />
+        </button>
+        {#each ICON_NAMES as name (name)}
+          <button on:click={() => onSave({ startButtonIcon: name })} title={name}
+            class="aspect-square flex items-center justify-center rounded-lg transition-colors {config.startButtonIcon === name ? 'bg-blue-500/30 ring-1 ring-blue-400 text-blue-400' : 'hover:bg-white/10 text-slate-400'}">
+            <svelte:component this={ICON_COMPONENTS[name]} size={16} />
+          </button>
+        {/each}
+      </div>
     </div>
   </div>
 
