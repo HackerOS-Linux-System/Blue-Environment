@@ -357,6 +357,86 @@ fn hackeros_socket_exists() -> bool {
     Path::new(&runtime).join("hackeros-comp.sock").exists()
 }
 
+/// Environment-variable markers each native compositor is known to set
+/// for its own clients. `LABWC_PID` and `SWAYSOCK` are labwc's and
+/// sway's own, real, documented markers (not something Blue invented —
+/// `compositor_pid()` above already relies on `LABWC_PID` for the same
+/// reason). Wayfire has no equivalent documented marker, hence no entry
+/// for it here — see `detect_running_compositor_process` for how
+/// wayfire (and labwc/sway, as a second line of defense) get detected
+/// instead.
+fn detect_via_env_markers() -> Option<BackendKind> {
+    if std::env::var_os("LABWC_PID").is_some() {
+        return Some(BackendKind::Labwc);
+    }
+    if std::env::var_os("SWAYSOCK").is_some() {
+        return Some(BackendKind::Sway);
+    }
+    None
+}
+
+/// Reads `/proc/<pid>/comm` for every numeric entry under `/proc`,
+/// looking for a process named exactly `labwc`, `sway` or `wayfire`.
+///
+/// WHY THIS EXISTS: `active()`'s original fallback chain was
+/// `--*-child` flag → `BLUE_NATIVE_BACKEND` env → `BLUE_BACKEND`
+/// override → hackeros-comp socket → `XDG_CURRENT_DESKTOP`/
+/// `XDG_SESSION_DESKTOP` substring match → trust `config.hk`. Every one
+/// of those (except the last) assumes Blue itself started the
+/// compositor, or that whatever *did* start it populated
+/// `XDG_CURRENT_DESKTOP` the way a full display-manager session would.
+/// Neither holds for the extremely common case of a user who already
+/// has labwc (or sway/wayfire) running as their session compositor —
+/// started from a bare `~/.bash_profile`/TTY autologin script, a
+/// minimal `dbus-run-session labwc` line, or similar — and simply runs
+/// `blue-environment` as an app inside that already-running session.
+/// `XDG_CURRENT_DESKTOP` is very often empty in exactly that setup,
+/// since nothing in the chain ever bothered to set it. `active()` would
+/// then fall through to `config.hk`'s stored preference, which
+/// defaults to `hackeros-comp` — silently misidentifying a real labwc
+/// session as non-native. Concretely, that mistake is why (see
+/// `main.rs`'s `.setup()`) `backend::toplevels::start()` (the Wayland
+/// `wlr-foreign-toplevel-management` listener backing the taskbar,
+/// window switching and Alt-Tab) and `backend::clipboard::start_watcher`
+/// never start: external apps still *launch* (their process really does
+/// spawn — `commands::session::launch_process` just takes the
+/// non-native, no-Wayland-env-setup branch instead, which happens to
+/// still work since a real Wayland session's env is already correctly
+/// inherited from the shell that started `blue-environment` itself),
+/// but the shell has no idea any window opened, so nothing appears to
+/// happen from the user's side, and Alt-Tab's window list — built
+/// entirely from `toplevels::list()` — is permanently empty.
+///
+/// This is the second line of defense after `detect_via_env_markers`
+/// (which is cheaper but only covers labwc/sway): actually looking at
+/// what process is running doesn't depend on any environment variable
+/// being set by anything, so it catches wayfire too, and catches
+/// labwc/sway even in an environment so minimal that even `LABWC_PID`/
+/// `SWAYSOCK` didn't make it through (e.g. a compositor launched by a
+/// process that scrubs its child's environment before handing off).
+fn detect_running_compositor_process() -> Option<BackendKind> {
+    detect_running_compositor_process_in(Path::new("/proc"))
+}
+
+fn detect_running_compositor_process_in(proc_root: &Path) -> Option<BackendKind> {
+    let entries = std::fs::read_dir(proc_root).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid_str) = name.to_str() else { continue };
+        if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
+            continue; // not a PID directory (self, cpuinfo, etc.)
+        }
+        let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) else { continue };
+        match comm.trim() {
+            "labwc" => return Some(BackendKind::Labwc),
+            "sway" => return Some(BackendKind::Sway),
+            "wayfire" => return Some(BackendKind::Wayfire),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Which compositor is this shell *actually* running under? Cached.
 pub fn active() -> BackendKind {
     static ACTIVE: OnceLock<BackendKind> = OnceLock::new();
@@ -391,6 +471,25 @@ pub fn active() -> BackendKind {
         for (needle, kind) in [("labwc", BackendKind::Labwc), ("sway", BackendKind::Sway), ("wayfire", BackendKind::Wayfire)] {
             if desktop.contains(needle) {
                 return kind;
+            }
+        }
+        // Neither an env marker Blue itself set nor a desktop-session
+        // string naming a compositor — but a real display session is up
+        // (checked so we don't, say, misdetect "labwc" from a leftover
+        // process during a TTY session with no compositor actually
+        // running at all). Check for the environment markers labwc/sway
+        // set for their own clients, then actually look for a running
+        // compositor process. See `detect_running_compositor_process`'s
+        // doc comment for exactly which real-world setup this recovers:
+        // labwc/sway/wayfire already running as the session compositor,
+        // started outside Blue's own bootstrapper, in an environment
+        // minimal enough that `XDG_CURRENT_DESKTOP` was never set.
+        if display_session_present() {
+            if let Some(k) = detect_via_env_markers() {
+                return k;
+            }
+            if let Some(k) = detect_running_compositor_process() {
+                return k;
             }
         }
         // Unknown compositor: trust the configuration.
@@ -932,7 +1031,18 @@ fn overlay_open() {
     let list = toplevels::list();
     let mut visible: Vec<&toplevels::Toplevel> =
         list.iter().filter(|t| !toplevels::is_shell_window(t) && !t.minimized).collect();
-    visible.sort_by_key(|t| t.last_active);
+    // `Toplevel` has no last-active timestamp — the
+    // wlr-foreign-toplevel-management protocol this is built on doesn't
+    // expose one, only a live `activated` flag for whichever single
+    // window currently has focus. That's actually sufficient here: at
+    // most one window is `activated: true` at a time, and it — being
+    // the one focused right before this peek — *is* the most recently
+    // active one. Sorting ascending by that bool (`false < true` in
+    // Rust) puts every other, unfocused window first and the
+    // currently-focused one last, exactly matching `Peek::minimized`'s
+    // "least recently used first" ordering (see its doc comment above)
+    // with no data the protocol doesn't actually provide.
+    visible.sort_by_key(|t| t.activated);
     for t in &visible {
         toplevels::send(toplevels::Cmd::SetMinimized(t.id, true));
     }
@@ -1112,5 +1222,63 @@ mod tests {
         assert_eq!(child_flag(BackendKind::Sway), Some(ARG_SWAY_CHILD));
         assert_eq!(child_flag(BackendKind::Wayfire), Some(ARG_WAYFIRE_CHILD));
         assert_eq!(child_flag(BackendKind::HackerosComp), None);
+    }
+
+    /// Regression tests for the "already-running labwc session, started
+    /// outside Blue's own bootstrapper" misdetection — see
+    /// `detect_running_compositor_process`'s doc comment for the full
+    /// story. Builds a fake `/proc`-shaped directory (`<pid>/comm`
+    /// files) rather than touching the real `/proc`, so this is
+    /// hermetic and doesn't depend on what's actually running on the
+    /// machine executing the test suite.
+    fn fake_proc_with(entries: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("blue-fakeproc-{}-{}", std::process::id(), entries.len()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (pid, comm) in entries {
+            let pid_dir = dir.join(pid);
+            std::fs::create_dir_all(&pid_dir).unwrap();
+            std::fs::write(pid_dir.join("comm"), format!("{comm}\n")).unwrap();
+        }
+        // A couple of non-numeric entries real /proc always has, to make
+        // sure the numeric-only filter actually does something.
+        std::fs::create_dir_all(dir.join("self")).unwrap();
+        std::fs::write(dir.join("cpuinfo"), "fake").unwrap();
+        dir
+    }
+
+    #[test]
+    fn detects_labwc_process_in_fake_proc() {
+        let dir = fake_proc_with(&[("100", "bash"), ("101", "labwc"), ("102", "Xwayland")]);
+        assert_eq!(detect_running_compositor_process_in(&dir), Some(BackendKind::Labwc));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detects_sway_and_wayfire_process_in_fake_proc() {
+        let dir = fake_proc_with(&[("200", "sway")]);
+        assert_eq!(detect_running_compositor_process_in(&dir), Some(BackendKind::Sway));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let dir2 = fake_proc_with(&[("300", "wayfire")]);
+        assert_eq!(detect_running_compositor_process_in(&dir2), Some(BackendKind::Wayfire));
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn no_compositor_process_returns_none() {
+        let dir = fake_proc_with(&[("400", "bash"), ("401", "firefox")]);
+        assert_eq!(detect_running_compositor_process_in(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ignores_non_numeric_proc_entries() {
+        // `fake_proc_with` always adds "self" and "cpuinfo" — this just
+        // asserts that alone (no real compositor entries) yields None
+        // rather than, say, panicking on a non-numeric "directory" name.
+        let dir = fake_proc_with(&[]);
+        assert_eq!(detect_running_compositor_process_in(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
