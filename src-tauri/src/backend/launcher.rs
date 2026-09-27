@@ -86,7 +86,7 @@ pub fn launch(command: String) {
         }
         // Our own marker must not leak into apps (a nested Blue Environment
         // would think it is the labwc child).
-        cmd.env_remove(super::ENV_SESSION);
+        cmd.env_remove(super::ENV_NATIVE_BACKEND);
         cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
         // Own session: survives a shell restart, no shared controlling tty.
         unsafe {
