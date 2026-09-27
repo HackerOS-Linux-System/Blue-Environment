@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ShieldCheck, Lock, Clock, Ban, KeyRound } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
   import { t } from '../../../../stores/language';
@@ -27,6 +27,20 @@
   let unlocked = false;
   let pinInput = '';
   let pinError = false;
+  // Populated from `parental_controls_lockout_remaining_seconds` after a
+  // failed unlock — see `parental_controls.rs`'s escalating-lockout
+  // logic. `0` means not currently locked out.
+  let lockoutSeconds = 0;
+  let lockoutTimer: ReturnType<typeof setInterval> | undefined;
+
+  function startLockoutCountdown(seconds: number) {
+    clearInterval(lockoutTimer);
+    lockoutSeconds = seconds;
+    lockoutTimer = setInterval(() => {
+      lockoutSeconds = Math.max(0, lockoutSeconds - 1);
+      if (lockoutSeconds <= 0) clearInterval(lockoutTimer);
+    }, 1000);
+  }
 
   let cfg: ParentalConfig = {
     enabled: false, blocked_apps: [], daily_limits_minutes: {}, usage_minutes_today: {},
@@ -50,8 +64,12 @@
 
   onMount(async () => {
     pinSet = await SystemBridge.invokeCommand<boolean>('parental_controls_is_pin_set').catch(() => false);
+    const remaining = await SystemBridge.invokeCommand<number>('parental_controls_lockout_remaining_seconds').catch(() => 0);
+    if (remaining > 0) startLockoutCountdown(remaining);
     await refresh();
   });
+
+  onDestroy(() => clearInterval(lockoutTimer));
 
   async function refresh() {
     const c = await SystemBridge.invokeCommand<ParentalConfig>('parental_controls_get').catch(() => null);
@@ -65,13 +83,18 @@
 
   async function unlock() {
     pinError = false;
+    if (lockoutSeconds > 0) return; // guard against a stray Enter-key submit mid-lockout
     const ok = await SystemBridge.invokeCommand<boolean>('parental_controls_verify_pin', { pin: pinInput }).catch(() => false);
     if (ok) {
       unlocked = true;
       sessionPin = pinInput;
       pinInput = '';
+      lockoutSeconds = 0;
     } else {
       pinError = true;
+      pinInput = '';
+      const remaining = await SystemBridge.invokeCommand<number>('parental_controls_lockout_remaining_seconds').catch(() => 0);
+      if (remaining > 0) startLockoutCountdown(remaining);
     }
   }
 
@@ -143,10 +166,19 @@
     <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-4 max-w-xs">
       <p class="text-white/70 text-sm flex items-center gap-2"><Lock class="w-4 h-4" /> {$t('settings.parental.enter_pin')}</p>
       <input type="password" inputmode="numeric" placeholder={$t('settings.parental.pin_placeholder')} bind:value={pinInput}
-        on:keydown={(e) => e.key === 'Enter' && unlock()}
-        class="bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white w-full" />
-      {#if pinError}<p class="text-red-400 text-sm">{$t('settings.parental.incorrect_pin')}</p>{/if}
-      <button on:click={unlock} class="bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-4 py-2 w-full">{$t('settings.parental.unlock')}</button>
+        on:keydown={(e) => e.key === 'Enter' && unlock()} disabled={lockoutSeconds > 0}
+        class="bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white w-full disabled:opacity-50" />
+      {#if lockoutSeconds > 0}
+        <p class="text-amber-400 text-sm flex items-center gap-2">
+          <Clock class="w-4 h-4" /> {$t('settings.parental.locked_out').replace('{s}', String(lockoutSeconds))}
+        </p>
+      {:else if pinError}
+        <p class="text-red-400 text-sm">{$t('settings.parental.incorrect_pin')}</p>
+      {/if}
+      <button on:click={unlock} disabled={lockoutSeconds > 0}
+        class="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 w-full">
+        {lockoutSeconds > 0 ? $t('settings.parental.locked_out_short') : $t('settings.parental.unlock')}
+      </button>
     </div>
   {:else}
     <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 flex items-center justify-between">
