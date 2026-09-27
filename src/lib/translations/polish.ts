@@ -439,6 +439,8 @@ export const polish: Translations = {
     'settings.parental.enter_pin': 'Wprowadź PIN, aby zarządzać kontrolą rodzicielską',
     'settings.parental.pin_placeholder': 'PIN',
     'settings.parental.incorrect_pin': 'Nieprawidłowy PIN.',
+    'settings.parental.locked_out': 'Zbyt wiele prób. Spróbuj ponownie za {s}s.',
+    'settings.parental.locked_out_short': 'Zablokowane',
     'settings.parental.unlock': 'Odblokuj',
     'settings.parental.off_desc': 'Gdy wyłączone, żadne z poniższych ograniczeń nie jest egzekwowane.',
     'settings.parental.blocked_apps': 'Zablokowane aplikacje',
@@ -637,4 +639,50 @@ export const polish: Translations = {
     'settings.defaultapps.role_pdf_desc': 'Domyślna aplikacja do otwierania dokumentów PDF',
     'settings.defaultapps.role_calendar': 'Kalendarz',
     'settings.defaultapps.role_calendar_desc': 'Domyślna aplikacja dla plików .ics i linków webcal://',
+
+    // FIXME i18n: the 19 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.tab.file_types': 'Custom File Types',
+    'settings.filetypes.title': 'Custom File Types',
+    'settings.filetypes.desc': 'Give your own file extensions or MIME types a custom icon, color and (optionally) a command to open them with — for formats Blue Files doesn\'t already recognize.',
+    'settings.filetypes.add': 'Add file type',
+    'settings.filetypes.editor_title': 'File type',
+    'settings.filetypes.match_extension': 'By extension',
+    'settings.filetypes.match_mime': 'By MIME type',
+    'settings.filetypes.pattern_ext_label': 'Extension (without the dot)',
+    'settings.filetypes.pattern_mime_label': 'MIME type (or a wildcard prefix like application/*)',
+    'settings.filetypes.label_label': 'Display name',
+    'settings.filetypes.label_placeholder': 'e.g. “Blue Project File”',
+    'settings.filetypes.icon_label': 'Icon',
+    'settings.filetypes.color_label': 'Color',
+    'settings.filetypes.open_with_label': 'Open with (optional)',
+    'settings.filetypes.open_with_hint': 'A shell command to run instead of the default app. Use {path} for the file\'s path — leave blank to just customize the icon.',
+    'settings.filetypes.save': 'Save',
+    'settings.filetypes.cancel': 'Cancel',
+    'settings.filetypes.opens_with': 'opens with:',
+    'settings.filetypes.empty': 'No custom file types yet — add one above.',
+
+    // FIXME i18n: the 6 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.about.labwc_integration_title': 'labwc keybinds not installed',
+    'settings.about.labwc_integration_desc': 'This labwc session already existed before Blue Environment was set up, so its config was never touched (Blue never overwrites a config you already have). That means Alt-Tab, the Super-key start menu and a few other shortcuts aren\'t wired up yet. This adds them to your existing rc.xml (backing it up first) without changing anything else in it.',
+    'settings.about.labwc_repair_button': 'Repair labwc integration',
+    'settings.about.labwc_repairing': 'Repairing…',
+    'settings.about.labwc_repair_failed': 'Couldn\'t update rc.xml.',
+    'settings.about.labwc_integration_ok': 'labwc integration looks good — Blue\'s keybinds are installed.',
+
+    // FIXME i18n: the 6 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.panel.launcher_group': 'App Launcher',
+    'settings.panel.launcher_group_desc': 'Customize the Start button in the top-left of the panel.',
+    'settings.panel.launcher_label_mode': 'Show',
+    'settings.panel.launcher_icon_and_label': 'Icon + label',
+    'settings.panel.launcher_icon_only': 'Icon only',
+    'settings.panel.launcher_icon': 'Icon',
 };
