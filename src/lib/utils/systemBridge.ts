@@ -63,6 +63,17 @@ export interface UserConfig {
      * that doesn't exist yet; this only reaches focused elements inside
      * Blue-Environment's own webview). */
     onscreenKeyboardEnabled?: boolean;
+    /** Settings > Panel > "App Launcher" card, and independently
+     * overridable per shell theme too (a builtin/custom theme with no
+     * opinion here leaves whatever the person picked alone) — controls
+     * the Start button in TopBar.svelte. `undefined`/'icon-and-label' is
+     * the original always-on-label behavior. */
+    startButtonLabelMode?: 'icon-and-label' | 'icon-only';
+    /** A lucide icon name from the same closed set
+     * `fileTypeAssociations.ts`'s `ICON_NAMES` already defines (reused
+     * rather than duplicated). Empty/`undefined` means "use the default
+     * Command icon". */
+    startButtonIcon?: string;
     /** "Cloned Apps" (Settings-App/sections/ClonedAppsSection.svelte) —
      * a second, independently-titled launch entry for an existing app,
      * modelled after Android's "clone app to use two accounts" feature.
