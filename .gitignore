@@ -4,8 +4,12 @@ debug
 target
 node_modules
 dist
+# package-lock.json is committed instead — see npm install's own note in
+# build.yml for why `npm ci` isn't used. Cargo.lock IS committed (removed
+# from this ignore list) for the same reproducibility reason applications
+# generally want a locked dependency tree; see build.yml's rust-cache
+# `prefix-key` comment for the incident this was part of fixing.
 package-lock.json
-Cargo.lock
 
 src-tauri/icons
 src-tauri/gen
