@@ -3,7 +3,7 @@
   import {
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
-    Sparkles, Puzzle, Layers, Clock, Keyboard, Copy,
+    Sparkles, Puzzle, Layers, Clock, Keyboard, Copy, FileCog,
   } from 'lucide-svelte';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
@@ -31,6 +31,7 @@
   import KeyboardSection from './sections/KeyboardSection.svelte';
   import ClonedAppsSection from './sections/ClonedAppsSection.svelte';
   import DefaultAppsSection from './sections/DefaultAppsSection.svelte';
+  import CustomFileTypesSection from './sections/CustomFileTypesSection.svelte';
   import MonitorsSection from '../../settings/MonitorsSection.svelte';
   import PrintersSection from '../../settings/PrintersSection.svelte';
   import UsersSection from '../../settings/UsersSection.svelte';
@@ -53,6 +54,7 @@
     { id: 'keyboard', labelKey: 'settings.tab.keyboard', icon: Keyboard, group: 'Hardware' },
     { id: 'apps', labelKey: 'settings.tab.applications', icon: LayoutGrid, group: 'System' },
     { id: 'default_apps', labelKey: 'settings.tab.default_apps', icon: LayoutGrid, group: 'System' },
+    { id: 'file_types', labelKey: 'settings.tab.file_types', icon: FileCog, group: 'System' },
     { id: 'users', labelKey: 'settings.tab.users', icon: Users, group: 'System' },
     { id: 'security', labelKey: 'settings.tab.security', icon: Shield, group: 'Account' },
     { id: 'parental_controls', labelKey: 'settings.tab.parental_controls', icon: ShieldCheck, group: 'Account' },
@@ -198,6 +200,7 @@
       {:else if activeTab === 'power'}<PowerSection />
       {:else if activeTab === 'apps'}<AppsSection {config} {onSave} />
       {:else if activeTab === 'default_apps'}<DefaultAppsSection />
+      {:else if activeTab === 'file_types'}<CustomFileTypesSection />
       {:else if activeTab === 'users'}<UsersSection />
       {:else if activeTab === 'accounts'}<AccountsSection {config} {onSave} />
       {:else if activeTab === 'security'}<SecuritySection />
