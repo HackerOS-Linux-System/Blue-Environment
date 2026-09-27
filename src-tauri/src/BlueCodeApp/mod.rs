@@ -7,6 +7,8 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter};
 
+pub mod git;
+
 #[derive(Serialize)]
 pub struct LspResult {
     pub success: bool,
