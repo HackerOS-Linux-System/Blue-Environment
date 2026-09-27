@@ -42,12 +42,16 @@
    */
   import { onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
-  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical } from 'lucide-svelte';
+  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Sparkles, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical, Edit2, Download, Trash2, X } from 'lucide-svelte';
   import { DEFAULT_WINDOW_CONTROLS_ORDER, type WindowControlId } from '../../../../data/builtinThemes';
   import type { UserConfig, SystemTheme } from '../../../../types';
   import { t } from '../../../../stores/language';
-  import { BUILTIN_THEMES, DEFAULT_SHELL_THEME_ID, type ShellTheme } from '../../../../data/builtinThemes';
+  import { BUILTIN_THEMES, DEFAULT_SHELL_THEME_ID, type ShellTheme, type ShellThemeExtras } from '../../../../data/builtinThemes';
   import { SystemBridge } from '../../../../utils/systemBridge';
+  import {
+    customShellThemes, ensureCustomThemesLoaded, saveCustomTheme, removeCustomTheme,
+    blankCustomTheme, exportCustomThemeJson, importCustomThemeJson,
+  } from '../../../../utils/customThemes';
   // Static import, not `fetch('/config/stores/...')` — this project has
   // no `public/` directory (Vite's default static-asset root), so a
   // runtime fetch of a project-root-relative path like that would
@@ -142,7 +146,84 @@
   }
   function handleDragEnd() { dragFromIndex = null; dragOverIndex = null; }
 
-  onMount(() => { if (tab === 'store') loadStore(); });
+  onMount(() => { if (tab === 'store') loadStore(); ensureCustomThemesLoaded(); });
+
+  // ── Custom (user-created) themes ────────────────────────────────────
+  // `extras` is optional on `ShellTheme` (absent on every builtin theme —
+  // see that field's own doc comment), but always present on anything
+  // this editor itself ever assigns to `editingCustom` (both functions
+  // below guarantee it with `?? {}`). Narrowing the local type this way,
+  // rather than leaving it as plain `ShellTheme | null`, is what lets
+  // the editor's markup use `editingCustom.extras.foo` directly instead
+  // of an optional-chain/non-null-assertion on every single field.
+  type EditableTheme = ShellTheme & { extras: ShellThemeExtras };
+  let editingCustom: EditableTheme | null = null;
+  // Declared here (typed, script-side) rather than as an inline array
+  // literal in the template's `{#each}` below: svelte-check parses
+  // template expressions with a more limited expression grammar than a
+  // <script> block, which doesn't accept a TS `as` type-assertion
+  // inline in markup — this way `key` is already known to be
+  // `keyof ShellTheme['colors']` from this array's own type, with no
+  // cast needed at the `bind:value={editingCustom.colors[key]}` call
+  // site in the template.
+  const COLOR_FIELDS: [keyof ShellTheme['colors'], string][] = [
+    ['accent', 'Accent'], ['background', 'Background'], ['surface', 'Surface'],
+    ['surfaceElevated', 'Elevated'], ['text', 'Text'], ['textMuted', 'Muted text'], ['border', 'Border'],
+  ];
+  let customError: string | null = null;
+  let customSaving = false;
+  let importFileInput: HTMLInputElement;
+  let importError: string | null = null;
+
+  function startCreateCustom() {
+    customError = null;
+    const base = blankCustomTheme();
+    editingCustom = { ...base, extras: base.extras ?? {} };
+  }
+  function startEditCustom(theme: ShellTheme) {
+    customError = null;
+    const cloned: ShellTheme = JSON.parse(JSON.stringify(theme));
+    editingCustom = { ...cloned, extras: cloned.extras ?? {} };
+  }
+  function cancelCustomEdit() { editingCustom = null; customError = null; }
+
+  async function submitCustom() {
+    if (!editingCustom) return;
+    customSaving = true; customError = null;
+    const result = await saveCustomTheme(editingCustom);
+    customSaving = false;
+    if (result.ok) editingCustom = null; else customError = result.error;
+  }
+
+  async function deleteCustom(id: string) {
+    if (id === activeId) return; // guard: can't delete the theme currently applied
+    await removeCustomTheme(id);
+  }
+
+  function exportCustom(theme: ShellTheme) {
+    const blob = new Blob([exportCustomThemeJson(theme)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${theme.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.blue-theme.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerImport() { importError = null; importFileInput?.click(); }
+
+  async function handleImportFile(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const result = await importCustomThemeJson(text);
+    if (result.ok) {
+      startEditCustom(result.theme); // land in the editor so the person can rename/tweak before saving
+    } else {
+      importError = result.error;
+    }
+    (e.target as HTMLInputElement).value = '';
+  }
 
   async function loadSystemThemes() {
     systemThemesLoading = true;
@@ -299,6 +380,140 @@
       </div>
     {/if}
   {:else if tab === 'installed'}
+    <!-- ── Your Themes (user-created, via custom_shell_themes.rs) ──────
+         Richer than any builtin theme: a second accent color for a
+         gradient, precise corner radius, wallpaper blur, panel
+         opacity, a chosen font and animation speed — see
+         customThemes.ts / ShellThemeStyle.svelte for how these apply. -->
+    <div class="mb-5">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-white">Your Themes</h3>
+        <div class="flex gap-2">
+          <button on:click={triggerImport} class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Import…</button>
+          <button on:click={startCreateCustom} class="text-xs px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Create theme</button>
+        </div>
+      </div>
+      <input bind:this={importFileInput} type="file" accept="application/json,.json" class="hidden" on:change={handleImportFile} />
+      {#if importError}<p class="text-xs text-red-400 mb-2">{importError}</p>{/if}
+
+      {#if $customShellThemes.length === 0 && !editingCustom}
+        <p class="text-xs text-slate-500 italic">No custom themes yet — create one, or import a `.blue-theme.json` someone shared with you.</p>
+      {:else}
+        <div class="grid grid-cols-2 gap-3">
+          {#each $customShellThemes as theme (theme.id)}
+            <div class="relative rounded-xl border p-3 group {theme.id === activeId ? 'border-blue-500 bg-blue-500/10' : 'border-white/10 bg-slate-800/40 hover:border-white/20'}">
+              <button class="w-full text-left" on:click={() => selectTheme(theme)}>
+                <div class="flex items-start gap-3">
+                  <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style="background: {theme.extras?.accentSecondary ? `linear-gradient(135deg, ${theme.colors.accent}, ${theme.extras.accentSecondary})` : theme.colors.surfaceElevated}; border: 1px solid {theme.colors.border};">
+                    <Sparkles size={18} style="color: {theme.extras?.accentSecondary ? '#fff' : theme.colors.accent}" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm font-medium text-white truncate">{theme.name}</span>
+                      {#if theme.id === activeId}<Check size={13} class="text-blue-400 shrink-0" />{/if}
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{theme.description || 'Custom theme'}</p>
+                    <div class="flex items-center gap-1 mt-2">
+                      {#each [theme.colors.accent, theme.colors.background, theme.colors.surface, theme.colors.text] as c}
+                        <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}" />
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </button>
+              <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
+                <button on:click={() => startEditCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title="Edit"><Edit2 size={12} /></button>
+                <button on:click={() => exportCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title="Export"><Download size={12} /></button>
+                <button on:click={() => deleteCustom(theme.id)} disabled={theme.id === activeId}
+                  class="p-1 rounded bg-slate-900/80 hover:bg-red-500/30 text-slate-300 hover:text-red-400 disabled:opacity-30" title="Delete"><Trash2 size={12} /></button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if editingCustom}
+        <div class="mt-3 bg-slate-800 rounded-2xl border border-white/5 p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-semibold text-white">{$customShellThemes.some(t => t.id === editingCustom?.id) ? 'Edit theme' : 'New theme'}</h4>
+            <button on:click={cancelCustomEdit} class="text-slate-500 hover:text-white"><X size={16} /></button>
+          </div>
+
+          <input bind:value={editingCustom.name} placeholder="Theme name"
+            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+          <input bind:value={editingCustom.description} placeholder="Short description (optional)"
+            class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
+
+          <div class="grid grid-cols-4 gap-2">
+            {#each COLOR_FIELDS as [key, label]}
+              <label class="flex flex-col items-center gap-1 text-[10px] text-slate-500">
+                {label}
+                <input type="color" bind:value={editingCustom.colors[key]} class="w-9 h-9 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+              </label>
+            {/each}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-400">
+              <input type="checkbox" checked={!!editingCustom.extras?.accentSecondary}
+                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, accentSecondary: e.currentTarget.checked ? (editingCustom.extras?.accentSecondary || '#a855f7') : undefined })}
+                class="accent-blue-500" />
+              Gradient accent (2nd color)
+            </label>
+            {#if editingCustom.extras?.accentSecondary}
+              <input type="color" bind:value={editingCustom.extras.accentSecondary} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+            {/if}
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-xs text-slate-500">Panel position
+              <select bind:value={editingCustom.layout.panelPosition} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">Window controls style
+              <select bind:value={editingCustom.layout.windowControlsStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="macos">macOS</option><option value="windows">Windows</option><option value="gnome">GNOME</option><option value="minimal">Minimal</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">Icon style
+              <select bind:value={editingCustom.layout.iconStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="outline">Outline</option><option value="filled">Filled</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">Animation speed
+              <select bind:value={editingCustom.extras.animationSpeed} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="normal">Normal</option><option value="fast">Fast</option><option value="none">None</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="block text-xs text-slate-500">Corner radius: {editingCustom.extras.cornerRadiusPx ?? 12}px
+            <input type="range" min="0" max="32" bind:value={editingCustom.extras.cornerRadiusPx} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Wallpaper blur: {editingCustom.extras.wallpaperBlur ?? 0}px
+            <input type="range" min="0" max="40" bind:value={editingCustom.extras.wallpaperBlur} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Panel opacity: {editingCustom.extras.panelOpacity ?? 100}%
+            <input type="range" min="10" max="100" bind:value={editingCustom.extras.panelOpacity} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Font family (CSS value, optional)
+            <input bind:value={editingCustom.extras.fontFamily} placeholder="'Fira Sans', sans-serif"
+              class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+          </label>
+
+          {#if customError}<p class="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{customError}</p>{/if}
+
+          <div class="flex gap-2 pt-1">
+            <button on:click={submitCustom} disabled={customSaving || !editingCustom.name.trim()}
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium">Save theme</button>
+            <button on:click={cancelCustomEdit} class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Cancel</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    <h3 class="text-sm font-semibold text-white mb-2">Built-in</h3>
     <div class="grid grid-cols-2 gap-3">
       {#each BUILTIN_THEMES as theme (theme.id)}
         <button
