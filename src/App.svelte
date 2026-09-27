@@ -366,9 +366,25 @@
   class="relative w-full h-full overflow-hidden select-none"
   data-theme={theme}
   data-backend={backendActive}
-  style="background-size:cover; background-position:center; background-color:{fallbackBgColor}; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}{fallbackGradient};"
+  style="background-color:{fallbackBgColor}; font-family:var(--shell-font, inherit);"
   on:click|self={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; }}
 >
+  <!-- Dedicated wallpaper layer, separate from the content below it, so
+       a theme's `wallpaperBlur` (extras.wallpaperBlur — see
+       ShellThemeStyle.svelte / customThemes.ts) blurs only the
+       wallpaper image itself. `filter: blur()` on this container's
+       *parent* would blur the desktop icons, TopBar and every open
+       window too, since CSS filters apply to an element's entire
+       subtree — this absolutely-positioned, negative-inset sibling
+       layer (scaled up slightly via the inset trick below to hide the
+       blurred edge that would otherwise show at the viewport border)
+       keeps the blur contained to just the background. -->
+  <div
+    class="absolute pointer-events-none"
+    style="inset:-40px; background-size:cover; background-position:center; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}{fallbackGradient}; filter:blur(var(--wallpaper-blur, 0px));"
+    aria-hidden="true"
+  ></div>
+
   <Desktop {desktopPath} on:closeMenus={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; }} />
 
   <TopBar
