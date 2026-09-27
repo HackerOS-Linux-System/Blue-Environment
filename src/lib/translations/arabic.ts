@@ -540,4 +540,118 @@ export const arabic: Translations = {
 
     'welcome.subtitle': 'لنقم بإعداد سطح المكتب الخاص بك في بضع خطوات سريعة.',
     'welcome.tour_title': 'ما الجديد',
+
+    // FIXME i18n: the 63 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.parental.locked_out': 'Too many attempts. Try again in {s}s.',
+    'settings.parental.locked_out_short': 'Locked',
+    'settings.tab.screen_time': 'Screen Time',
+    'settings.tab.cloned_apps': 'Cloned Apps',
+    'settings.tab.keyboard': 'On-Screen Keyboard',
+    'settings.cloned_apps.subtitle': 'Create another, separately named instance of an app.',
+    'settings.cloned_apps.scope_note': 'A clone immediately gets its own name and icon badge. Whether it also gets separate data (a second account, separate history) depends on whether that app supports it — most don\'t yet, so cloning one just gives you a second window into the same shared data.',
+    'settings.cloned_apps.empty': 'No cloned apps yet.',
+    'settings.cloned_apps.based_on': 'Based on',
+    'settings.cloned_apps.open': 'Open',
+    'settings.cloned_apps.remove': 'Remove',
+    'settings.cloned_apps.pick_app': 'App to clone',
+    'settings.cloned_apps.name_label': 'Name for this clone',
+    'settings.cloned_apps.cancel': 'Cancel',
+    'settings.cloned_apps.create': 'Create clone',
+    'settings.screen_time.title': 'Screen Time',
+    'settings.screen_time.subtitle': 'How much time you spend in each app — sampled once a minute while the app is active.',
+    'settings.screen_time.range_today': 'Today',
+    'settings.screen_time.range_week': 'Last 7 days',
+    'settings.screen_time.range_month': 'Last 30 days',
+    'settings.screen_time.range_all': 'All time',
+    'settings.screen_time.daily_breakdown': 'Daily breakdown',
+    'settings.screen_time.by_app': 'By app',
+    'settings.screen_time.no_data': 'No usage recorded for this period.',
+    'settings.screen_time.loading': 'Loading…',
+    'settings.screen_time.method_disclosure': 'This measures which app was active and unminimized, sampled once a minute — not real attention. An app left open and active while you\'re away still counts as used.',
+    'settings.screen_time.clear': 'Clear history',
+    'settings.screen_time.clear_confirm': 'Click again to permanently delete all history',
+    'settings.keyboard.toggle_label': 'Show on-screen keyboard',
+    'settings.keyboard.toggle_desc': 'Automatically shows the touch keyboard when a text field is selected.',
+    'settings.keyboard.limitation_note': 'Currently only types into Blue Environment\'s own apps. The compositor already supports typing into other, native windows (limited to trusted system processes), but Blue Environment itself doesn\'t speak that protocol yet — details in Blue Help.',
+    'security_app.title': 'Blue Security and Privacy',
+    'security_app.subtitle': 'A quick overview of your privacy and security settings.',
+    'security_app.lock_screen': 'Lock Screen',
+    'security_app.lock_configured': 'Configured',
+    'security_app.lock_not_configured': 'Not configured yet',
+    'security_app.parental_on': 'On — blocked apps: {n}',
+    'security_app.parental_off': 'Off',
+    'security_app.screen_time_today': '{t} today',
+    'security_app.cloned_none': 'None yet',
+    'security_app.cloned_count': 'Active: {n}',
+    'security_app.enabled': 'On',
+    'security_app.disabled': 'Off',
+    'security_app.footer_note': 'Tap any item to open its full settings.',
+    'welcome.feature.ai.title': 'Blue AI',
+    'welcome.feature.ai.desc': 'A built-in assistant you can chat with right on the desktop.',
+    'welcome.feature.code.title': 'Blue Code',
+    'welcome.feature.code.desc': 'A lightweight code editor with error hints for several languages.',
+    'welcome.feature.play.title': 'Blue Play',
+    'welcome.feature.play.desc': 'Track your play time across all your games in one place.',
+    'welcome.feature.connect.title': 'Blue Connect',
+    'welcome.feature.connect.desc': 'Discover nearby devices on your network.',
+    'welcome.feature.virt.title': 'Blue Virt',
+    'welcome.feature.virt.desc': 'Run virtual machines through QEMU, right from the desktop.',
+    'welcome.privacy_title': 'Privacy on your terms',
+    'welcome.privacy_desc': 'A few things worth knowing — all optional, all changeable later in Settings.',
+    'welcome.privacy_screen_time': 'Screen Time tracks how much time you spend in each app — visible only to you.',
+    'welcome.privacy_cloned_apps': 'Need another instance of an app for a different account? Clone it in Settings.',
+    'welcome.privacy_keyboard': 'On-screen keyboard (off by default)',
+    'welcome.privacy_open_app': 'Open Blue Security and Privacy →',
+    'welcome.done_title': 'All set',
+    'welcome.done_desc': 'You can come back to any of this anytime in Settings. If you get stuck, Blue Help is always one click away.',
+    'welcome.open_help': 'Open Blue Help',
+
+    // FIXME i18n: the 19 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.tab.file_types': 'Custom File Types',
+    'settings.filetypes.title': 'Custom File Types',
+    'settings.filetypes.desc': 'Give your own file extensions or MIME types a custom icon, color and (optionally) a command to open them with — for formats Blue Files doesn\'t already recognize.',
+    'settings.filetypes.add': 'Add file type',
+    'settings.filetypes.editor_title': 'File type',
+    'settings.filetypes.match_extension': 'By extension',
+    'settings.filetypes.match_mime': 'By MIME type',
+    'settings.filetypes.pattern_ext_label': 'Extension (without the dot)',
+    'settings.filetypes.pattern_mime_label': 'MIME type (or a wildcard prefix like application/*)',
+    'settings.filetypes.label_label': 'Display name',
+    'settings.filetypes.label_placeholder': 'e.g. “Blue Project File”',
+    'settings.filetypes.icon_label': 'Icon',
+    'settings.filetypes.color_label': 'Color',
+    'settings.filetypes.open_with_label': 'Open with (optional)',
+    'settings.filetypes.open_with_hint': 'A shell command to run instead of the default app. Use {path} for the file\'s path — leave blank to just customize the icon.',
+    'settings.filetypes.save': 'Save',
+    'settings.filetypes.cancel': 'Cancel',
+    'settings.filetypes.opens_with': 'opens with:',
+    'settings.filetypes.empty': 'No custom file types yet — add one above.',
+
+    // FIXME i18n: the 6 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.about.labwc_integration_title': 'labwc keybinds not installed',
+    'settings.about.labwc_integration_desc': 'This labwc session already existed before Blue Environment was set up, so its config was never touched (Blue never overwrites a config you already have). That means Alt-Tab, the Super-key start menu and a few other shortcuts aren\'t wired up yet. This adds them to your existing rc.xml (backing it up first) without changing anything else in it.',
+    'settings.about.labwc_repair_button': 'Repair labwc integration',
+    'settings.about.labwc_repairing': 'Repairing…',
+    'settings.about.labwc_repair_failed': 'Couldn\'t update rc.xml.',
+    'settings.about.labwc_integration_ok': 'labwc integration looks good — Blue\'s keybinds are installed.',
+
+    // FIXME i18n: the 6 keys below are missing a real translation.
+    // Auto-added by scripts/check-i18n-keys.mjs with english.ts's own value as a
+    // placeholder so the UI shows a correct English sentence instead of a raw key
+    // like "settings.parental.locked_out" — replace each with a real translation.
+    'settings.panel.launcher_group': 'App Launcher',
+    'settings.panel.launcher_group_desc': 'Customize the Start button in the top-left of the panel.',
+    'settings.panel.launcher_label_mode': 'Show',
+    'settings.panel.launcher_icon_and_label': 'Icon + label',
+    'settings.panel.launcher_icon_only': 'Icon only',
+    'settings.panel.launcher_icon': 'Icon',
 };
