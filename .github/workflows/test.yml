@@ -41,6 +41,42 @@ jobs:
           # secrets/config; this just verifies the bundle compiles.
           VITE_CI: '1'
 
+  tauri-allowlist-drift:
+    name: Tauri allowlist — check build.rs/capabilities match main.rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # See scripts/gen-tauri-allowlist.mjs's module doc: build.rs's
+      # command list and capabilities/default.json's allow-<command>
+      # permissions are generated from main.rs's generate_handler![...]
+      # list, not hand-maintained. This is exactly the class of bug that
+      # made Settings > Screen Time silently record nothing — a command
+      # registered in main.rs but missing from capabilities/default.json
+      # is denied by Tauri's ACL at the IPC layer, with no compile-time
+      # error and (depending on the call site) no visible runtime error
+      # either. Fail CI immediately if the generated files and main.rs
+      # ever drift apart again.
+      - name: Check for drift
+        run: node scripts/gen-tauri-allowlist.mjs --check
+
+  i18n-key-check:
+    name: i18n — every locale has every key english.ts has
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check translation key parity
+        run: node scripts/check-i18n-keys.mjs --check
+
   compositor-check:
     name: Compositor — cargo check + clippy + test (if present)
     runs-on: ubuntu-latest
