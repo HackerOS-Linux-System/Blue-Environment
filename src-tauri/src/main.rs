@@ -14,6 +14,8 @@ mod window_tracker;
 mod ai;
 mod weather;
 mod parental_controls;
+mod file_type_associations;
+mod custom_shell_themes;
 mod screen_time;
 mod packages;
 mod icon_resolver;
@@ -81,6 +83,9 @@ use blue_web_app::{
     web_set_blocklist, BlockList, web_report_meta,
 };
 use blue_code_app::{start_language_server, stop_language_server, lsp_send_message, lsp_is_running};
+use blue_code_app::git::{
+    git_repo_status, git_diff, git_stage, git_unstage, git_discard, git_commit, git_log,
+};
 use blue_calendar_app::{
     calendar_load_events, calendar_save_event, calendar_delete_event,
     calendar_list_subscriptions, calendar_add_subscription, calendar_remove_subscription,
@@ -197,6 +202,7 @@ fn main() {
         get_session_type,
         get_battery_status,
         commands::backend::backend_get_info, commands::backend::backend_set_compositor, commands::backend::focus_shell,
+        commands::backend::backend_check_integration, commands::backend::backend_repair_integration,
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
         exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
@@ -252,6 +258,16 @@ fn main() {
         weather::get_weather,
         parental_controls::parental_controls_get,
         parental_controls::parental_controls_is_pin_set,
+        parental_controls::parental_controls_lockout_remaining_seconds,
+        file_type_associations::file_type_get_associations,
+        file_type_associations::file_type_get_allowed_icons,
+        file_type_associations::file_type_upsert_association,
+        file_type_associations::file_type_remove_association,
+        file_type_associations::file_type_resolve,
+        custom_shell_themes::custom_theme_list,
+        custom_shell_themes::custom_theme_upsert,
+        custom_shell_themes::custom_theme_remove,
+        custom_shell_themes::custom_theme_parse_import,
         parental_controls::parental_controls_set_pin,
         parental_controls::parental_controls_verify_pin,
         parental_controls::parental_controls_set_enabled,
@@ -290,6 +306,7 @@ fn main() {
         web_downloads_list, web_download_remove, web_download_reveal,
         web_set_blocklist, web_report_meta,
         start_language_server, stop_language_server, lsp_send_message, lsp_is_running,
+        git_repo_status, git_diff, git_stage, git_unstage, git_discard, git_commit, git_log,
         calendar_load_events, calendar_save_event, calendar_delete_event,
         calendar_list_subscriptions, calendar_add_subscription, calendar_remove_subscription,
         calendar_set_subscription_enabled, calendar_cached_subscription_events, calendar_sync_subscription,
