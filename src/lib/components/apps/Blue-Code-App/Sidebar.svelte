@@ -1,5 +1,7 @@
 <script lang="ts">
   import { RefreshCw, FolderOpen, FolderPlus, FilePlus, AlertCircle, AlertTriangle } from 'lucide-svelte';
+  import { onDestroy } from 'svelte';
+  import { SystemBridge } from '../../../utils/systemBridge';
   import GitPanel from '../../GitPanel.svelte';
   import type { FileTreeState } from './fileTree';
   import type { EditorFilesState } from './editorFiles';
@@ -14,10 +16,38 @@
   const { rootPath, fileTree, isLoading, selectedDir } = tree;
   const { openFiles, diagnostics, totalErrors, totalWarnings } = editor;
 
+  // Git-changed-file indicators in the file tree (colored letter next to
+  // each modified/added/untracked file — see FileTreeView.svelte's
+  // `gitStatus` prop) — uses the structured `git_repo_status` command
+  // (BlueCodeApp/git.rs) rather than GitPanel's own shell-based
+  // `git status --porcelain` parsing, since this needs to run on every
+  // tree refresh/file save, not just when the Git sidebar tab is open.
+  let gitStatusMap: Record<string, string> = {};
+  async function refreshGitStatus(root: string) {
+    if (!root) { gitStatusMap = {}; return; }
+    try {
+      const status = await SystemBridge.invokeCommand<{ is_repo: boolean; files: { path: string; state: string; staged: boolean }[] }>('git_repo_status', { path: root });
+      if (!status.is_repo) { gitStatusMap = {}; return; }
+      const STATE_LETTER: Record<string, string> = { Modified: 'M', Added: 'A', Deleted: 'D', Renamed: 'M', Untracked: '?', Conflicted: 'U' };
+      const map: Record<string, string> = {};
+      for (const f of status.files) map[f.path] = STATE_LETTER[f.state] ?? 'M';
+      gitStatusMap = map;
+    } catch { gitStatusMap = {}; }
+  }
+  $: refreshGitStatus($rootPath);
+  // Re-check after every save, not just on tree refresh — a save is the
+  // single most common moment a file's git status actually changes.
+  const unsubOpenFilesForGit = openFiles.subscribe(() => refreshGitStatus($rootPath));
+  onDestroy(unsubOpenFilesForGit);
+
   const TABS: SidebarTab[] = ['files', 'search', 'git', 'problems', 'dev'];
 
   let searchTerm = '';
   let searchResults: { file: string; line: number; content: string }[] = [];
+  let replaceTerm = '';
+  let replaceStatus: string | null = null;
+  let replacing = false;
+  let activeSearch: ReturnType<typeof import('./search').createSearch> | null = null;
 
   async function runSearch() {
     // Local mini-search kept separate to avoid a circular import with
@@ -25,10 +55,28 @@
     // createSearch() exactly for the sidebar's own input field.
     const { createSearch } = await import('./search');
     const s = createSearch(rootPath);
+    activeSearch = s; // kept so runReplace (below) can reuse the same result set
+    replaceStatus = null;
     s.searchTerm.set(searchTerm);
     await s.searchFiles();
     const unsub = s.searchResults.subscribe((r) => (searchResults = r));
     unsub();
+  }
+
+  async function runReplace() {
+    if (!activeSearch || !searchTerm || replacing) return;
+    replacing = true;
+    replaceStatus = null;
+    try {
+      const { files, occurrences } = await activeSearch.replaceAll(replaceTerm);
+      replaceStatus = occurrences > 0
+        ? `Replaced ${occurrences} occurrence${occurrences === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'}.`
+        : 'Nothing to replace.';
+      const unsub = activeSearch.searchResults.subscribe((r) => (searchResults = r));
+      unsub();
+    } finally {
+      replacing = false;
+    }
   }
 
   async function handleRename(node: any) {
@@ -80,7 +128,7 @@
       {:else if $fileTree.length === 0}
         <div class="text-center py-6 px-2 text-slate-600 text-xs">Empty workspace.<br />Use the icons above to create a file or folder.</div>
       {:else}
-        <FileTreeView nodes={$fileTree} selectedDir={$selectedDir}
+        <FileTreeView nodes={$fileTree} selectedDir={$selectedDir} gitStatus={gitStatusMap} rootPath={$rootPath}
           on:openFile={(e) => editor.openFile(e.detail)}
           on:toggleDir={(e) => tree.toggleDir(e.detail)}
           on:rename={(e) => handleRename(e.detail)}
@@ -91,11 +139,20 @@
 
   {#if sidebarTab === 'search'}
     <div class="flex-1 overflow-y-auto p-2">
-      <div class="flex gap-1 mb-2">
+      <div class="flex gap-1 mb-1.5">
         <input type="text" bind:value={searchTerm} on:keydown={(e) => e.key === 'Enter' && runSearch()} placeholder="Search…"
           class="flex-1 bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500/50" />
         <button on:click={runSearch} class="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Go</button>
       </div>
+      <div class="flex gap-1 mb-2">
+        <input type="text" bind:value={replaceTerm} on:keydown={(e) => e.key === 'Enter' && runReplace()} placeholder="Replace with…"
+          class="flex-1 bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500/50" />
+        <button on:click={runReplace} disabled={!activeSearch || !searchTerm || searchResults.length === 0 || replacing}
+          class="px-2 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded text-xs whitespace-nowrap">
+          {replacing ? '…' : 'Replace All'}
+        </button>
+      </div>
+      {#if replaceStatus}<div class="text-[10px] text-green-400 mb-2">{replaceStatus}</div>{/if}
       <div class="space-y-1">
         {#each searchResults as r, i (i)}
           <div on:click={() => editor.openFile(r.file)} class="cursor-pointer hover:bg-white/5 rounded p-1">
