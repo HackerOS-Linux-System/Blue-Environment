@@ -38,6 +38,31 @@ export interface ShellThemeLayout {
   iconStyle: IconStyle;
 }
 
+/** The richer, opt-in knobs a *custom* (user-created) theme can set that
+ * no builtin theme uses — see Settings > Themes' "Create your own" flow
+ * and `custom_shell_themes.rs` (the backend persistence for these) for
+ * the full story. Optional on `ShellTheme` itself so every existing
+ * builtin theme literal below stays valid without being touched; a
+ * builtin theme simply has no `extras`, which `ShellThemeStyle.svelte`
+ * treats identically to an `extras` object with everything unset. */
+export interface ShellThemeExtras {
+  /** Precise corner radius in px (0-32) — overrides `layout.cornerStyle`'s
+   * binary rounded/sharp when set. */
+  cornerRadiusPx?: number;
+  /** Gaussian blur, in px (0-40), applied to the desktop wallpaper layer. */
+  wallpaperBlur?: number;
+  /** Panel/taskbar background opacity, 0-100 (percent). */
+  panelOpacity?: number;
+  /** A second accent color — when set, accent surfaces render as a
+   * `linear-gradient(135deg, accent, accentSecondary)` instead of flat. */
+  accentSecondary?: string;
+  /** A CSS font-family value applied to the whole shell, e.g.
+   * `"'Fira Sans', sans-serif"`. */
+  fontFamily?: string;
+  /** Maps to a CSS transition-duration custom property. */
+  animationSpeed?: 'none' | 'normal' | 'fast';
+}
+
 export interface ShellTheme {
   id: string;
   name: string;
@@ -50,8 +75,8 @@ export interface ShellTheme {
   previewIcon: string;
   colors: ShellThemeColors;
   layout: ShellThemeLayout;
-  requiresRestart: true;
-  builtin: true;
+  requiresRestart: boolean;
+  builtin: boolean;
   placeholder?: boolean;
   comingSoon?: boolean;
   /** Public-root-relative path (served straight from `public/`, see
@@ -71,6 +96,14 @@ export interface ShellTheme {
    * render reliably regardless of what's actually installed on the
    * system, unlike the real wallpaper it's a preview *of*. */
   previewImage?: string;
+  /** Absent on every builtin theme (all `builtin: true`); present and
+   * `true` only on a theme converted from a user's `CustomShellTheme`
+   * (see `customThemes.ts`'s `toShellTheme`) so UI that needs to tell
+   * the two apart (an edit/delete button, say) can check one flag
+   * instead of `!builtin` (which reads oddly given `builtin` is
+   * typed `true` on this interface — see that field's own comment). */
+  custom?: boolean;
+  extras?: ShellThemeExtras;
 }
 
 export const BUILTIN_THEMES: ShellTheme[] = [
@@ -264,4 +297,19 @@ export function resolveActiveShellTheme(id: string | undefined): ShellTheme | nu
   const resolved = getBuiltinTheme(id ?? DEFAULT_SHELL_THEME_ID);
   if (!resolved || resolved.id === DEFAULT_SHELL_THEME_ID || resolved.placeholder) return null;
   return resolved;
+}
+
+/** Same as `resolveActiveShellTheme`, but also checks `customThemes`
+ * (a user's own saved themes — see `customThemes.ts`) when `id` doesn't
+ * match any builtin theme. `ShellThemeStyle.svelte` uses this one
+ * instead, since it's the component actually responsible for applying
+ * whichever kind of theme is active; everything else that only ever
+ * deals with builtin ids (there isn't much — `ThemesSection.svelte`'s
+ * builtin grid, mainly) can keep using the plain version above. */
+export function resolveActiveShellThemeWithCustom(id: string | undefined, customThemes: ShellTheme[]): ShellTheme | null {
+  if (id) {
+    const custom = customThemes.find((t) => t.id === id);
+    if (custom) return custom;
+  }
+  return resolveActiveShellTheme(id);
 }
