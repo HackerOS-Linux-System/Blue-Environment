@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/schemas/plugins-store.schema.json",
-  "description": "",
+  "description": "Community plugins for Blue Environment.",
   "plugins": [
     {
       "name": "",
