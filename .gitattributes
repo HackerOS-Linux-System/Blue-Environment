@@ -2,6 +2,14 @@
 *.desktop linguist-documentation=false
 *.desktop linguist-language=INI
 
+blue linguist-detectable=true
+blue linguist-documentation=false
+blue linguist-language=LUA
+
+blue-dev linguist-detectable=true
+blue-dev linguist-documentation=false
+blue-dev linguist-language=LUA
+
 *.hk linguist-detectable=true
 *.hk linguist-documentation=false
 *.hk linguist-language=HK
