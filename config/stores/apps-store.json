@@ -1,1 +1,14 @@
-
+{
+  "$schema": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/schemas/apps-store.schema.json",
+  "description": "Community applications for Blue Environment.",
+  "plugins": [
+    {
+      "name": "",
+      "description": "",
+      "author": "",
+      "icon": "",
+      "downloadUrl": "",
+      ]
+    }
+  ]
+}
