@@ -16,6 +16,8 @@ mod weather;
 mod parental_controls;
 mod file_type_associations;
 mod custom_shell_themes;
+mod labwc_integration;
+use labwc_integration::{labwc_integration_status, labwc_integration_repair};
 mod screen_time;
 mod packages;
 mod icon_resolver;
@@ -202,7 +204,7 @@ fn main() {
         get_session_type,
         get_battery_status,
         commands::backend::backend_get_info, commands::backend::backend_set_compositor, commands::backend::focus_shell,
-        commands::backend::backend_check_integration, commands::backend::backend_repair_integration,
+        labwc_integration_status, labwc_integration_repair,
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
         exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
