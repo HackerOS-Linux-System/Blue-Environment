@@ -3,11 +3,39 @@
   "description": "Community applications for Blue Environment.",
   "plugins": [
     {
-      "name": "",
-      "description": "",
-      "author": "",
+      "name": "HackerOS Game Mode",
+      "description": "Game mode inspired asus armoury crate.",
+      "author": "HackerOS Team",
       "icon": "",
-      "downloadUrl": "",
+      "downloadUrl": "https://github.com/HackerOS-Linux-System/HackerOS-Game-Mode/blob/main/blue.hk",
+    },
+    {
+      "name": "HackerOS Studio",
+      "description": "Studio for HackerOS.",
+      "author": "HackerOS Team",
+      "icon": "",
+      "downloadUrl": "https://github.com/HackerOS-Linux-System/HackerOS-Studio/blob/main/blue.hk",
+    },
+    {
+      "name": "HackerOS Store",
+      "description": "Store for HackerOS.",
+      "author": "HackerOS Team",
+      "icon": "",
+      "downloadUrl": "https://github.com/HackerOS-Linux-System/HackerOS-Store/blob/main/blue.hk",
+    },
+    {
+      "name": "Hacker Launcher",
+      "description": "HackerOS Launcher for windows games/apps and not only.",
+      "author": "HackerOS Team",
+      "icon": "",
+      "downloadUrl": "https://github.com/HackerOS-Linux-System/Hacker_Launcher/blob/main/blue.hk",
+    },
+    {
+      "name": "HackerOS Educator",
+      "description": "A cybersecurity learning tool heavily inspired by TryHackMe. Not just for learning cybersecurity.",
+      "author": "HackerOS Team",
+      "icon": "",
+      "downloadUrl": "https://github.com/HackerOS-Linux-System/HackerOS-Educator/blob/main/blue.hk",
     }
   ]
 }
