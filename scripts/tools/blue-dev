@@ -1,1 +1,783 @@
+#!/usr/bin/env lua5.5
+--[[
+  blue-dev -- CLI for building Blue Environment (`.blue`) packages.
 
+  One self-contained file, no dependency on any other file (no `require`
+  of sibling modules, no external Lua libraries) -- copy this one file
+  anywhere on PATH and it works. It shells out to standard POSIX tools
+  (tar, zstd, sha256sum, find, mkdir, cp, mv) exactly like the shell's own
+  installer does, rather than reimplementing tar/zstd framing or a hash
+  function in pure Lua.
+
+  Written for Lua 5.5; every feature it uses (integer division `//`,
+  goto, string.pack for nothing here actually needed) is already present
+  in 5.4, so it also runs unchanged under `lua5.4` -- useful since 5.5 is
+  not yet packaged on most distributions at the time of writing.
+
+  Commands:
+    blue-dev init  [--type app|plugin|theme] [--id ID] [DIR]
+    blue-dev pack  [--write-manifest] [-o OUTPUT.blue] [DIR]
+    blue-dev validate [DIR]
+    blue-dev help
+
+  See README.md next to this file for the full walkthrough and the
+  blue.hk field reference (also documented in ../../../api/README.md and
+  ../../../api/src/index.ts for the TypeScript side of the same contract).
+]]
+
+-- ===========================================================================
+-- Small shared helpers (no dependency on any other file -- see header)
+-- ===========================================================================
+
+local function shquote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+--- Runs a shell command. Returns true, output on success; false, output on
+--- failure. (Two-return convention used throughout this file, mirroring
+--- Lua's own `pcall`.)
+local function run(cmd)
+    local handle = io.popen(cmd .. " 2>&1")
+    if not handle then return false, "could not start: " .. cmd end
+    local output = handle:read("*a") or ""
+    local ok, _, code = handle:close()
+    if ok == nil then ok = (code == 0 or code == nil) end
+    return ok and true or false, output
+end
+
+local function exists(path)
+    return run("test -e " .. shquote(path))
+end
+
+local function is_dir(path)
+    return run("test -d " .. shquote(path))
+end
+
+local function mkdir_p(path)
+    local ok, out = run("mkdir -p " .. shquote(path))
+    if not ok then error("could not create directory " .. path .. ": " .. out, 0) end
+end
+
+local function pathjoin(...)
+    local parts = { ... }
+    local out = {}
+    for i, p in ipairs(parts) do
+        p = tostring(p)
+        if i > 1 then p = p:gsub("^/+", "") end
+        if i < #parts then p = p:gsub("/+$", "") end
+        table.insert(out, p)
+    end
+    return table.concat(out, "/")
+end
+
+local function basename(path)
+    return path:match("([^/]+)/?$") or path
+end
+
+local function write_file(path, content)
+    local f, err = io.open(path, "w")
+    if not f then error("could not write " .. path .. ": " .. tostring(err), 0) end
+    f:write(content)
+    f:close()
+end
+
+local function read_file(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    return content
+end
+
+--- SHA-256 of a file, lowercase hex -- shells out to sha256sum (coreutils),
+--- matching exactly what the shell's own installer computes over the same
+--- archive (see BlueStore::install::sha256_file in src-tauri), so a
+--- checksum blue-dev writes into blue.hk always verifies there.
+local function sha256_file(path)
+    local ok, out = run("sha256sum -- " .. shquote(path))
+    if not ok then return nil, out end
+    local hash = out:match("^(%x+)")
+    if not hash or #hash ~= 64 then return nil, "unexpected sha256sum output: " .. out end
+    return hash
+end
+
+local function command_exists(name)
+    return run("command -v " .. shquote(name) .. " >/dev/null 2>&1")
+end
+
+local function getcwd()
+    local ok, out = run("pwd")
+    return ok and (out:gsub("%s+$", "")) or "."
+end
+
+--- Matches the shell's semver rule (BlueStore::manifest::validate_version):
+--- three numeric dot-separated parts, optional -prerelease/+build suffix.
+local function is_valid_version(v)
+    local core = v:match("^([^%-+]+)")
+    if not core then return false end
+    local a, b, c = core:match("^(%d+)%.(%d+)%.(%d+)$")
+    return a ~= nil and b ~= nil and c ~= nil
+end
+
+--- Matches the shell's package-id rule (manifest.rs::validate_id) closely
+--- enough to catch mistakes locally instead of only at install time.
+local function is_valid_id(id)
+    if #id < 1 or #id > 64 then return false end
+    if not (id:match("^[a-z0-9][a-z0-9._%-]*[a-z0-9]$") or id:match("^[a-z0-9]$")) then return false end
+    if id:match("%.%.") then return false end
+    return true
+end
+
+-- ===========================================================================
+-- .hk reader / writer
+--
+-- A small, dependency-free implementation of the config format blue.hk
+-- manifests are written in (see manifest.rs's own module doc in the shell
+-- for the authoritative grammar -- this covers what blue-dev itself needs
+-- to read and write, not a full reimplementation of the Rust parser).
+--
+--   ! a comment (rest of the line)
+--   [section]
+--   -> key => value
+--
+-- Values: quoted strings, bare words, numbers, true/false, and JSON-style
+-- string arrays: ["a", "b"]. Parsed into a plain nested table:
+--   { package = { id = "com.example.hello", ... }, app = { entry = "..." } }
+-- ===========================================================================
+
+local function hk_lines(text)
+    local out = {}
+    for raw in (text .. "\n"):gmatch("(.-)\n") do
+        local buf, in_str = {}, false
+        for i = 1, #raw do
+            local c = raw:sub(i, i)
+            if c == '"' then in_str = not in_str end
+            if c == "!" and not in_str then break end
+            table.insert(buf, c)
+        end
+        local trimmed = table.concat(buf):match("^%s*(.-)%s*$")
+        if trimmed ~= "" then table.insert(out, trimmed) end
+    end
+    return out
+end
+
+local function hk_parse_value(raw)
+    raw = raw:match("^%s*(.-)%s*$")
+    if raw == "true" then return true end
+    if raw == "false" then return false end
+    if raw:match("^%-?%d+%.?%d*$") then return tonumber(raw) end
+    if raw:sub(1, 1) == '"' and raw:sub(-1) == '"' and #raw >= 2 then
+        return (raw:sub(2, -2):gsub('\\"', '"'))
+    end
+    if raw:sub(1, 1) == "[" and raw:sub(-1) == "]" then
+        local items = {}
+        local inner = raw:sub(2, -2)
+        local buf, in_str = {}, false
+        local function flush()
+            local item = table.concat(buf):match("^%s*(.-)%s*$")
+            buf = {}
+            if item ~= "" then table.insert(items, hk_parse_value(item)) end
+        end
+        for i = 1, #inner do
+            local c = inner:sub(i, i)
+            if c == '"' then in_str = not in_str end
+            if c == "," and not in_str then flush() else table.insert(buf, c) end
+        end
+        flush()
+        return items
+    end
+    return raw
+end
+
+--- Parses `.hk` source text into a nested table. Raises a plain-message
+--- Lua error on malformed input (via `error(msg, 0)`, so no "file:line:"
+--- prefix -- these already say what's wrong).
+local function hk_parse(text)
+    local result, order, current = {}, {}, nil
+    for _, line in ipairs(hk_lines(text)) do
+        local section = line:match("^%[([%w_.%-]+)%]$")
+        if section then
+            current = result[section] or {}
+            result[section] = current
+            table.insert(order, section)
+        else
+            local key, val = line:match("^%->%s*([%w_.%-]+)%s*=>%s*(.-)$")
+            if key then
+                if not current then error("hk parse error: '-> " .. key .. " => ...' before any [section] header", 0) end
+                current[key] = hk_parse_value(val)
+            else
+                error("hk parse error: unrecognised line: " .. line, 0)
+            end
+        end
+    end
+    result.__order = order
+    return result
+end
+
+--- Reads and parses a `.hk` file. Returns nil + message on failure.
+local function hk_read_file(path)
+    local text = read_file(path)
+    if not text then return nil, "could not open " .. path end
+    local ok, result_or_err = pcall(hk_parse, text)
+    if not ok then return nil, result_or_err end
+    return result_or_err
+end
+
+local function hk_quote(s)
+    return '"' .. tostring(s):gsub('\\', '\\\\'):gsub('"', '\\"'):gsub("\n", " ") .. '"'
+end
+
+local function hk_serialize_value(v)
+    local t = type(v)
+    if t == "boolean" or t == "number" then return tostring(v) end
+    if t == "table" then
+        local parts = {}
+        for _, item in ipairs(v) do table.insert(parts, hk_serialize_value(item)) end
+        return "[" .. table.concat(parts, ", ") .. "]"
+    end
+    return hk_quote(v)
+end
+
+--- Serializes a nested table back into `.hk` text, section order following
+--- `section_order` (falls back to `data.__order`, then insertion order via
+--- `pairs`). Keys within a section are sorted for reproducible output
+--- (re-running `blue-dev pack` on an unchanged project should not change
+--- blue.hk's bytes).
+local function hk_serialize(data, section_order, header_comment)
+    local out = {}
+    if header_comment then table.insert(out, "! " .. header_comment) end
+    local seen = {}
+    local function emit_section(name)
+        if seen[name] or name == "__order" then return end
+        seen[name] = true
+        local section = data[name]
+        if type(section) ~= "table" then return end
+        table.insert(out, "")
+        table.insert(out, "[" .. name .. "]")
+        local keys = {}
+        for k in pairs(section) do table.insert(keys, k) end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            table.insert(out, "-> " .. k .. " => " .. hk_serialize_value(section[k]))
+        end
+    end
+    for _, name in ipairs(section_order or data.__order or {}) do emit_section(name) end
+    for name in pairs(data) do emit_section(name) end
+    return table.concat(out, "\n") .. "\n"
+end
+
+-- ===========================================================================
+-- `blue-dev validate`
+-- ===========================================================================
+
+local REQUIRED_PACKAGE_FIELDS = { "id", "name", "type", "version" }
+local KNOWN_TYPES = { app = true, plugin = true, theme = true }
+local KNOWN_PERMISSIONS = { notifications = true, clipboard = true, storage = true, network = true, files = true, system = true }
+
+--- Validates a parsed manifest against the same rules the shell enforces
+--- at install time (BlueStore::manifest in src-tauri) -- not a reimplementation
+--- of that Rust code, just the subset worth catching before a round trip
+--- through a real install attempt. Raises on the first problem found;
+--- returns `[package]` and the kind-specific section table on success.
+local function validate_manifest(manifest, dir)
+    local pkg = manifest.package
+    if not pkg then error("blue.hk: missing [package] section", 0) end
+    for _, field in ipairs(REQUIRED_PACKAGE_FIELDS) do
+        if pkg[field] == nil or pkg[field] == "" then
+            error("blue.hk: [package] is missing required field '" .. field .. "'", 0)
+        end
+    end
+    if not KNOWN_TYPES[pkg.type] then
+        error("blue.hk: [package] -> type must be app, plugin or theme (got '" .. tostring(pkg.type) .. "')", 0)
+    end
+    if not is_valid_id(pkg.id) then
+        error("blue.hk: '" .. pkg.id .. "' is not a valid id -- lowercase letters/digits/./-/_ only, must start and end alphanumeric", 0)
+    end
+    if not is_valid_version(pkg.version) then
+        error("blue.hk: version '" .. pkg.version .. "' is not valid semver (expected x.y.z)", 0)
+    end
+    if pkg.name and #tostring(pkg.name) > 80 then
+        error("blue.hk: [package] -> name is longer than 80 characters", 0)
+    end
+
+    local perms = manifest.permissions and manifest.permissions.list
+    if perms then
+        for _, p in ipairs(perms) do
+            if not KNOWN_PERMISSIONS[p] then
+                error("blue.hk: unknown permission '" .. tostring(p) .. "' (known: notifications, clipboard, storage, network, files, system)", 0)
+            end
+        end
+    end
+
+    if pkg.type == "theme" then
+        if dir and not exists(pathjoin(dir, "styles.css")) then
+            error("blue.hk declares type => theme but styles.css is missing from " .. dir, 0)
+        end
+        return pkg, nil
+    end
+
+    local section = manifest[pkg.type] or {}
+    local entry = section.entry or "index.js"
+    if dir and not exists(pathjoin(dir, entry)) then
+        error("blue.hk's [" .. pkg.type .. "] -> entry ('" .. entry .. "') does not exist in " .. dir, 0)
+    end
+    if dir and section.style and not exists(pathjoin(dir, section.style)) then
+        error("blue.hk's [" .. pkg.type .. "] -> style ('" .. section.style .. "') does not exist in " .. dir, 0)
+    end
+    return pkg, section
+end
+
+local function cmd_validate(args)
+    local dir = args[1] or "."
+    local hk_path = pathjoin(dir, "blue.hk")
+    local manifest, err = hk_read_file(hk_path)
+    if not manifest then
+        io.stderr:write("error: " .. tostring(err) .. "\n")
+        os.exit(1)
+    end
+    local ok, pkg_or_err = pcall(validate_manifest, manifest, dir)
+    if not ok then
+        io.stderr:write("error: " .. tostring(pkg_or_err) .. "\n")
+        os.exit(1)
+    end
+    local pkg = pkg_or_err
+    print("OK  " .. hk_path)
+    print("    id      " .. pkg.id)
+    print("    name    " .. pkg.name)
+    print("    type    " .. pkg.type)
+    print("    version " .. pkg.version)
+end
+
+-- ===========================================================================
+-- `blue-dev init`
+-- ===========================================================================
+
+local APP_ENTRY_JS = [[
+// Zero-build-step starting point: this file IS your entry.js, no bundler
+// required. If you'd rather write TypeScript/Svelte/React, point
+// `[app] -> entry` in blue.hk at your bundler's output file instead (see
+// @blue-environment/api's README for framework examples) and delete this
+// file once your bundle produces the equivalent output.
+//
+// The shell loads this file as a real ES module and calls the default
+// export once, with an empty <div> (`root`) already sized to your window
+// and the `api` object described in @blue-environment/api.
+
+export default function mount(root, api) {
+  root.innerHTML = `
+    <div style="font-family: sans-serif; padding: 2rem; color: #e2e8f0;">
+      <h1 style="margin: 0 0 0.5rem;">${api.app.name}</h1>
+      <p style="opacity: 0.7;">v${api.app.version} &middot; running as a Blue Store app</p>
+      <button id="hello-btn" style="margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer;">
+        Say hello
+      </button>
+    </div>
+  `;
+
+  const button = root.querySelector('#hello-btn');
+  const onClick = () => {
+    // api.notify(...) requires "notifications" in blue.hk's [permissions].
+    if (api.app.permissions.includes('notifications')) {
+      api.notify(api.app.name, 'Hello from your new Blue Store app!');
+    } else {
+      alert('Hello from your new Blue Store app!');
+    }
+  };
+  button.addEventListener('click', onClick);
+
+  // Called when the window closes -- clean up anything you set up above.
+  return () => {
+    button.removeEventListener('click', onClick);
+  };
+}
+]]
+
+local THEME_STYLES_CSS = [[
+/* Minimal starting point for a Blue Environment theme. See the built-in
+   themes' own exported CSS (Settings -> Themes -> Installed -> Export) for
+   the full list of custom properties the shell reads; this file only needs
+   to define the ones you want to change from the default theme. */
+
+:root {
+  --blue-accent: #3b82f6;
+  --blue-panel-bg: rgba(15, 23, 42, 0.72);
+  --blue-window-radius: 12px;
+}
+]]
+
+local BLUEIGNORE_DEFAULT = "*.blue\n*.blue.part\nnode_modules/\ndist/\n"
+
+local function readme_for(kind, id, display_name)
+    if kind == "theme" then
+        return "# " .. display_name .. "\n\nA Blue Environment theme.\n\n## Build\n\n```sh\nblue-dev pack\n```\n\n" ..
+            "Reads blue.hk, bundles styles.css (and anything else in this directory not\n" ..
+            "excluded by .blueignore) into `" .. id .. "-<version>.blue`, and fills in\n" ..
+            "`archive`/`sha256` in blue.hk automatically.\n"
+    end
+    return "# " .. display_name .. "\n\nA Blue Environment " .. kind .. ", built against `@blue-environment/api`.\n\n" ..
+        "## Develop\n\nEdit `index.js` directly (no build step needed), or replace it with your own\n" ..
+        "bundler's output -- see `@blue-environment/api`'s README for Svelte/React\n" ..
+        "examples -- and point `[" .. kind .. "] -> entry` in blue.hk at the built file.\n\n" ..
+        "## Build\n\n```sh\nblue-dev pack\n```\n\n" ..
+        "Validates blue.hk, bundles it with your entry file (and anything else in this\n" ..
+        "directory not excluded by .blueignore) into `" .. id .. "-<version>.blue`, and\n" ..
+        "fills in `archive`/`sha256` in blue.hk automatically.\n"
+end
+
+local function slugify(s)
+    return (s:lower():gsub("[^a-z0-9]+", "-"):gsub("^%-+", ""):gsub("%-+$", ""))
+end
+
+local function cmd_init(args)
+    local kind, id, dir = "app", nil, nil
+    local i = 1
+    while i <= #args do
+        local a = args[i]
+        if a == "--type" or a == "-t" then
+            i = i + 1; kind = args[i]
+        elseif a == "--id" then
+            i = i + 1; id = args[i]
+        elseif a:sub(1, 1) ~= "-" then
+            dir = a
+        else
+            io.stderr:write("error: unknown option '" .. a .. "'\n"); os.exit(2)
+        end
+        i = i + 1
+    end
+    dir = dir or "."
+    if kind ~= "app" and kind ~= "plugin" and kind ~= "theme" then
+        io.stderr:write("error: --type must be app, plugin or theme (got '" .. tostring(kind) .. "')\n")
+        os.exit(2)
+    end
+
+    mkdir_p(dir)
+    local dir_for_name = dir == "." and basename(getcwd()) or basename(dir)
+    if not id then
+        local slug = slugify(dir_for_name)
+        id = "com.example." .. (slug ~= "" and slug or "app")
+    end
+    if not is_valid_id(id) then
+        io.stderr:write("error: '" .. id .. "' is not a valid package id -- use lowercase letters, digits, '.', '-' or '_' (e.g. com.example.hello)\n")
+        os.exit(2)
+    end
+
+    local hk_path = pathjoin(dir, "blue.hk")
+    if exists(hk_path) then
+        io.stderr:write("error: refusing to overwrite existing " .. hk_path .. "\n")
+        os.exit(1)
+    end
+
+    local display_name = id:match("([^.]+)$") or id
+    display_name = display_name:sub(1, 1):upper() .. display_name:sub(2)
+
+    local lines = {
+        "! blue.hk -- see @blue-environment/api's README for the full field reference.",
+        "[package]",
+        "-> id => " .. id,
+        "-> name => " .. hk_quote(display_name),
+        "-> type => " .. kind,
+        "-> version => 0.1.0",
+        "-> author => " .. hk_quote("Your Name"),
+        "-> description => " .. hk_quote("A new Blue Environment " .. kind .. "."),
+        "-> icon => Sparkles",
+        "",
+    }
+
+    if kind == "theme" then
+        table.insert(lines, "[effects]")
+        table.insert(lines, "-> blur => true")
+        table.insert(lines, "-> transparency => true")
+        table.insert(lines, "-> animations => true")
+        write_file(pathjoin(dir, "styles.css"), THEME_STYLES_CSS)
+    else
+        table.insert(lines, "[" .. kind .. "]")
+        table.insert(lines, "-> entry => index.js")
+        table.insert(lines, "-> width => 800")
+        table.insert(lines, "-> height => 560")
+        table.insert(lines, "")
+        table.insert(lines, "[permissions]")
+        table.insert(lines, '-> list => ["notifications"]')
+        write_file(pathjoin(dir, "index.js"), APP_ENTRY_JS)
+    end
+
+    write_file(hk_path, table.concat(lines, "\n") .. "\n")
+    if not exists(pathjoin(dir, ".blueignore")) then write_file(pathjoin(dir, ".blueignore"), BLUEIGNORE_DEFAULT) end
+    if not exists(pathjoin(dir, "README.md")) then write_file(pathjoin(dir, "README.md"), readme_for(kind, id, display_name)) end
+
+    print("Created " .. kind .. " '" .. id .. "' in " .. dir)
+    print("  " .. hk_path)
+    if kind ~= "theme" then print("  " .. pathjoin(dir, "index.js")) else print("  " .. pathjoin(dir, "styles.css")) end
+    print("  " .. pathjoin(dir, ".blueignore"))
+    print("  " .. pathjoin(dir, "README.md"))
+    print("")
+    print("Next: edit the files above, then run `blue-dev pack` from " .. dir .. ".")
+end
+
+-- ===========================================================================
+-- `blue-dev pack`
+-- ===========================================================================
+
+--- Reads `.blueignore` (gitignore-lite) if present, else the built-in
+--- default. Simple `*`-as-"anything" glob semantics against the path
+--- relative to the project root, matched both in full and against the
+--- final path component (so a bare `node_modules` pattern also excludes
+--- `sub/node_modules`, not only a top-level one).
+local function read_ignore_patterns(dir)
+    local patterns = { ".git", ".git/*", "*.blue", "*.blue.part", "blue.hk.bak" }
+    local text = read_file(pathjoin(dir, ".blueignore"))
+    if text then
+        for line in text:gmatch("[^\n]+") do
+            line = line:match("^%s*(.-)%s*$")
+            if line ~= "" and line:sub(1, 1) ~= "#" then table.insert(patterns, line) end
+        end
+    end
+    return patterns
+end
+
+local function glob_to_pattern(glob)
+    local p = glob:gsub("([%.%(%)%%%+%-%[%]%^%$])", "%%%1"):gsub("%*", ".*")
+    return "^" .. p .. "$"
+end
+
+local function is_ignored(relpath, patterns)
+    for _, glob in ipairs(patterns) do
+        local pat = glob_to_pattern(glob)
+        if relpath:match(pat) then return true end
+        local base = relpath:match("([^/]+)/?$")
+        if base and base:match(pat) then return true end
+    end
+    return false
+end
+
+--- Lists every file/dir under `dir` (relative, `/`-separated), skipping
+--- `.blueignore`-excluded entries. Refuses symlinks outright -- the
+--- shell's installer rejects them too (see install.rs's module doc), so
+--- failing here with a clear message beats a confusing rejection later.
+local function list_files(dir, patterns)
+    local ok, out = run("cd " .. shquote(dir) .. " && find . -mindepth 1 -print")
+    if not ok then error("could not list files in " .. dir .. ": " .. out, 0) end
+    local files, dirs = {}, {}
+    for entry in out:gmatch("[^\n]+") do
+        local rel = entry:gsub("^%./", "")
+        if rel ~= "" and not is_ignored(rel, patterns) then
+            local full = pathjoin(dir, rel)
+            if run("test -L " .. shquote(full)) then
+                error("refusing to pack a symlink: " .. rel .. " (the shell's installer rejects symlinks in .blue archives)", 0)
+            elseif is_dir(full) then
+                table.insert(dirs, rel)
+            else
+                table.insert(files, rel)
+            end
+        end
+    end
+    table.sort(files)
+    table.sort(dirs)
+    return files, dirs
+end
+
+--- Packs `opts.dir` (default ".") into `<id>-<version>.blue`. Two-pass
+--- build so the shipped blue.hk can carry the sha256 of the FINAL archive:
+--- pack once into a scratch dir to get the hash, rewrite blue.hk with
+--- `archive`/`sha256` filled in, pack again. The working tree's own
+--- blue.hk is left untouched unless `opts.write_manifest` is set (most
+--- people re-run `pack` repeatedly while iterating and wouldn't want
+--- git-diff noise on every build).
+local function pack_run(opts)
+    opts = opts or {}
+    local dir = opts.dir or "."
+    if not command_exists("tar") then error("`tar` was not found on PATH", 0) end
+    if not command_exists("zstd") then error("`zstd` was not found on PATH (install it: apt install zstd)", 0) end
+    if not command_exists("sha256sum") then error("`sha256sum` was not found on PATH", 0) end
+
+    local hk_path = pathjoin(dir, "blue.hk")
+    local manifest, err = hk_read_file(hk_path)
+    if not manifest then error("could not read " .. hk_path .. ": " .. tostring(err), 0) end
+
+    local pkg = validate_manifest(manifest, dir)
+    local out_name = opts.out or (pkg.id .. "-" .. pkg.version .. ".blue")
+
+    local patterns = read_ignore_patterns(dir)
+    local files, dirs = list_files(dir, patterns)
+    local has_manifest = false
+    for _, f in ipairs(files) do if f == "blue.hk" then has_manifest = true end end
+    if not has_manifest then
+        error("internal error: blue.hk was excluded by .blueignore -- remove any 'blue.hk'/'*.hk' pattern from it", 0)
+    end
+
+    local tmp_dir = pathjoin("/tmp", "blue-dev-pack-" .. tostring(os.time()) .. "-" .. tostring(math.random(1, 999999)))
+    mkdir_p(tmp_dir)
+    local staging = pathjoin(tmp_dir, "pkg")
+    mkdir_p(staging)
+
+    for _, d in ipairs(dirs) do mkdir_p(pathjoin(staging, d)) end
+    for _, f in ipairs(files) do
+        local dest = pathjoin(staging, f)
+        local dest_dir = dest:match("^(.*)/[^/]+$")
+        if dest_dir then mkdir_p(dest_dir) end
+        local ok, out = run("cp -- " .. shquote(pathjoin(dir, f)) .. " " .. shquote(dest))
+        if not ok then error("could not stage " .. f .. ": " .. out, 0) end
+    end
+
+    local function tar_pack(dest_tar)
+        -- Deterministic-ish archive (sorted names, fixed mtime/owner) so
+        -- re-packing an unchanged project reproduces the same bytes/hash.
+        local cmd = "cd " .. shquote(staging) .. " && tar --sort=name --mtime='1970-01-01 00:00:00Z' " ..
+            "--owner=0 --group=0 --numeric-owner --zstd -cf " .. shquote(dest_tar) .. " ."
+        local ok, out = run(cmd)
+        if not ok then
+            -- Older/BSD tar may not support --sort/--mtime -- retry plain.
+            local ok2, out2 = run("cd " .. shquote(staging) .. " && tar --zstd -cf " .. shquote(dest_tar) .. " .")
+            if not ok2 then error("tar failed:\n" .. out .. "\n" .. out2, 0) end
+        end
+    end
+
+    -- PASS 1: pack with a placeholder sha256 baked into the archive's own
+    -- copy of blue.hk, purely so that copy is well-formed (it is NEVER
+    -- actually checked against anything at install time -- the installer
+    -- only compares id/version/kind between the archive's inner blue.hk
+    -- and the EXTERNAL one it already fetched; see install.rs's
+    -- `install_from_archive`). Its sha256 field can't be its own archive's
+    -- final hash without an infinite regress (the hash of a file can't
+    -- describe itself), so it's necessarily "one pack behind" -- harmless.
+    local function build_manifest_text(sha)
+        local final_pkg = {}
+        for k, v in pairs(pkg) do final_pkg[k] = v end
+        final_pkg.archive = out_name
+        final_pkg.sha256 = sha
+        local rewritten = {}
+        for k, v in pairs(manifest) do rewritten[k] = v end
+        rewritten.package = final_pkg
+        return hk_serialize(
+            rewritten,
+            manifest.__order or { "package", pkg.type, "permissions", "effects" },
+            "blue.hk -- generated/updated by `blue-dev pack`. Edit the source blue.hk, not this file."
+        )
+    end
+
+    write_file(pathjoin(staging, "blue.hk"), build_manifest_text(string.rep("0", 64)))
+    local dest_tar = pathjoin(tmp_dir, out_name)
+    tar_pack(dest_tar)
+
+    -- The sha256 that matters -- the one a person publishes in a SEPARATE,
+    -- externally-hosted blue.hk (what a Blue Store index's `downloadUrl`
+    -- actually points at, and what --write-manifest updates on disk here)
+    -- -- is the hash of THIS exact file, the one that gets uploaded/shared.
+    local final_sha, final_err = sha256_file(dest_tar)
+    if not final_sha then error("could not hash archive: " .. tostring(final_err), 0) end
+    local external_manifest_text = build_manifest_text(final_sha)
+
+    local out_path = opts.out_path or pathjoin(dir, out_name)
+    local ok, out = run("mv -- " .. shquote(dest_tar) .. " " .. shquote(out_path))
+    if not ok then error("could not move archive into place: " .. out, 0) end
+    run("rm -rf -- " .. shquote(tmp_dir))
+
+    if opts.write_manifest then write_file(hk_path, external_manifest_text) end
+
+    return {
+        path = out_path, id = pkg.id, version = pkg.version, kind = pkg.type,
+        sha256 = final_sha, manifest_text = external_manifest_text, file_count = #files,
+    }
+end
+
+local function cmd_pack(args)
+    local dir, out, write_manifest, do_install = nil, nil, false, false
+    local i = 1
+    while i <= #args do
+        local a = args[i]
+        if a == "-o" or a == "--out" then
+            i = i + 1; out = args[i]
+        elseif a == "--write-manifest" then
+            write_manifest = true
+        elseif a == "--install" then
+            do_install = true
+        elseif a:sub(1, 1) ~= "-" then
+            dir = a
+        else
+            io.stderr:write("error: unknown option '" .. a .. "'\n"); os.exit(2)
+        end
+        i = i + 1
+    end
+
+    local ok, result = pcall(pack_run, { dir = dir or ".", out = out, write_manifest = write_manifest })
+    if not ok then
+        io.stderr:write("error: " .. tostring(result) .. "\n")
+        os.exit(1)
+    end
+
+    print("Packed " .. result.id .. " v" .. result.version .. " (" .. result.kind .. ")")
+    print("  " .. result.file_count .. " file(s) -> " .. result.path)
+    print("  sha256 " .. result.sha256)
+    if write_manifest then
+        print("  blue.hk updated (archive/sha256 fields)")
+    else
+        print("  (blue.hk in " .. (dir or ".") .. " left untouched -- pass --write-manifest to update it in place)")
+    end
+
+    if do_install then
+        print("")
+        print("Installing locally via `blue-environment --store install` ...")
+        local exe = os.getenv("BLUE_ENVIRONMENT_BIN") or "blue-environment"
+        local install_ok, install_out = run(exe .. " --store install " .. shquote(result.path))
+        io.write(install_out)
+        if not install_ok then
+            io.stderr:write("error: local install failed (see output above)\n")
+            os.exit(1)
+        end
+    end
+end
+
+-- ===========================================================================
+-- CLI entry point
+-- ===========================================================================
+
+local HELP = [[
+blue-dev -- build Blue Environment (.blue) packages
+
+Usage:
+  blue-dev init  [--type app|plugin|theme] [--id ID] [DIR]
+      Scaffold a new package: blue.hk + a starting entry.js/styles.css +
+      .blueignore + README.md. DIR defaults to the current directory;
+      --type defaults to "app"; --id defaults to "com.example.<dir name>".
+
+  blue-dev pack  [--write-manifest] [--install] [-o OUTPUT.blue] [DIR]
+      Validate blue.hk, bundle the project directory (minus anything
+      .blueignore excludes) into <id>-<version>.blue, and compute its
+      sha256. By default blue.hk on disk is left untouched (the archive's
+      OWN copy of blue.hk always carries the correct archive/sha256, which
+      is all installing requires) -- pass --write-manifest to also update
+      the working tree's blue.hk in place. --install installs the freshly
+      built package locally afterwards (`blue-environment --store install`).
+
+  blue-dev validate [DIR]
+      Check blue.hk (and that the files it references exist) without
+      packing anything. Exit code 0 = valid, 1 = invalid.
+
+  blue-dev help
+      Show this message.
+
+See README.md next to this script, and @blue-environment/api's README,
+for the full blue.hk field reference and app/plugin authoring guide.
+]]
+
+local function main(argv)
+    local cmd = argv[1]
+    local rest = {}
+    for i = 2, #argv do rest[#rest + 1] = argv[i] end
+
+    if cmd == "init" then
+        cmd_init(rest)
+    elseif cmd == "pack" then
+        cmd_pack(rest)
+    elseif cmd == "validate" then
+        cmd_validate(rest)
+    elseif cmd == "help" or cmd == "--help" or cmd == "-h" or cmd == nil then
+        io.write(HELP)
+        if cmd == nil then os.exit(2) end
+    else
+        io.stderr:write("blue-dev: unknown command '" .. cmd .. "'\n\n")
+        io.stderr:write(HELP)
+        os.exit(2)
+    end
+end
+
+main(arg or {})
