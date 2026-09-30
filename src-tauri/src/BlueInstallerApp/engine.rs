@@ -1,0 +1,515 @@
+use super::error::{InstallError, InstallResult};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+pub const TARGET_ROOT: &str = "/mnt/blue-install";
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartitionPlanEntry {
+    pub id: String,
+    pub role: String,       // esp | root | home | swap | other
+    pub filesystem: String, // fat32 | ext4 | btrfs | xfs | swap
+    pub mountpoint: String,
+    pub size_mib: Option<u64>, // None = remaining space
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallConfig {
+    pub disk: String,
+    pub confirm_erase: String,
+    pub disk_mode: String, // erase | manual
+    pub partitions: Vec<PartitionPlanEntry>,
+    pub locale: String,
+    pub keyboard_layout: String,
+    pub timezone: String,
+    pub hostname: String,
+    pub username: String,
+    pub full_name: String,
+    #[serde(default)]
+    pub password: String,
+    pub auto_login: bool,
+    pub user_dirs: UserDirNames,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDirNames {
+    pub desktop: String,
+    pub documents: String,
+    pub downloads: String,
+    pub music: String,
+    pub pictures: String,
+    pub videos: String,
+    pub templates: String,
+    pub public: String,
+}
+
+pub type Progress<'a> = dyn Fn(u8, &str) + Send + Sync + 'a;
+
+struct PlannedPartition {
+    entry: PartitionPlanEntry,
+    /// 1-based partition number as created on the disk.
+    number: u32,
+    device: String,
+}
+
+fn run(cmd: &mut Command) -> InstallResult<String> {
+    let out = cmd.output().map_err(|e| InstallError::io(&format!("running {:?}", cmd.get_program()), e))?;
+    if !out.status.success() {
+        return Err(InstallError::command_failed(cmd, &out));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+fn require_tool(bin: &str, install_hint: &str) -> InstallResult<()> {
+    let found = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
+        .unwrap_or(false);
+    if found {
+        Ok(())
+    } else {
+        Err(InstallError::new("missing_tool", format!("Required tool \"{bin}\" was not found on this live system"))
+            .hint(format!("Install it in the live session first: {install_hint}")))
+    }
+}
+
+fn is_efi_boot() -> bool {
+    Path::new("/sys/firmware/efi").is_dir()
+}
+
+fn default_partition_plan() -> Vec<PartitionPlanEntry> {
+    vec![
+        PartitionPlanEntry { id: "p-esp".into(), role: "esp".into(), filesystem: "fat32".into(), mountpoint: "/boot/efi".into(), size_mib: Some(512) },
+        PartitionPlanEntry { id: "p-root".into(), role: "root".into(), filesystem: "ext4".into(), mountpoint: "/".into(), size_mib: None },
+    ]
+}
+
+/// Validates the target disk is a real, whole disk (not a partition, not
+/// already mounted) and that `confirm_erase` matches — the same
+/// belt-and-braces check the old script description promised, kept here.
+fn validate_target(cfg: &InstallConfig) -> InstallResult<()> {
+    if cfg.disk != cfg.confirm_erase {
+        return Err(InstallError::new("confirm_mismatch", "The confirmation disk path does not match the selected disk")
+            .hint("This is a safety check — nothing was touched."));
+    }
+    let path = Path::new(&cfg.disk);
+    if !path.exists() {
+        return Err(InstallError::new("disk_not_found", format!("Disk \"{}\" does not exist", cfg.disk)));
+    }
+    let mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
+    if mounts.lines().any(|l| l.split_whitespace().next().map(|d| d.starts_with(cfg.disk.as_str())).unwrap_or(false)) {
+        return Err(InstallError::new("disk_busy", format!("\"{}\" (or a partition on it) is currently mounted", cfg.disk))
+            .hint("Unmount it first, or pick a different disk."));
+    }
+    if cfg.username.trim().is_empty() {
+        return Err(InstallError::new("bad_config", "Username is empty"));
+    }
+    if !cfg.username.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_') || !cfg.username.as_bytes()[0].is_ascii_lowercase() {
+        return Err(InstallError::new("bad_config", "Username must start with a lowercase letter and contain only lowercase letters, digits, - or _"));
+    }
+    if cfg.password.is_empty() {
+        return Err(InstallError::new("bad_config", "Password is empty"));
+    }
+    if cfg.hostname.trim().is_empty() {
+        return Err(InstallError::new("bad_config", "Hostname is empty"));
+    }
+    Ok(())
+}
+
+/// Partition device path for partition number `n` on `disk` — handles the
+/// nvme/mmcblk "p" infix (`/dev/nvme0n1p1`) vs plain (`/dev/sda1`).
+fn part_device(disk: &str, n: u32) -> String {
+    let last = disk.rsplit('/').next().unwrap_or(disk);
+    if last.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        format!("{disk}p{n}")
+    } else {
+        format!("{disk}{n}")
+    }
+}
+
+fn partition_disk(cfg: &InstallConfig, progress: &Progress) -> InstallResult<Vec<PlannedPartition>> {
+    progress(2, "Partitioning disk…");
+    let plan = if cfg.disk_mode == "manual" && !cfg.partitions.is_empty() { cfg.partitions.clone() } else { default_partition_plan() };
+    if !plan.iter().any(|p| p.role == "esp") {
+        return Err(InstallError::new("bad_partition_plan", "The partition plan has no EFI System Partition"));
+    }
+    if !plan.iter().any(|p| p.mountpoint == "/") {
+        return Err(InstallError::new("bad_partition_plan", "The partition plan has no partition mounted at /"));
+    }
+    if plan.iter().filter(|p| p.size_mib.is_none()).count() > 1 {
+        return Err(InstallError::new("bad_partition_plan", "Only one partition can use the remaining space"));
+    }
+
+    run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["mklabel", "gpt"]))?;
+
+    let mut start_mib: u64 = 1; // leave 1 MiB for GPT alignment
+    let mut planned = Vec::new();
+    for (i, entry) in plan.iter().enumerate() {
+        let end = match entry.size_mib {
+            Some(sz) => format!("{}MiB", start_mib + sz),
+            None => "100%".to_string(),
+        };
+        let fs_type = match entry.filesystem.as_str() {
+            "fat32" => "fat32",
+            "ext4" => "ext4",
+            "btrfs" => "btrfs",
+            "xfs" => "xfs",
+            "swap" => "linux-swap",
+            other => return Err(InstallError::new("bad_partition_plan", format!("Unknown filesystem \"{other}\""))),
+        };
+        run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["mkpart", "primary", fs_type, &format!("{start_mib}MiB"), &end]))?;
+        let number = (i + 1) as u32;
+        if entry.role == "esp" {
+            run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["set", &number.to_string(), "esp", "on"]))?;
+        }
+        planned.push(PlannedPartition { entry: entry.clone(), number, device: part_device(&cfg.disk, number) });
+        start_mib = match entry.size_mib {
+            Some(sz) => start_mib + sz,
+            None => start_mib, // last one, no next
+        };
+    }
+    let _ = run(Command::new("partprobe").arg(&cfg.disk));
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    for p in &planned {
+        for _ in 0..20 {
+            if Path::new(&p.device).exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        if !Path::new(&p.device).exists() {
+            return Err(InstallError::new("partition_missing", format!("Partition {} did not appear after partitioning", p.device)));
+        }
+    }
+    Ok(planned)
+}
+
+fn format_partitions(planned: &[PlannedPartition], progress: &Progress) -> InstallResult<()> {
+    progress(15, "Formatting partitions…");
+    for p in planned {
+        match p.entry.filesystem.as_str() {
+            "fat32" => run(Command::new("mkfs.fat").args(["-F", "32", "-n", "EFI"]).arg(&p.device))?,
+            "ext4" => run(Command::new("mkfs.ext4").args(["-F", "-L"]).arg(label_for(&p.entry.role)).arg(&p.device))?,
+            "btrfs" => run(Command::new("mkfs.btrfs").args(["-f", "-L"]).arg(label_for(&p.entry.role)).arg(&p.device))?,
+            "xfs" => run(Command::new("mkfs.xfs").args(["-f", "-L"]).arg(label_for(&p.entry.role)).arg(&p.device))?,
+            "swap" => run(Command::new("mkswap").arg(&p.device))?,
+            other => return Err(InstallError::new("bad_partition_plan", format!("Unknown filesystem \"{other}\""))),
+        };
+    }
+    Ok(())
+}
+
+fn label_for(role: &str) -> &'static str {
+    match role {
+        "root" => "BLUEROOT",
+        "home" => "BLUEHOME",
+        _ => "BLUEDATA",
+    }
+}
+
+fn mount_target(planned: &[PlannedPartition], progress: &Progress) -> InstallResult<()> {
+    progress(25, "Mounting target filesystem…");
+    let target = PathBuf::from(TARGET_ROOT);
+    fs::create_dir_all(&target).map_err(|e| InstallError::io("creating the mount point", e))?;
+
+    // Mount / first, then everything else, shallowest mountpoint first, so
+    // e.g. /boot/efi mounts onto an already-mounted root.
+    let mut sorted: Vec<&PlannedPartition> = planned.iter().filter(|p| p.entry.filesystem != "swap").collect();
+    sorted.sort_by_key(|p| if p.entry.mountpoint == "/" { 0 } else { p.entry.mountpoint.matches('/').count() });
+
+    for p in &sorted {
+        let mp = target.join(p.entry.mountpoint.trim_start_matches('/'));
+        fs::create_dir_all(&mp).map_err(|e| InstallError::io(&format!("creating {}", mp.display()), e))?;
+        run(Command::new("mount").arg(&p.device).arg(&mp))?;
+    }
+    for p in planned {
+        if p.entry.filesystem == "swap" {
+            let _ = run(Command::new("swapon").arg(&p.device));
+        }
+    }
+    Ok(())
+}
+
+/// Copies the running live system into the target — the same technique
+/// used by other live-installer projects (MX Linux's minstall, antiX,
+/// Refracta): the live root (`/`) already IS the fully assembled system
+/// (live-boot's squashfs + overlay merged), so an rsync of `/` with the
+/// pseudo-filesystems, the boot medium and live-only state excluded
+/// reproduces it on disk without needing a second separate rootfs image.
+fn copy_system(progress: &Progress) -> InstallResult<()> {
+    progress(30, "Copying system files…");
+    require_tool("rsync", "apt install rsync")?;
+    let excludes = [
+        "/proc/*", "/sys/*", "/dev/*", "/run/*", "/tmp/*",
+        "/mnt/*", "/media/*", "/lost+found",
+        "/var/lib/live/*", "/lib/live/*", "/var/cache/apt/archives/*.deb",
+        "/swapfile",
+        // the live user's home is recreated fresh for the new account below
+        "/home/*",
+        "/root/.cache/*",
+    ];
+    let mut cmd = Command::new("rsync");
+    cmd.args(["-aHAX", "--info=progress2", "--numeric-ids"]);
+    for e in excludes {
+        cmd.arg(format!("--exclude={e}"));
+    }
+    cmd.arg("/").arg(format!("{TARGET_ROOT}/"));
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| InstallError::io("starting rsync", e))?;
+    // rsync's --info=progress2 prints a single updating line; just drain it
+    // (a nicer live percentage isn't worth parsing rsync's transfer-rate
+    // format here) and report coarse progress based on elapsed time instead.
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 4096];
+            let mut r = stdout;
+            loop {
+                match r.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+        });
+    }
+    let status = child.wait().map_err(|e| InstallError::io("waiting for rsync", e))?;
+    if !status.success() {
+        return Err(InstallError::new("copy_failed", "Copying the system to disk failed (rsync exited with an error)"));
+    }
+    for dir in ["proc", "sys", "dev", "run", "tmp", "mnt", "media"] {
+        let _ = fs::create_dir_all(format!("{TARGET_ROOT}/{dir}"));
+    }
+    Ok(())
+}
+
+fn write_fstab(planned: &[PlannedPartition]) -> InstallResult<()> {
+    let mut out = String::from("# /etc/fstab — generated by Blue Installer\n# <device>\t<mount>\t<type>\t<options>\t<dump>\t<pass>\n");
+    for p in planned {
+        let uuid_out = Command::new("blkid").args(["-s", "UUID", "-o", "value"]).arg(&p.device).output();
+        let uuid = uuid_out.ok().and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None });
+        let Some(uuid) = uuid else { continue };
+        let (fstype, opts, pass) = match p.entry.filesystem.as_str() {
+            "fat32" => ("vfat", "umask=0077", 2),
+            "ext4" => ("ext4", "defaults", if p.entry.mountpoint == "/" { 1 } else { 2 }),
+            "btrfs" => ("btrfs", "defaults", 0),
+            "xfs" => ("xfs", "defaults", 0),
+            "swap" => ("swap", "sw", 0),
+            _ => continue,
+        };
+        let mp = if p.entry.filesystem == "swap" { "none".to_string() } else { p.entry.mountpoint.clone() };
+        out.push_str(&format!("UUID={uuid}\t{mp}\t{fstype}\t{opts}\t0\t{pass}\n"));
+    }
+    fs::write(format!("{TARGET_ROOT}/etc/fstab"), out).map_err(|e| InstallError::io("writing fstab", e))
+}
+
+fn bind_mount_chroot_dirs() -> InstallResult<()> {
+    for (src, dst, is_proc) in [("/dev", "dev", false), ("/dev/pts", "dev/pts", false), ("/proc", "proc", true), ("/sys", "sys", false), ("/run", "run", false)] {
+        let target = format!("{TARGET_ROOT}/{dst}");
+        fs::create_dir_all(&target).ok();
+        let mut cmd = Command::new("mount");
+        if is_proc {
+            cmd.args(["-t", "proc", "proc", &target]);
+        } else {
+            cmd.arg("--bind").arg(src).arg(&target);
+        }
+        run(&mut cmd)?;
+    }
+    Ok(())
+}
+
+fn unmount_all(planned: &[PlannedPartition]) {
+    for d in ["run", "sys", "dev/pts", "dev", "proc"] {
+        let _ = Command::new("umount").arg("-lf").arg(format!("{TARGET_ROOT}/{d}")).status();
+    }
+    let mut mps: Vec<&str> = planned.iter().filter(|p| p.entry.filesystem != "swap").map(|p| p.entry.mountpoint.as_str()).collect();
+    mps.sort_by_key(|m| std::cmp::Reverse(m.matches('/').count()));
+    for mp in mps {
+        let full = if mp == "/" { TARGET_ROOT.to_string() } else { format!("{TARGET_ROOT}{mp}") };
+        let _ = Command::new("umount").arg("-lf").arg(&full).status();
+    }
+    for p in planned {
+        if p.entry.filesystem == "swap" {
+            let _ = Command::new("swapoff").arg(&p.device).status();
+        }
+    }
+    let _ = Command::new("umount").arg("-lf").arg(TARGET_ROOT).status();
+}
+
+/// Runs `sh -c script` inside the target root via `chroot`.
+fn chroot_sh(script: &str) -> InstallResult<String> {
+    let mut cmd = Command::new("chroot");
+    cmd.arg(TARGET_ROOT).arg("/bin/sh").arg("-c").arg(script);
+    run(&mut cmd)
+}
+
+fn configure_system(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()> {
+    progress(70, "Configuring the new system…");
+
+    fs::write(format!("{TARGET_ROOT}/etc/hostname"), format!("{}\n", cfg.hostname)).map_err(|e| InstallError::io("writing hostname", e))?;
+    let hosts = format!("127.0.0.1\tlocalhost\n127.0.1.1\t{h}\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02::1\tip6-allnodes\nff02::2\tip6-allrouters\n", h = cfg.hostname);
+    fs::write(format!("{TARGET_ROOT}/etc/hosts"), hosts).map_err(|e| InstallError::io("writing hosts", e))?;
+
+    // Locale.
+    fs::create_dir_all(format!("{TARGET_ROOT}/etc/default")).ok();
+    fs::write(format!("{TARGET_ROOT}/etc/default/locale"), format!("LANG={}\n", cfg.locale)).map_err(|e| InstallError::io("writing locale", e))?;
+    if Path::new(&format!("{TARGET_ROOT}/etc/locale.gen")).exists() {
+        let _ = chroot_sh(&format!("sed -i 's/^# *{loc}/{loc}/' /etc/locale.gen && locale-gen", loc = shell_escape_regex(&cfg.locale)));
+    }
+
+    // Keyboard.
+    let kb = format!("XKBMODEL=\"pc105\"\nXKBLAYOUT=\"{}\"\nXKBVARIANT=\"\"\nXKBOPTIONS=\"\"\n\nBACKSPACE=\"guess\"\n", cfg.keyboard_layout);
+    fs::write(format!("{TARGET_ROOT}/etc/default/keyboard"), kb).map_err(|e| InstallError::io("writing keyboard config", e))?;
+
+    // Timezone.
+    let tz_path = format!("/usr/share/zoneinfo/{}", cfg.timezone);
+    if Path::new(&format!("{TARGET_ROOT}{tz_path}")).exists() {
+        let _ = fs::remove_file(format!("{TARGET_ROOT}/etc/localtime"));
+        let _ = std::os::unix::fs::symlink(&tz_path, format!("{TARGET_ROOT}/etc/localtime"));
+        fs::write(format!("{TARGET_ROOT}/etc/timezone"), format!("{}\n", cfg.timezone)).ok();
+    }
+
+    // Machine id — the live image's must not be reused verbatim on every install.
+    let _ = fs::remove_file(format!("{TARGET_ROOT}/etc/machine-id"));
+    let _ = chroot_sh("systemd-machine-id-setup 2>/dev/null || dbus-uuidgen --ensure=/etc/machine-id 2>/dev/null || true");
+
+    progress(78, "Removing the live session account…");
+    remove_live_account(cfg)?;
+
+    progress(82, "Creating your user account…");
+    create_user_account(cfg)?;
+
+    Ok(())
+}
+
+fn shell_escape_regex(s: &str) -> String {
+    s.replace('.', "\\.").replace('/', "\\/")
+}
+
+/// Same intent as HackerOS's own `remove-live-user.sh` (used by
+/// Calamares-based editions) — kept as an independent, self-contained
+/// implementation here since Blue Environment is a separate project and
+/// must not depend on a file from another repository at build/run time.
+/// This is exactly the fix for: "after installing I end up with two user
+/// accounts — the live one and the one I just created".
+fn remove_live_account(cfg: &InstallConfig) -> InstallResult<()> {
+    let live_user = "user";
+    if live_user == cfg.username {
+        // The person chose the same name as the live account — nothing to
+        // remove, create_user_account below will just take it over cleanly
+        // (delete-then-recreate) so its home/permissions end up correct.
+        let _ = chroot_sh(&format!("userdel -rf {live_user} 2>/dev/null; true"));
+        return Ok(());
+    }
+    let _ = chroot_sh(&format!("rm -f /etc/sudoers.d/live-user; pkill -u {live_user} 2>/dev/null; userdel -rf {live_user} 2>/dev/null; groupdel {live_user} 2>/dev/null; true"));
+    for f in ["/usr/lib/sddm/sddm.conf.d/autologin.conf", "/etc/sddm.conf.d/autologin.conf", "/etc/sddm.conf"] {
+        let full = format!("{TARGET_ROOT}{f}");
+        if let Ok(content) = fs::read_to_string(&full) {
+            if content.contains(&format!("User={live_user}")) {
+                let _ = fs::remove_file(&full);
+            }
+        }
+    }
+    let _ = fs::remove_file(format!("{TARGET_ROOT}/etc/skel/.config/Blue-Environment/.live"));
+    Ok(())
+}
+
+fn create_user_account(cfg: &InstallConfig) -> InstallResult<()> {
+    let quoted_user = shell_quote(&cfg.username);
+    let create = format!(
+        "useradd -m -s /bin/bash -c {full} -G sudo,audio,video,plugdev,netdev,input,render {user}",
+        full = shell_quote(&cfg.full_name),
+        user = quoted_user,
+    );
+    chroot_sh(&create).map_err(|e| e.hint("Creating the user account failed — see detail for the exact error."))?;
+
+    // Password over chroot's stdin via chpasswd, never as a chroot argument.
+    let mut cmd = Command::new("chroot");
+    cmd.arg(TARGET_ROOT).arg("chpasswd");
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| InstallError::io("running chpasswd", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = writeln!(stdin, "{}:{}", cfg.username, cfg.password);
+    }
+    let out = child.wait_with_output().map_err(|e| InstallError::io("waiting for chpasswd", e))?;
+    if !out.status.success() {
+        return Err(InstallError::new("useradd_failed", "Could not set the account password").detail(String::from_utf8_lossy(&out.stderr).to_string()));
+    }
+
+    // Localized XDG user directories.
+    let home = format!("/home/{}", cfg.username);
+    for name in [&cfg.user_dirs.desktop, &cfg.user_dirs.documents, &cfg.user_dirs.downloads, &cfg.user_dirs.music, &cfg.user_dirs.pictures, &cfg.user_dirs.videos, &cfg.user_dirs.templates, &cfg.user_dirs.public] {
+        let _ = chroot_sh(&format!("mkdir -p {}/{} && chown {}:{} {}/{}", shell_quote(&home), shell_quote(name), quoted_user, quoted_user, shell_quote(&home), shell_quote(name)));
+    }
+    let user_dirs_conf = format!(
+        "XDG_DESKTOP_DIR=\"$HOME/{}\"\nXDG_DOCUMENTS_DIR=\"$HOME/{}\"\nXDG_DOWNLOAD_DIR=\"$HOME/{}\"\nXDG_MUSIC_DIR=\"$HOME/{}\"\nXDG_PICTURES_DIR=\"$HOME/{}\"\nXDG_VIDEOS_DIR=\"$HOME/{}\"\nXDG_TEMPLATES_DIR=\"$HOME/{}\"\nXDG_PUBLICSHARE_DIR=\"$HOME/{}\"\n",
+        cfg.user_dirs.desktop, cfg.user_dirs.documents, cfg.user_dirs.downloads, cfg.user_dirs.music,
+        cfg.user_dirs.pictures, cfg.user_dirs.videos, cfg.user_dirs.templates, cfg.user_dirs.public,
+    );
+    let config_dir = format!("{TARGET_ROOT}{home}/.config");
+    fs::create_dir_all(&config_dir).ok();
+    fs::write(format!("{config_dir}/user-dirs.dirs"), user_dirs_conf).ok();
+    let _ = chroot_sh(&format!("chown -R {user}:{user} {home}", user = quoted_user, home = shell_quote(&home)));
+
+    if cfg.auto_login {
+        let conf = format!("[Autologin]\nUser={}\nSession=blue-environment.desktop\nRelogin=true\n\n[General]\nNumlock=none\n", cfg.username);
+        let dir = format!("{TARGET_ROOT}/usr/lib/sddm/sddm.conf.d");
+        if Path::new(&format!("{TARGET_ROOT}/usr/lib/sddm")).exists() {
+            fs::create_dir_all(&dir).ok();
+            fs::write(format!("{dir}/autologin.conf"), conf).ok();
+        }
+    }
+    Ok(())
+}
+
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn install_bootloader(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()> {
+    progress(90, "Installing the bootloader…");
+    if is_efi_boot() {
+        let target = format!("{TARGET_ROOT}/boot/efi");
+        if !Path::new(&target).exists() {
+            return Err(InstallError::new("no_esp", "No EFI System Partition was mounted at /boot/efi"));
+        }
+        chroot_sh("grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Blue --recheck")
+            .map_err(|e| e.hint("EFI bootloader install failed. Common cause: the ESP is too small (needs ≥ 260 MiB) or isn't FAT32."))?;
+    } else {
+        chroot_sh(&format!("grub-install --target=i386-pc --recheck {}", cfg.disk))
+            .map_err(|e| e.hint("BIOS/legacy bootloader install failed."))?;
+    }
+    let _ = chroot_sh("update-grub 2>&1 || grub-mkconfig -o /boot/grub/grub.cfg 2>&1");
+    Ok(())
+}
+
+/// Runs the full install. Always attempts to unmount the target on the way
+/// out, success or failure, so a failed install doesn't leave `/mnt/blue-
+/// install` holding the disk busy for a retry.
+pub fn run_install(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()> {
+    validate_target(cfg)?;
+    for (bin, pkg) in [("parted", "parted"), ("mkfs.ext4", "e2fsprogs"), ("mkfs.fat", "dosfstools"), ("rsync", "rsync"), ("chroot", "coreutils")] {
+        require_tool(bin, pkg)?;
+    }
+
+    let planned = partition_disk(cfg, progress)?;
+    let result = (|| -> InstallResult<()> {
+        format_partitions(&planned, progress)?;
+        mount_target(&planned, progress)?;
+        copy_system(progress)?;
+        write_fstab(&planned)?;
+        bind_mount_chroot_dirs()?;
+        configure_system(cfg, progress)?;
+        install_bootloader(cfg, progress)?;
+        progress(99, "Finishing up…");
+        Ok(())
+    })();
+    unmount_all(&planned);
+    result?;
+    progress(100, "Installation complete");
+    Ok(())
+}
