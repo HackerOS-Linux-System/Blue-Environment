@@ -1,24 +1,21 @@
 <script lang="ts">
   /**
    * Shell Themes settings section — two tabs: "Installed" (the 10
-   * built-in themes from builtinThemes.ts) and "Store" (downloadable
-   * themes fetched at runtime).
+   * built-in themes from builtinThemes.ts) and "Store" (community
+   * `.blue` theme packages, installed via Blue Store).
    *
    * ── Store fetch strategy ──────────────────────────────────────────
-   * Tries the live GitHub-hosted JSON first
-   * (raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/
-   * main/config/stores/themes-store.json — the raw form of the repo
-   * URL given for this feature), falls back to the copy bundled with
-   * the app (config/stores/themes-store.json, same schema) if that
-   * fetch fails — offline, GitHub unreachable, rate-limited, etc. Both
-   * are empty right now (`"themes": []`), so the Store tab currently
-   * always shows an empty state either way; the fetch/fallback plumbing
-   * is real and working, there's just nothing to show yet — see that
-   * JSON file's own description field.
-   *
-   * No CSP restrictions block this (`tauri.conf.json`'s `security.csp`
-   * is `null`), so this is a plain `fetch()` from the frontend — no
-   * Rust round-trip needed for something this simple.
+   * BUGFIX: this used to `fetch(STORE_URL_REMOTE)` straight from the
+   * webview and fall back to a bundled JSON snapshot when that failed —
+   * which it always did, silently, because the shell's CSP
+   * (`connect-src`) does not allow arbitrary https hosts. So the
+   * "Store" tab only ever showed the bundled copy, and its one
+   * "Download" button had no handler at all — nothing could actually be
+   * installed. Both the index fetch and the install now go through
+   * `blueStore.ts` → Rust (`BlueStore::net`/`BlueStore::install`),
+   * which isn't subject to the webview's CSP and can actually write
+   * into `/usr/share/themes/` (elevating via pkexec/sudo when needed —
+   * see `src-tauri/src/privileged.rs`).
    *
    * ── Applying a theme ────────────────────────────────────────────────
    * Selecting a non-placeholder theme stages it (`shellThemeId` saved
@@ -42,7 +39,7 @@
    */
   import { onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
-  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Sparkles, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical, Edit2, Download, Trash2, X } from 'lucide-svelte';
+  import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Sparkles, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical, Edit2, Download, Trash2, X, AlertTriangle } from 'lucide-svelte';
   import { DEFAULT_WINDOW_CONTROLS_ORDER, type WindowControlId } from '../../../../data/builtinThemes';
   import type { UserConfig, SystemTheme } from '../../../../types';
   import { t } from '../../../../stores/language';
@@ -52,28 +49,23 @@
     customShellThemes, ensureCustomThemesLoaded, saveCustomTheme, removeCustomTheme,
     blankCustomTheme, exportCustomThemeJson, importCustomThemeJson,
   } from '../../../../utils/customThemes';
-  // Static import, not `fetch('/config/stores/...')` — this project has
-  // no `public/` directory (Vite's default static-asset root), so a
-  // runtime fetch of a project-root-relative path like that would
-  // always 404. A plain ES import of the JSON file is Vite-native
-  // (bundled at build time, no serving/path concerns at all) and is
-  // what this local fallback actually needs — it's a fixed snapshot
-  // shipped with the app, not something that changes at runtime the
-  // way the remote GitHub copy does.
-  import themesStoreLocal from '../../../../../../config/stores/themes-store.json';
+  import {
+    fetchStoreIndex, installPackage, uninstallPackage, listInstalled, storeErrorMessage,
+    type StoreIndexEntry, type Receipt,
+  } from '../../../../utils/blueStore';
 
   export let config: UserConfig;
   export let onSave: (p: Partial<UserConfig>) => Promise<void>;
 
-  const STORE_URL_REMOTE = 'https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/stores/themes-store.json';
-
-  type StoreTheme = { id: string; name: string; description: string; author: string; version: string; downloadUrl: string; previewImageUrl?: string };
-
   let tab: 'installed' | 'system' | 'store' = 'installed';
-  let storeThemes: StoreTheme[] = [];
+  let storeThemes: StoreIndexEntry[] = [];
+  let storeWarnings: string[] = [];
   let storeLoading = false;
-  let storeError = false;
-  let storeSource: 'remote' | 'local' | null = null;
+  let storeErrorMsg: string | null = null;
+  let storeLoaded = false;
+  let installedStoreThemes: Receipt[] = [];
+  /** downloadUrl -> progress (0-100) while installing, absent otherwise. */
+  let installing: Record<string, number> = {};
 
   let systemThemes: SystemTheme[] = [];
   let systemThemesLoaded = false;
@@ -255,29 +247,50 @@
 
   async function loadStore() {
     storeLoading = true;
-    storeError = false;
-    storeSource = null;
+    storeErrorMsg = null;
     try {
-      const res = await fetch(STORE_URL_REMOTE, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      storeThemes = data.themes ?? [];
-      storeSource = 'remote';
-    } catch {
-      // Bundled fallback (static import, see this file's own import —
-      // was a broken `fetch('/config/...')` before, 404ing always
-      // since this project has no `public/` dir for Vite to have
-      // served it from).
-      storeThemes = (themesStoreLocal as any).themes ?? [];
-      storeSource = 'local';
+      const [index, installed] = await Promise.all([fetchStoreIndex('theme'), listInstalled('theme')]);
+      storeThemes = index.entries;
+      storeWarnings = index.warnings;
+      installedStoreThemes = installed;
+    } catch (e) {
+      storeErrorMsg = storeErrorMessage(e);
+      storeThemes = [];
     } finally {
       storeLoading = false;
+      storeLoaded = true;
+    }
+  }
+
+  function isThemeInstalled(entry: StoreIndexEntry): Receipt | undefined {
+    return installedStoreThemes.find((r) => r.sourceUrl === entry.downloadUrl);
+  }
+
+  async function installStoreTheme(entry: StoreIndexEntry) {
+    installing = { ...installing, [entry.downloadUrl]: 0 };
+    try {
+      await installPackage(entry.downloadUrl, 'theme', (pct) => { installing = { ...installing, [entry.downloadUrl]: pct }; });
+      installedStoreThemes = await listInstalled('theme');
+    } catch (e) {
+      storeErrorMsg = `${entry.name}: ${storeErrorMessage(e)}`;
+    } finally {
+      const { [entry.downloadUrl]: _drop, ...rest } = installing;
+      installing = rest;
+    }
+  }
+
+  async function uninstallStoreTheme(receipt: Receipt) {
+    try {
+      await uninstallPackage('theme', receipt.id);
+      installedStoreThemes = await listInstalled('theme');
+    } catch (e) {
+      storeErrorMsg = `${receipt.name}: ${storeErrorMessage(e)}`;
     }
   }
 
   function selectTab(next: 'installed' | 'system' | 'store') {
     tab = next;
-    if (next === 'store' && storeSource === null && !storeLoading) loadStore();
+    if (next === 'store' && !storeLoaded && !storeLoading) loadStore();
     if (next === 'system' && !systemThemesLoaded && !systemThemesLoading) loadSystemThemes();
   }
 
@@ -594,6 +607,13 @@
       <div class="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
         <RefreshCw size={14} class="animate-spin" /> Loading theme store…
       </div>
+    {:else if storeErrorMsg}
+      <div class="flex flex-col items-center gap-2 py-12 text-center">
+        <AlertTriangle size={28} class="text-amber-400" />
+        <p class="text-sm text-slate-300">Couldn't reach the theme store</p>
+        <p class="text-xs text-slate-500 max-w-sm">{storeErrorMsg}</p>
+        <button class="mt-1 text-[11px] px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white" on:click={loadStore}>Try again</button>
+      </div>
     {:else if storeThemes.length === 0}
       <div class="flex flex-col items-center gap-2 py-12 text-center">
         <SparklesIcon size={28} class="text-slate-600" />
@@ -604,21 +624,32 @@
             see the store source <ExternalLink size={10} />
           </a>.
         </p>
-        {#if storeError}<p class="text-[10px] text-amber-400/80 mt-1">Couldn't reach the store — showing the bundled offline copy instead.</p>{/if}
       </div>
     {:else}
       <div class="grid grid-cols-2 gap-3">
-        {#each storeThemes as theme (theme.id)}
+        {#each storeThemes as theme (theme.downloadUrl)}
+          {@const installed = isThemeInstalled(theme)}
+          {@const pct = installing[theme.downloadUrl]}
           <div class="rounded-xl border border-white/10 bg-slate-800/40 p-3">
             <span class="text-sm font-medium text-white">{theme.name}</span>
+            {#if theme.author}<span class="text-[10px] text-slate-500 ml-1">by {theme.author}</span>{/if}
             <p class="text-[11px] text-slate-400 mt-0.5">{theme.description}</p>
-            <button class="mt-2 text-[11px] px-2.5 py-1 rounded-md bg-blue-500 text-white font-medium hover:bg-blue-400 transition-colors">Download</button>
+            {#if pct !== undefined}
+              <div class="mt-2 h-1.5 rounded-full bg-slate-700 overflow-hidden"><div class="h-full bg-blue-500 transition-all" style="width: {pct}%"></div></div>
+            {:else if installed}
+              <div class="mt-2 flex items-center gap-2">
+                <span class="text-[11px] px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 flex items-center gap-1"><Check size={12} /> Installed</span>
+                <button class="text-[11px] px-2 py-1 rounded-md bg-slate-700 hover:bg-red-500/80 text-white" on:click={() => uninstallStoreTheme(installed)}>Remove</button>
+              </div>
+            {:else}
+              <button class="mt-2 text-[11px] px-2.5 py-1 rounded-md bg-blue-500 text-white font-medium hover:bg-blue-400 transition-colors" on:click={() => installStoreTheme(theme)}>Download</button>
+            {/if}
           </div>
         {/each}
       </div>
     {/if}
-    {#if storeSource === 'local'}
-      <p class="text-[10px] text-slate-500 mt-3">Showing the offline bundled copy (couldn't reach GitHub).</p>
+    {#if storeWarnings.length > 0}
+      <p class="text-[10px] text-amber-400/70 mt-3">{storeWarnings.length} entr{storeWarnings.length === 1 ? 'y was' : 'ies were'} skipped (invalid store listing).</p>
     {/if}
   {/if}
 </div>
