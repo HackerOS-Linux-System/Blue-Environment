@@ -17,6 +17,8 @@
   import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
   import OnscreenKeyboard from './lib/components/OnscreenKeyboard.svelte';
   import { APPS } from './lib/constants';
+  import CommunityAppHost from './lib/components/apps/Community-App-Host/CommunityAppHost.svelte';
+  import { Package as CommunityAppIcon } from 'lucide-svelte';
   import { AppId } from './lib/types';
   import TopBar from './lib/components/TopBar.svelte';
   import Desktop from './lib/components/Desktop.svelte';
@@ -117,6 +119,15 @@
       : panelPosition;
 
   function getAppDef(appId: string) {
+    // Installed Blue Store apps/plugins have no static APPS entry (they're
+    // discovered at run time, not compile time) — see windowManager.ts's
+    // `openCommunityApp`/`openApp` doc for the `community:` convention.
+    // Only `.component` is used from this synthetic object: the window's
+    // title bar already reads `win.title` directly (set at launch time
+    // from the package's own name), not `appDef.title`.
+    if (appId.startsWith('community:')) {
+      return { id: appId, title: 'App', icon: CommunityAppIcon, component: CommunityAppHost, isExternal: false } as (typeof APPS)[AppId];
+    }
     return APPS[appId as AppId];
   }
 
