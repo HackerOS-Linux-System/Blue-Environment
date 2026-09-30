@@ -7,14 +7,17 @@
     ChevronRight, Loader2, Globe, Video, Image, FileText, Code,
     Gamepad2, Settings, LogOut, Moon, ExternalLink, LayoutGrid, X,
   } from 'lucide-svelte';
+  import * as Icons from 'lucide-svelte';
   import AppIconGlyph from './AppIconGlyph.svelte';
   import { createEventDispatcher, tick } from 'svelte';
   import { openInBlueWeb } from '../utils/openInBlueWeb';
   import { normalizeUrl } from './apps/Blue-Web/types';
   import { configStore } from '../utils/configStore';
+  import { listInstalled, onStoreChanged, type Receipt } from '../utils/blueStore';
+  import { openCommunityApp } from '../stores/windowManager';
 
   interface SystemApp { id: string; name: string; comment: string; icon: string; exec: string; categories: string[]; desktop_file: string; is_external: boolean; }
-  interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; cloneId?: string; }
+  interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; cloneId?: string; communityReceipt?: Receipt; }
   type AnyApp = SystemApp | InternalApp;
 
   export let isOpen = false;
@@ -104,6 +107,18 @@
   // is older than a minute — it used to show "Loading…" and re-run the
   // whole fetch on every single open.
   let loadedAt = 0;
+  /** Installed Blue Store apps — real `.blue` packages (see
+   * `windowManager.ts`'s `openCommunityApp` / `CommunityAppHost.svelte`),
+   * listed here exactly like any other launchable app; only their click
+   * handling differs (see `launchApp` below), since they carry no
+   * `AppId`/`APPS` registry entry to resolve a title/size from. */
+  let communityApps: Receipt[] = [];
+  function loadCommunityApps() {
+    listInstalled('app').then((r) => (communityApps = r)).catch(() => {});
+  }
+  loadCommunityApps();
+  onStoreChanged(loadCommunityApps);
+
   function loadApps() {
     const fresh = Date.now() - loadedAt < 60_000;
     if (loadedAt > 0) {
@@ -162,6 +177,18 @@
           categories: ['Other'],
           isInternal: true,
           cloneId: entry.id,
+        })
+      )
+    )
+    .concat(
+      communityApps.map(
+        (r): InternalApp => ({
+          id: `community:${r.kind}:${r.id}`,
+          name: r.name,
+          icon: (r.icon && /^[A-Za-z0-9]+$/.test(r.icon) && (Icons as any)[r.icon]) || Box,
+          categories: [r.category || 'Other'],
+          isInternal: true,
+          communityReceipt: r,
         })
       )
     );
@@ -250,7 +277,15 @@
     // `get_system_apps` and is by construction always a real external
     // command with a non-empty `exec` (apps.rs skips desktop entries with
     // no Exec) — so it must always be launched as a process.
-    if ('isInternal' in app) dispatch('openApp', { appId: app.id, isExternal: false });
+    if ('isInternal' in app) {
+      if (app.communityReceipt) {
+        openCommunityApp(app.communityReceipt);
+        SystemBridge.recordAppLaunch(app.id);
+        dispatch('close');
+        return;
+      }
+      dispatch('openApp', { appId: app.id, isExternal: false });
+    }
     else dispatch('openApp', { appId: app.id, isExternal: true, exec: app.exec });
     SystemBridge.recordAppLaunch(app.id);
     dispatch('close');
