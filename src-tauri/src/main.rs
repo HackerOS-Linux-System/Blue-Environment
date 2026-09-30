@@ -73,6 +73,10 @@ mod blue_downloader_app;
 mod blue_accounts;
 #[path = "BlueVirt/mod.rs"]
 mod blue_virt;
+#[path = "BlueStore/mod.rs"]
+#[allow(non_snake_case)]
+mod BlueStore;
+mod privileged;
 mod themes;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
@@ -150,6 +154,22 @@ fn main() {
         // shell (this is what the generated compositor keybinds call).
         std::process::exit(backend::shell_ipc::run_cli(&cli_args[1..]));
     }
+    // Privileged re-exec targets: the shell launches `blue-environment
+    // --store-priv` / `--installer-priv` as root (via sudo -n / pkexec, see
+    // privileged.rs) to perform the one file-writing/disk-writing step that
+    // actually needs elevation. Running as root never falls through to the
+    // GUI below.
+    if cli_args.first().map(|a| a == "--store-priv").unwrap_or(false) {
+        std::process::exit(BlueStore::run_priv_helper());
+    }
+    if cli_args.first().map(|a| a == "--installer-priv").unwrap_or(false) {
+        std::process::exit(blue_installer_app::run_priv_helper());
+    }
+    // `blue-environment --store install|remove|list|update …` — the `blue
+    // apps/plugins/themes` CLI (non-GUI), see BlueStore::run_cli's doc.
+    if cli_args.first().map(|a| a == "--store").unwrap_or(false) {
+        std::process::exit(BlueStore::run_cli(&cli_args[1..]));
+    }
     if cli_args.iter().any(|a| a == "--backend-info") {
         println!("{}", serde_json::to_string_pretty(&backend::info()).unwrap_or_default());
         return;
@@ -208,6 +228,8 @@ fn main() {
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
         exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
+        BlueStore::store_fetch_index, BlueStore::store_resolve, BlueStore::store_install, BlueStore::store_uninstall,
+        BlueStore::store_list_installed, BlueStore::store_check_updates, BlueStore::store_read_file, BlueStore::store_read_icon,
         get_system_stats, system_monitor_app::get_processes,
         system_monitor_app::get_cpu_metrics,
         system_monitor_app::get_memory_metrics,
