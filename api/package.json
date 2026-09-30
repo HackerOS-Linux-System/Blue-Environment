@@ -1,1 +1,48 @@
-
+{
+  "name": "@blue-environment/api",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for building Blue Store apps, plugins and themes for Blue Environment (blue.hk / .blue packages).",
+  "license": "GPL-3.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "blue-environment",
+    "hackeros",
+    "blue-store",
+    "blue.hk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HackerOS-Linux-System/Blue-Environment.git",
+    "directory": "api"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --target es2020",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch --target es2020",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
