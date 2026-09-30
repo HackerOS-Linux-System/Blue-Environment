@@ -170,6 +170,17 @@ export function stopExternalWindowPolling() {
  * (Start Menu, Desktop icons, taskbar, search) already supports opening
  * a clone with zero changes of their own, as long as whatever calls
  * `openApp` was given `clone:<id>` as the id in the first place.
+ *
+ * `appId` starting with `community:` is a Blue Store app/plugin — see
+ * `openCommunityApp` below, the one intended caller. It bypasses the
+ * static `APPS` registry entirely (there's no compile-time entry for a
+ * package installed at run time): `launchArgs.receipt` carries
+ * everything (title, size, the entry file to load) instead, and
+ * `App.svelte`'s `getAppDef` recognises the `community:` prefix to
+ * render `CommunityAppHost.svelte` for it. This is what makes an
+ * installed community app open as a normal window — same taskbar, same
+ * Alt+Tab, same close/minimize/maximize — instead of anything
+ * iframe/plugin-sandbox-like.
  */
 export async function openApp(appId: string, isExternal = false, exec?: string, launchArgs?: Record<string, unknown>, titleOverride?: string) {
   if (appId.startsWith('clone:')) {
@@ -196,9 +207,9 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
   }
 
   const appDef = APPS[appId as AppId];
-  if (!appDef) return;
+  if (!appDef && !appId.startsWith('community:')) return;
 
-  if (appDef.isExternal) {
+  if (appDef?.isExternal) {
     const execPath = appDef.externalPath ? appDef.externalPath : appId;
     SystemBridge.launchApp(execPath, appId);
     SystemBridge.recordAppLaunch(appId);
@@ -212,14 +223,15 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
   const wins = get(windows);
   const ws = get(currentWorkspace);
   const zIndex = nextZIndex++;
+  const isCommunity = appId.startsWith('community:');
   const newWindow: WindowState = {
     id: `${appId}-${Date.now()}`,
     appId,
-    title: titleOverride ?? appDef.title,
+    title: titleOverride ?? appDef?.title ?? 'App',
     x: 150 + (wins.length % 8) * 30,
     y: 100 + (wins.length % 8) * 30,
-    width: appDef.defaultWidth ?? 800,
-    height: appDef.defaultHeight ?? 600,
+    width: (isCommunity ? (launchArgs?.receipt as any)?.width : undefined) ?? appDef?.defaultWidth ?? 800,
+    height: (isCommunity ? (launchArgs?.receipt as any)?.height : undefined) ?? appDef?.defaultHeight ?? 600,
     isMinimized: false,
     isMaximized: false,
     zIndex,
@@ -230,6 +242,16 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
 
   windows.update((w) => [...w, newWindow]);
   activeWindowId.set(newWindow.id);
+}
+
+/**
+ * Opens an installed Blue Store app/plugin as a normal window. This is the
+ * one intended way to launch a `receipt` from `listInstalled('app' |
+ * 'plugin')` — see `openApp`'s doc for how the `community:` prefix is
+ * threaded through to `App.svelte`.
+ */
+export function openCommunityApp(receipt: { id: string; kind: string; name: string; width?: number; height?: number }) {
+  return openApp(`community:${receipt.kind}:${receipt.id}`, false, undefined, { receipt }, receipt.name);
 }
 
 /**
