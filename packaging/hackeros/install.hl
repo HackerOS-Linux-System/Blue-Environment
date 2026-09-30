@@ -1,1 +1,4 @@
+// curl
 
+^> mkdir -p /usr/share/Blue-Environment
+^> curl -L -o /usr/share/Blue-Environment/blue-environment https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v0.8/blue-environment
