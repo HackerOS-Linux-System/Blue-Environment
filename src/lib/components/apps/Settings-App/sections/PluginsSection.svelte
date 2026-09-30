@@ -24,25 +24,39 @@
    */
   import { onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
-  import { RefreshCw, Store as StoreIcon, Puzzle, ExternalLink, Trash2, Link as LinkIcon, Play as PlayIcon, FlaskConical } from 'lucide-svelte';
+  import { RefreshCw, Store as StoreIcon, Puzzle, ExternalLink, Trash2, Link as LinkIcon, Play as PlayIcon, FlaskConical, AlertTriangle, Check, PackageCheck } from 'lucide-svelte';
   import type { UserConfig } from '../../../../types';
   import { t } from '../../../../stores/language';
   import { BUILTIN_PLUGINS, EXAMPLE_PLUGIN, type PluginManifest, type InstalledPlugin } from '../../../../data/builtinPlugins';
-  import pluginsStoreLocal from '../../../../../../config/stores/plugins-store.json';
   import PluginRuntime from '../../../PluginRuntime.svelte';
+  import {
+    fetchStoreIndex, installPackage, uninstallPackage, listInstalled, storeErrorMessage,
+    type StoreIndexEntry, type Receipt,
+  } from '../../../../utils/blueStore';
 
   export let config: UserConfig;
   export let onSave: (p: Partial<UserConfig>) => Promise<void>;
 
   let runningPlugin: PluginManifest | null = null;
 
-  const STORE_URL_REMOTE = 'https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/stores/plugins-store.json';
-
   let tab: 'installed' | 'store' = 'installed';
-  let storePlugins: PluginManifest[] = [];
+  /**
+   * BUGFIX: this tab used to `fetch(STORE_URL_REMOTE)` from the webview
+   * (blocked by the shell's CSP `connect-src`, so it silently always fell
+   * back to a bundled, empty JSON snapshot) and "Install" only appended a
+   * manifest to config — no file was ever actually downloaded or written
+   * anywhere. Both now go through `blueStore.ts` → Rust, which really
+   * fetches `blue.hk`, downloads + checksums the `.blue` archive, and
+   * installs it into `/usr/share/Blue-Environment/plugins/<id>/`
+   * (elevating via pkexec/sudo as needed).
+   */
+  let storePlugins: StoreIndexEntry[] = [];
+  let storeWarnings: string[] = [];
   let storeLoading = false;
-  let storeError = false;
-  let storeSource: 'remote' | 'local' | null = null;
+  let storeErrorMsg: string | null = null;
+  let storeLoaded = false;
+  let installedStorePlugins: Receipt[] = [];
+  let installing: Record<string, number> = {};
   let addUrlValue = '';
   let addUrlOpen = false;
   let addUrlBusy = false;
@@ -50,7 +64,15 @@
 
   $: installed = config.installedPlugins ?? [];
 
-  onMount(() => { if (tab === 'store') loadStore(); });
+  onMount(() => { if (tab === 'store') loadStore(); refreshInstalledStorePlugins(); });
+
+  async function refreshInstalledStorePlugins() {
+    try {
+      installedStorePlugins = await listInstalled('plugin');
+    } catch {
+      // Non-fatal — the legacy (config-based) list above still works.
+    }
+  }
 
   /** Minimal shape-check on a fetched manifest — not a schema
    * validator, just enough to reject something that clearly isn't a
@@ -121,31 +143,49 @@
 
   async function loadStore() {
     storeLoading = true;
-    storeError = false;
-    storeSource = null;
+    storeErrorMsg = null;
     try {
-      const res = await fetch(STORE_URL_REMOTE, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      storePlugins = data.plugins ?? [];
-      storeSource = 'remote';
-    } catch {
-      storePlugins = (pluginsStoreLocal as any).plugins ?? [];
-      storeSource = 'local';
+      const index = await fetchStoreIndex('plugin');
+      storePlugins = index.entries;
+      storeWarnings = index.warnings;
+    } catch (e) {
+      storeErrorMsg = storeErrorMessage(e);
+      storePlugins = [];
     } finally {
       storeLoading = false;
+      storeLoaded = true;
     }
   }
 
   function selectTab(next: 'installed' | 'store') {
     tab = next;
-    if (next === 'store' && storeSource === null && !storeLoading) loadStore();
+    if (next === 'store' && !storeLoaded && !storeLoading) loadStore();
   }
 
-  async function installFromStore(manifest: PluginManifest) {
-    if (installed.some((p) => p.manifest.id === manifest.id)) return;
-    const entry: InstalledPlugin = { manifest, installedAt: new Date().toISOString(), enabled: true };
-    await onSave({ installedPlugins: [...installed, entry] });
+  function isPluginInstalledFromStore(entry: StoreIndexEntry): Receipt | undefined {
+    return installedStorePlugins.find((r) => r.sourceUrl === entry.downloadUrl);
+  }
+
+  async function installFromStore(entry: StoreIndexEntry) {
+    installing = { ...installing, [entry.downloadUrl]: 0 };
+    try {
+      await installPackage(entry.downloadUrl, 'plugin', (pct) => { installing = { ...installing, [entry.downloadUrl]: pct }; });
+      await refreshInstalledStorePlugins();
+    } catch (e) {
+      storeErrorMsg = `${entry.name}: ${storeErrorMessage(e)}`;
+    } finally {
+      const { [entry.downloadUrl]: _drop, ...rest } = installing;
+      installing = rest;
+    }
+  }
+
+  async function uninstallStorePlugin(receipt: Receipt) {
+    try {
+      await uninstallPackage('plugin', receipt.id);
+      await refreshInstalledStorePlugins();
+    } catch (e) {
+      storeErrorMsg = `${receipt.name}: ${storeErrorMessage(e)}`;
+    }
   }
 
   async function uninstall(id: string) {
@@ -282,11 +322,42 @@
         {/each}
       </div>
     {/if}
+    {#if installedStorePlugins.length > 0}
+      <div class="mt-4">
+        <p class="text-[11px] text-slate-500 mb-2 flex items-center gap-1.5"><PackageCheck size={12} /> From Blue Store (real .blue packages in /usr/share/Blue-Environment/plugins/)</p>
+        <div class="space-y-2">
+          {#each installedStorePlugins as receipt (receipt.id)}
+            <div class="flex items-center gap-3 rounded-lg border border-white/10 bg-slate-800/40 p-3">
+              <div class="w-9 h-9 rounded-lg bg-slate-700/50 flex items-center justify-center shrink-0">
+                <svelte:component this={iconFor(receipt.icon ?? '')} size={16} class="text-slate-300" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-medium text-white truncate">{receipt.name}</span>
+                  <span class="text-[10px] text-slate-500">v{receipt.version}</span>
+                </div>
+                <p class="text-[11px] text-slate-400 truncate">{receipt.description}</p>
+              </div>
+              <button class="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0" on:click={() => uninstallStorePlugin(receipt)} title="Uninstall">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
   {:else}
     <!-- Store tab -->
     {#if storeLoading}
       <div class="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
         <RefreshCw size={14} class="animate-spin" /> Loading plugin store…
+      </div>
+    {:else if storeErrorMsg}
+      <div class="flex flex-col items-center gap-2 py-12 text-center">
+        <AlertTriangle size={28} class="text-amber-400" />
+        <p class="text-sm text-slate-300">Couldn't reach the plugin store</p>
+        <p class="text-xs text-slate-500 max-w-sm">{storeErrorMsg}</p>
+        <button class="mt-1 text-[11px] px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white" on:click={loadStore}>Try again</button>
       </div>
     {:else if storePlugins.length === 0}
       <div class="flex flex-col items-center gap-2 py-12 text-center">
@@ -298,11 +369,12 @@
             see the store source <ExternalLink size={10} />
           </a>.
         </p>
-        {#if storeError}<p class="text-[10px] text-amber-400/80 mt-1">Couldn't reach the store — showing the bundled offline copy instead.</p>{/if}
       </div>
     {:else}
       <div class="space-y-2">
-        {#each storePlugins as plugin (plugin.id)}
+        {#each storePlugins as plugin (plugin.downloadUrl)}
+          {@const installedReceipt = isPluginInstalledFromStore(plugin)}
+          {@const pct = installing[plugin.downloadUrl]}
           <div class="flex items-center gap-3 rounded-lg border border-white/10 bg-slate-800/40 p-3">
             <div class="w-9 h-9 rounded-lg bg-slate-700/50 flex items-center justify-center shrink-0">
               <svelte:component this={iconFor(plugin.icon)} size={16} class="text-slate-300" />
@@ -310,21 +382,30 @@
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-white">{plugin.name}</span>
               <p class="text-[11px] text-slate-400 truncate">{plugin.description}</p>
+              {#if pct !== undefined}
+                <div class="mt-1 h-1 rounded-full bg-slate-700 overflow-hidden w-32"><div class="h-full bg-blue-500 transition-all" style="width: {pct}%"></div></div>
+              {/if}
             </div>
-            <button
-              class="text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors shrink-0
-                {installed.some((p) => p.manifest.id === plugin.id) ? 'bg-slate-700 text-slate-400 cursor-default' : 'bg-blue-500 text-white hover:bg-blue-400'}"
-              disabled={installed.some((p) => p.manifest.id === plugin.id)}
-              on:click={() => installFromStore(plugin)}
-            >
-              {installed.some((p) => p.manifest.id === plugin.id) ? 'Installed' : 'Install'}
-            </button>
+            {#if pct === undefined}
+              {#if installedReceipt}
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-[11px] px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 flex items-center gap-1"><Check size={12} /> Installed</span>
+                  <button class="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors" on:click={() => uninstallStorePlugin(installedReceipt)} title="Uninstall">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              {:else}
+                <button class="text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors shrink-0 bg-blue-500 text-white hover:bg-blue-400" on:click={() => installFromStore(plugin)}>
+                  Install
+                </button>
+              {/if}
+            {/if}
           </div>
         {/each}
       </div>
     {/if}
-    {#if storeSource === 'local'}
-      <p class="text-[10px] text-slate-500 mt-3">Showing the offline bundled copy (couldn't reach GitHub).</p>
+    {#if storeWarnings.length > 0}
+      <p class="text-[10px] text-amber-400/70 mt-3">{storeWarnings.length} entr{storeWarnings.length === 1 ? 'y was' : 'ies were'} skipped (invalid store listing).</p>
     {/if}
   {/if}
 
