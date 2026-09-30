@@ -142,17 +142,58 @@ pub fn list_files(path: String) -> Result<Vec<FileEntry>, String> {
     Ok(entries)
 }
 
+/// BUGFIX (reported: opening/editing files inside a real project folder
+/// "doesn't work"): this used to return a plain `String` and, on any I/O
+/// error, silently returned `format!("Error: {}", e)` AS IF it were the
+/// file's content — so Blue Code (and Notepad) couldn't tell a failure
+/// from a real file, opened the tab anyway, and would happily overwrite
+/// the real file with that literal error text on the next save.
+///
+/// A flat folder of plain `.txt` files never hits this, but a real
+/// project directory almost always contains at least one file this old
+/// code path choked on:
+///   - non-UTF-8 / binary files (images, compiled `.node`/`.so`, lockfile
+///     quirks, `.git/objects/**`) — `read_to_string` errors on these by
+///     design, since they aren't text;
+///   - broken or permission-restricted symlinks, common under
+///     `node_modules/.bin` and pnpm/monorepo layouts;
+///   - files owned by another user / read-only mounts.
+/// Every one of those now surfaces as a REAL error the frontend can
+/// distinguish from content, instead of corrupting the file on save.
+/// Also resolves the `HOME/...`/`~` sentinel like every other command
+/// here (`list_files`, `create_folder`, ...) — `read_text_file` and
+/// `write_text_file` were the only two file commands that skipped
+/// `resolve_path`, so a path built from that sentinel elsewhere (e.g. a
+/// future caller mirroring Explorer's own convention) would have failed
+/// even though the exact same string works for every other command.
 #[tauri::command]
-pub fn read_text_file(path: String) -> String {
-    fs::read_to_string(path).unwrap_or_else(|e| format!("Error: {}", e))
+pub fn read_text_file(path: String) -> Result<String, String> {
+    let target = resolve_path(&path);
+    if !target.exists() {
+        return Err(format!("File not found: {}", target.display()));
+    }
+    if target.is_dir() {
+        return Err(format!("\"{}\" is a folder, not a file", target.display()));
+    }
+    fs::read_to_string(&target).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::InvalidData {
+            format!(
+                "\"{}\" is not a text file (it contains binary data) — Blue Code and Notepad can only open plain text.",
+                target.display()
+            )
+        } else {
+            format!("Could not read \"{}\": {}", target.display(), e)
+        }
+    })
 }
 
 #[tauri::command]
 pub fn write_text_file(path: String, content: String) -> Result<(), String> {
-    if let Some(parent) = PathBuf::from(&path).parent() {
-        fs::create_dir_all(parent).ok();
+    let target = resolve_path(&path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Could not create \"{}\": {}", parent.display(), e))?;
     }
-    fs::write(path, content).map_err(|e| e.to_string())
+    fs::write(&target, content).map_err(|e| format!("Could not save \"{}\": {}", target.display(), e))
 }
 
 #[tauri::command]
