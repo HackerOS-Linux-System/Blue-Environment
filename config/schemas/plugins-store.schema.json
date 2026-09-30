@@ -1,1 +1,28 @@
-
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/schemas/plugins-store.schema.json",
+  "title": "Blue Store plugins index",
+  "description": "Community plugin index consumed by Blue Store (Settings \u2192 Plugins). Every entry's downloadUrl must point at a file literally named blue.hk (see BlueStore::manifest in src-tauri).",
+  "type": "object",
+  "required": ["plugins"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "description": { "type": "string" },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "downloadUrl"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "downloadUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://.*/blue\\.hk$"
+          }
+        }
+      }
+    }
+  }
+}
