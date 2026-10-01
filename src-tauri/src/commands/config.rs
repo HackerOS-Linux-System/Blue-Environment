@@ -7,23 +7,23 @@ use std::path::PathBuf;
 use std::process::Command;
 use tokio::process::Command as TokioCommand;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_config(config: String) {
     let parsed: cache::UserConfig = serde_json::from_str(&config).unwrap_or_default();
     cache::save_user_config(&parsed);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_config() -> String {
     cache::load_user_config()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_window_state(windows: Vec<cache::WindowCache>) {
     cache::save_window_state(&windows);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_window_state() -> Vec<cache::WindowCache> {
     cache::load_window_state()
 }
@@ -37,12 +37,12 @@ pub async fn execute_command(command: String) -> Result<CommandOutput, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_clipboard_history() -> Vec<ClipboardItem> {
     fs::read_to_string(clipboard_history_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_to_clipboard_history(content: String) {
     let mut history: Vec<ClipboardItem> = get_clipboard_history();
     // Both the frontend poller and the labwc system-wide watcher
@@ -62,12 +62,12 @@ pub fn add_to_clipboard_history(content: String) {
     let _ = fs::write(clipboard_history_path(), serde_json::to_string(&history).unwrap());
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_clipboard_history() {
     let _ = fs::write(clipboard_history_path(), "[]");
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_night_light_enabled(enabled: bool) -> Result<(), String> {
     match session::detect_session() {
         session::SessionType::WaylandClient => {
@@ -84,7 +84,7 @@ pub fn set_night_light_enabled(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_night_light_temperature(temperature: u32) -> Result<(), String> {
     let factor = temperature as f32 / 6500.0;
     let gamma = format!("{:.2}:{:.2}:{:.2}", 1.0f32, factor * 0.8, factor * 0.6);
@@ -96,23 +96,23 @@ pub fn set_night_light_temperature(temperature: u32) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_notification_history() -> Vec<Notification> {
     fs::read_to_string(notifications_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_notification_history(notifications: Vec<Notification>) {
     let _ = fs::write(notifications_path(), serde_json::to_string(&notifications).unwrap());
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_custom_themes() -> Vec<cache::ThemeDefinition> {
     let path = dirs::home_dir().unwrap_or(PathBuf::from("/tmp")).join(".config/Blue-Environment/themes.json");
     fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_custom_theme(theme: cache::ThemeDefinition) {
     let mut themes = get_custom_themes();
     themes.retain(|t| t.id != theme.id);
@@ -121,7 +121,7 @@ pub fn save_custom_theme(theme: cache::ThemeDefinition) {
     let _ = fs::write(path, serde_json::to_string_pretty(&themes).unwrap());
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_custom_theme(theme_id: String) {
     let mut themes = get_custom_themes();
     themes.retain(|t| t.id != theme_id);
