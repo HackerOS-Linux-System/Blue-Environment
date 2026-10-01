@@ -153,7 +153,7 @@ fn sh_ok(cmd: &str) -> bool {
 // Display commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_displays() -> Vec<DisplayInfo> {
     // Try wlr-randr first (Wayland), fall back to xrandr (X11)
     let output = sh("wlr-randr 2>/dev/null || xrandr 2>/dev/null").unwrap_or_default();
@@ -255,7 +255,7 @@ fn parse_xrandr_mode(line: &str) -> Option<DisplayMode> {
     Some(DisplayMode { width: w, height: h, refresh_rate: rr, current, preferred })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_brightness(value: u8) -> SettingsResult {
     // Try brightnessctl, fall back to /sys/class/backlight/*
     let pct = value.min(100);
@@ -274,7 +274,7 @@ pub fn settings_set_brightness(value: u8) -> SettingsResult {
     SettingsResult::err("No backlight control found — install brightnessctl")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_brightness() -> u8 {
     // brightnessctl
     if let Ok(out) = sh("brightnessctl -m 2>/dev/null | cut -d, -f4 | tr -d '%'") {
@@ -292,7 +292,7 @@ pub fn settings_get_brightness() -> u8 {
     100
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_display_scale(output: String, scale: f64) -> SettingsResult {
     // `output` arrives as a Tauri command argument straight from the
     // frontend, so it must go through the same `shell_escape()` used
@@ -311,7 +311,7 @@ pub fn settings_set_display_scale(output: String, scale: f64) -> SettingsResult 
     SettingsResult::err("Failed to set display scale")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_resolution(output: String, width: u32, height: u32, refresh: f64) -> SettingsResult {
     // See settings_set_display_scale above: `output` is untrusted input
     // and must be shell-escaped before use in a `sh -c` string.
@@ -335,7 +335,7 @@ pub fn settings_set_resolution(output: String, width: u32, height: u32, refresh:
 // Wi-Fi commands (nmcli)
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_wifi_networks() -> Vec<WifiNetwork> {
     let mut nets: Vec<WifiNetwork> = Vec::new();
 
@@ -385,7 +385,7 @@ pub fn settings_get_wifi_networks() -> Vec<WifiNetwork> {
     nets
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_wifi_connect(ssid: String, password: Option<String>) -> SettingsResult {
     let cmd = if let Some(pw) = password {
         format!("nmcli device wifi connect {} password {} 2>&1", 
@@ -400,7 +400,7 @@ pub fn settings_wifi_connect(ssid: String, password: Option<String>) -> Settings
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_wifi_disconnect(ssid: String) -> SettingsResult {
     match sh(&format!("nmcli connection down {} 2>&1", shell_escape(&ssid))) {
         Ok(_) => SettingsResult::ok(),
@@ -408,13 +408,13 @@ pub fn settings_wifi_disconnect(ssid: String) -> SettingsResult {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_wifi_scan() -> SettingsResult {
     sh_ok("nmcli device wifi rescan 2>/dev/null");
     SettingsResult::ok()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_wifi_toggle(enabled: bool) -> SettingsResult {
     let state = if enabled { "on" } else { "off" };
     match sh(&format!("nmcli radio wifi {} 2>&1", state)) {
@@ -427,7 +427,7 @@ pub fn settings_wifi_toggle(enabled: bool) -> SettingsResult {
 // Bluetooth commands (bluetoothctl)
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_bluetooth_devices() -> Vec<BluetoothDevice> {
     let mut devices: Vec<BluetoothDevice> = Vec::new();
 
@@ -484,7 +484,7 @@ fn detect_bt_type(info: &str) -> String {
     "Unknown".into()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_pair(address: String) -> SettingsResult {
     let cmd = format!(
         "bluetoothctl pair {} && bluetoothctl trust {} && bluetoothctl connect {} 2>&1",
@@ -496,7 +496,7 @@ pub fn settings_bluetooth_pair(address: String) -> SettingsResult {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_connect(address: String) -> SettingsResult {
     match sh(&format!("bluetoothctl connect {} 2>&1", address)) {
         Ok(out) if out.contains("Connection successful") => SettingsResult::ok(),
@@ -505,7 +505,7 @@ pub fn settings_bluetooth_connect(address: String) -> SettingsResult {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_disconnect(address: String) -> SettingsResult {
     match sh(&format!("bluetoothctl disconnect {} 2>&1", address)) {
         Ok(_) => SettingsResult::ok(),
@@ -513,7 +513,7 @@ pub fn settings_bluetooth_disconnect(address: String) -> SettingsResult {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_remove(address: String) -> SettingsResult {
     match sh(&format!("bluetoothctl remove {} 2>&1", address)) {
         Ok(_) => SettingsResult::ok(),
@@ -521,14 +521,14 @@ pub fn settings_bluetooth_remove(address: String) -> SettingsResult {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_scan(enable: bool) -> SettingsResult {
     let action = if enable { "scan on" } else { "scan off" };
     sh_ok(&format!("bluetoothctl {} &", action));
     SettingsResult::ok()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_bluetooth_toggle(enabled: bool) -> SettingsResult {
     let state = if enabled { "power on" } else { "power off" };
     match sh(&format!("bluetoothctl {} 2>&1", state)) {
@@ -559,7 +559,7 @@ pub async fn settings_bluetooth_get_powered() -> Result<bool, String> {
 // Power / battery commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_battery() -> BatteryInfo {
     // Try /sys/class/power_supply/BAT*
     let bat = sh("ls /sys/class/power_supply/ 2>/dev/null | grep -i 'bat\\|acpi' | head -1")
@@ -624,7 +624,7 @@ fn estimate_battery_time(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_power_profiles() -> Vec<PowerProfile> {
     let active = sh("powerprofilesctl get 2>/dev/null")
         .unwrap_or_else(|_| "balanced".into());
@@ -649,7 +649,7 @@ pub fn settings_get_power_profiles() -> Vec<PowerProfile> {
     ]
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_power_profile(profile: String) -> SettingsResult {
     // `profile` is an untrusted Tauri command argument; shell-escape it
     // before it reaches `sh -c`, same as the rest of this file's audit.
@@ -672,14 +672,14 @@ pub fn settings_set_power_profile(profile: String) -> SettingsResult {
 // User accounts
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_current_user() -> UserAccount {
     let username = sh("whoami").unwrap_or_else(|_| "unknown".into());
     let username = username.trim().to_string();
     get_user_info(&username)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_users() -> Vec<UserAccount> {
     let output = sh("getent passwd 2>/dev/null").unwrap_or_default();
     output.lines()
@@ -750,7 +750,7 @@ fn find_avatar(username: &str, home: &str) -> Option<String> {
     candidates.into_iter().find(|p| std::path::Path::new(p).exists())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_change_password(current: String, new_password: String) -> SettingsResult {
     // Use chpasswd via stdin - safer than passing on command line
     // NOTE: current-password verification happens via `passwd`'s own
@@ -784,7 +784,7 @@ pub fn settings_change_password(current: String, new_password: String) -> Settin
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_avatar(path: String) -> SettingsResult {
     let username = sh("whoami").unwrap_or_default();
     let username = username.trim();
@@ -807,7 +807,7 @@ pub fn settings_set_avatar(path: String) -> SettingsResult {
 // System info
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_system_info() -> SystemInfo {
     let hostname    = sh("hostname 2>/dev/null").unwrap_or_else(|_| "localhost".into());
     let os_name     = sh("lsb_release -si 2>/dev/null || cat /etc/os-release | grep ^NAME= | cut -d= -f2 | tr -d '\"'").unwrap_or_else(|_| "Linux".into());
@@ -867,7 +867,7 @@ fn parse_meminfo_kb(meminfo: &str, key: &str) -> u64 {
 // Night Light (wlsunset / redshift)
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_night_light() -> NightLightConfig {
     // Check if wlsunset or redshift is running
     let wlsunset_running = sh_ok("pgrep -x wlsunset");
@@ -897,7 +897,7 @@ fn night_light_config_path() -> std::path::PathBuf {
     base.join("blue-environment").join("night-light.json")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_night_light(config: NightLightConfig) -> SettingsResult {
     // Save config — plain std::fs, not `sh("echo '...' > path")`
     // (line previously did its own manual `'` escaping before this
@@ -945,7 +945,7 @@ pub fn settings_set_night_light(config: NightLightConfig) -> SettingsResult {
 // Panel config (saved to config file, read by shell)
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_panel_config() -> PanelConfig {
     let data = std::fs::read_to_string(panel_config_path()).unwrap_or_default();
     let v: serde_json::Value = serde_json::from_str(&data).unwrap_or_default();
@@ -967,7 +967,7 @@ fn panel_config_path() -> std::path::PathBuf {
     base.join("blue-environment").join("panel.json")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_save_panel_config(config: PanelConfig) -> SettingsResult {
     let path = panel_config_path();
     if let Some(dir) = path.parent() {
@@ -992,7 +992,7 @@ pub struct CompositorCommand {
     pub payload: serde_json::Value,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult {
     // labwc backend: there is no HackerOS-Comp socket — translate the same
     // command set into native labwc actions (see `backend::labwc_command`).
@@ -1054,7 +1054,7 @@ pub fn settings_send_to_compositor(command: CompositorCommand) -> SettingsResult
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_workspace_count(count: usize) -> SettingsResult {
     settings_send_to_compositor(CompositorCommand {
         cmd_type: "set_workspace_count".into(),
@@ -1062,7 +1062,7 @@ pub fn settings_set_workspace_count(count: usize) -> SettingsResult {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set_dpms_timeout(seconds: u64) -> SettingsResult {
     settings_send_to_compositor(CompositorCommand {
         cmd_type: "set_dpms_timeout".into(),
@@ -1074,7 +1074,7 @@ pub fn settings_set_dpms_timeout(seconds: u64) -> SettingsResult {
 // Wallpaper
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get_wallpapers(directory: Option<String>) -> Vec<String> {
     // `directory`, when provided, is an untrusted Tauri command
     // argument straight from the frontend — it must be shell-escaped
