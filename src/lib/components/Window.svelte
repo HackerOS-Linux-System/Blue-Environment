@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appHealth } from '../stores/appHealth';
   import type { WindowState } from '../types';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import WindowControls from './WindowControls.svelte';
@@ -185,6 +186,7 @@
   >
     <div
       class="h-9 flex items-center justify-between px-3 select-none shrink-0 theme-bg-secondary theme-border border-b {win.isMaximized ? '' : 'cursor-default'}"
+      data-window-id={win.id} data-window-titlebar
       on:mousedown={handleTitleMouseDown}
       on:dblclick={() => dispatch('maximize', win.id)}
     >
@@ -213,6 +215,21 @@
 
     <div class="app-content-area flex-1 overflow-auto relative theme-bg-primary theme-text-primary select-text cursor-auto">
       <slot />
+
+      {#if $appHealth[win.id]}
+        <!-- KDE-style "not responding" — only this window, the rest of the shell stays usable. -->
+        <div class="absolute inset-0 z-30 bg-black/55 backdrop-blur-[1px] flex items-center justify-center" role="alertdialog" aria-live="assertive">
+          <div class="bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5 max-w-sm text-center">
+            <div class="mx-auto mb-3 w-8 h-8 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+            <div class="font-medium text-slate-100 mb-1">“{win.title}” is not responding</div>
+            <div class="text-xs text-slate-400 mb-4">Still waiting for <span class="font-mono">{$appHealth[win.id].label}</span>. You can keep waiting, or close the application.</div>
+            <div class="flex gap-2 justify-center">
+              <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm" on:click={() => appHealth.update((h) => { const n = { ...h }; delete n[win.id]; return n; })}>Wait</button>
+              <button class="px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-sm" on:click={() => dispatch('close', win.id)}>Close application</button>
+            </div>
+          </div>
+        </div>
+      {/if}
     </div>
 
     {#if !win.isMaximized}
