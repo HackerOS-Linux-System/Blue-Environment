@@ -271,6 +271,34 @@ pub async fn store_fetch_index(kind: String) -> Result<net::IndexResult, StoreEr
     net::fetch_index(parse_kind(&kind)?).await
 }
 
+/// Fetches a store entry's icon/preview and returns it as a `data:` URL.
+/// The webview's CSP (deliberately) does not allow remote `https:` images, so
+/// the card grid can't just use `<img src="https://…">`. https only, images
+/// only (png/jpeg/webp/gif/svg), ≤ 1.5 MB, short timeout.
+#[tauri::command]
+pub async fn store_fetch_image(url: String) -> Result<String, String> {
+    use base64::Engine;
+    let parsed = reqwest::Url::parse(&url).map_err(|e| e.to_string())?;
+    if parsed.scheme() != "https" { return Err("only https images are allowed".to_string()); }
+    // raw.githubusercontent.com serves the file; github.com/…/blob/… pages are HTML.
+    let fixed = if parsed.host_str() == Some("github.com") && url.contains("/blob/") {
+        url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
+    } else { url.clone() };
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().map_err(|e| e.to_string())?;
+    let resp = client.get(&fixed).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() { return Err(format!("HTTP {}", resp.status())); }
+    let mime = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("").trim().to_lowercase();
+    let mime = if mime.starts_with("image/") { mime } else {
+        let l = fixed.to_lowercase();
+        if l.ends_with(".png") { "image/png".into() } else if l.ends_with(".jpg") || l.ends_with(".jpeg") { "image/jpeg".into() }
+        else if l.ends_with(".webp") { "image/webp".into() } else if l.ends_with(".svg") { "image/svg+xml".into() }
+        else if l.ends_with(".gif") { "image/gif".into() } else { return Err("not an image".to_string()); }
+    };
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.len() > 1_500_000 { return Err("image too large".to_string()); }
+    Ok(format!("data:{};base64,{}", mime, base64::engine::general_purpose::STANDARD.encode(&bytes)))
+}
+
 #[tauri::command]
 pub async fn store_resolve(url: String) -> Result<ResolvedPackage, StoreError> {
     resolve(&url).await
@@ -299,7 +327,7 @@ pub async fn store_uninstall(app: tauri::AppHandle, kind: String, id: String) ->
     result
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn store_list_installed(kind: String) -> Result<Vec<Receipt>, StoreError> {
     Ok(install::list_installed(parse_kind(&kind)?))
 }
@@ -310,14 +338,14 @@ pub async fn store_check_updates(kind: String) -> Result<Vec<UpdateInfo>, StoreE
 }
 
 /// UTF-8 text of a file inside an installed package (app entry bundle, style).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn store_read_file(kind: String, id: String, path: String) -> Result<String, StoreError> {
     let bytes = install::read_installed_file(parse_kind(&kind)?, &id, &path)?;
     String::from_utf8(bytes).map_err(|_| StoreError::new("bad_encoding", "The file is not valid UTF-8 text"))
 }
 
 /// An installed package's icon file as a `data:` URL (png / svg / jpg / webp).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn store_read_icon(kind: String, id: String, path: String) -> Result<String, StoreError> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
     let mime = match path.rsplit('.').next().map(|e| e.to_ascii_lowercase()).as_deref() {
