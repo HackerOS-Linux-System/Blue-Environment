@@ -28,12 +28,12 @@ fn write_session(session: &MatrixSession) -> Result<(), String> {
     fs::write(session_path(), serde_json::to_string_pretty(session).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn matrix_has_session() -> bool {
     read_session().is_some()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn matrix_logout() -> Result<(), String> {
     let path = session_path();
     if path.exists() {
