@@ -137,7 +137,7 @@ fn save_stored_accounts(accounts: &[StoredMailAccount]) -> bool {
 
 /// Returns stored mail accounts. Passwords are never included — see
 /// [`StoredMailAccount::to_wire_redacted`].
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_get_accounts() -> Vec<MailAccount> {
     load_stored_accounts().iter().map(StoredMailAccount::to_wire_redacted).collect()
 }
@@ -145,7 +145,7 @@ pub fn mail_get_accounts() -> Vec<MailAccount> {
 /// Saves an account (overwrites by id if it already exists). The
 /// plaintext password from the frontend is encrypted before it ever
 /// touches disk.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_save_account(account: MailAccount) -> bool {
     let mail_dir = config_dir();
     let mut accounts = load_stored_accounts();
@@ -169,7 +169,7 @@ pub fn mail_save_account(account: MailAccount) -> bool {
 }
 
 /// Deletes an account by id.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_delete_account(account_id: String) -> bool {
     let mut accounts = load_stored_accounts();
     let before = accounts.len();
@@ -181,7 +181,7 @@ pub fn mail_delete_account(account_id: String) -> bool {
 /// Fetches recent messages from an IMAP mailbox using curl.
 /// Returns an empty list (not an error) when curl or credentials are unavailable
 /// so the frontend stays in its graceful demo-data mode.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_fetch_inbox(account_id: String, folder: Option<String>, limit: Option<u32>) -> Vec<RemoteEmail> {
     let mail_dir = config_dir();
     let accounts = load_stored_accounts();
@@ -210,7 +210,7 @@ pub fn mail_fetch_inbox(account_id: String, folder: Option<String>, limit: Optio
 /// inbox) because message bodies can be large and the inbox list view
 /// only needs headers — this is called on-demand when the user actually
 /// opens a message.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_fetch_body(account_id: String, folder: Option<String>, uid: String) -> String {
     let mail_dir = config_dir();
     let accounts = load_stored_accounts();
@@ -332,7 +332,7 @@ fn parse_imap_fetch_response(raw: &str) -> Vec<RemoteEmail> {
 
 /// Sends an email via msmtp (a lightweight, widely-available SMTP client).
 /// Falls back to curl --smtp if msmtp is not installed.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_send(
     account_id: String,
     to: String,
@@ -432,7 +432,7 @@ fn which_exists(cmd: &str) -> bool {
 }
 
 /// Marks a message as read/unread via IMAP STORE.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_mark_read(account_id: String, uid: String, read: bool) -> bool {
     let mail_dir = config_dir();
     let accounts = load_stored_accounts();
@@ -447,7 +447,7 @@ pub fn mail_mark_read(account_id: String, uid: String, read: bool) -> bool {
 }
 
 /// Moves a message to a different IMAP folder using COPY + STORE \\Deleted + EXPUNGE.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mail_move_message(account_id: String, uid: String, dest_folder: String) -> bool {
     let mail_dir = config_dir();
     let accounts = load_stored_accounts();
