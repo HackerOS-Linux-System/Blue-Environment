@@ -24,42 +24,73 @@ export function createPackages() {
   SystemBridge.invokeCommand<string>('get_detected_backend').then((b) => backend.set(b as PkgBackend)).catch(() => {});
   SystemBridge.invokeCommand<BootcStatus | null>('get_bootc_status').then((s) => bootcStatus.set(s)).catch(() => {});
 
-  // Backend calls are now bounded on the Rust side (see
-  // src-tauri/src/packages.rs::run_timeout — the actual fix for the bug
-  // where this spun forever, caused by unbounded `dnf`/`flatpak`/`zypper`
-  // shell-outs hanging when repos were unreachable). This frontend-side
-  // race is a second, independent safety net: even an unforeseen future
-  // hang can't freeze the UI past this — the user gets an actionable
-  // error instead of an infinite spinner.
-  const FRONTEND_LOAD_TIMEOUT_MS = 40_000;
+  // Loading is now PROGRESSIVE. The old version awaited native + flatpak +
+  // appimage together (Promise.all) and painted nothing until the slowest
+  // one finished — and the native query also did network work (update
+  // checks, "Available" repoquery) and per-package icon lookups, so on a
+  // real system the spinner could run for minutes or hit the timeout with
+  // an empty list. Now:
+  //   1. `get_installed_packages_fast` (local DB only) paints the
+  //      Installed list right away;
+  //   2. the full native query (updates + Available suggestions), Flatpak
+  //      and AppImage each merge in as soon as THEY finish, each with its
+  //      own timeout, so one hung source never blocks the others.
+  const SOURCE_TIMEOUT_MS = 45_000;
+  const refreshing = writable(false);
 
-  async function loadPackages() {
-    loading.set(true);
-    error.set(null);
-    let timedOut = false;
-    const timeoutGuard = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        timedOut = true;
-        reject(new Error('Package list took too long to load. This usually means a package repository is unreachable — check your network connection and try refreshing.'));
-      }, FRONTEND_LOAD_TIMEOUT_MS);
+  function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} timed out`)), SOURCE_TIMEOUT_MS);
+      p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
     });
+  }
 
+  // Replace every package of `source`-group with fresh data, keep the rest.
+  function mergeGroup(group: 'native' | 'flatpak' | 'appimage', incoming: PackageInfo[]) {
+    const inGroup = (p: PackageInfo) =>
+      group === 'flatpak' ? p.source === 'flatpak' : group === 'appimage' ? p.source === 'appimage' : !['flatpak', 'appimage'].includes(p.source);
+    packages.update((prev) => [...prev.filter((p) => !inGroup(p)), ...incoming]);
+  }
+
+  let loadSeq = 0;
+  async function loadPackages() {
+    const seq = ++loadSeq;
+    loading.set(true);
+    refreshing.set(true);
+    error.set(null);
+    const failures: string[] = [];
+
+    // 1. Fast local list → UI is usable immediately.
     try {
-      const [native, flatpak, appimage] = await Promise.race([
-        Promise.all([
-          SystemBridge.invokeCommand<PackageInfo[]>('get_native_packages').catch((): PackageInfo[] => []),
-          SystemBridge.getFlatpakPackages().catch((): PackageInfo[] => []),
-          SystemBridge.getAppImagePackages().catch((): PackageInfo[] => []),
-        ]),
-        timeoutGuard,
-      ]);
-      packages.set([...native, ...flatpak, ...appimage]);
+      const fast = await withTimeout(SystemBridge.invokeCommand<PackageInfo[]>('get_installed_packages_fast'), 'Installed packages');
+      if (seq === loadSeq && fast?.length) mergeGroup('native', fast);
     } catch (e: any) {
-      if (!timedOut) error.set(e?.message ?? String(e));
-      else error.set(e.message);
-    } finally {
-      loading.set(false);
+      failures.push(e?.message ?? String(e));
     }
+    if (seq === loadSeq) loading.set(false);
+
+    // 2. Slower sources, all in parallel, each merged when it completes.
+    const tasks: Promise<void>[] = [
+      withTimeout(SystemBridge.invokeCommand<PackageInfo[]>('get_native_packages'), 'System packages')
+        .then((r) => { if (seq === loadSeq && r?.length) mergeGroup('native', r); })
+        .catch((e) => { failures.push(e?.message ?? String(e)); }),
+      withTimeout(SystemBridge.getFlatpakPackages(), 'Flatpak')
+        .then((r) => { if (seq === loadSeq) mergeGroup('flatpak', r ?? []); })
+        .catch((e) => { failures.push(e?.message ?? String(e)); }),
+      withTimeout(SystemBridge.getAppImagePackages(), 'AppImage')
+        .then((r) => { if (seq === loadSeq) mergeGroup('appimage', r ?? []); })
+        .catch((e) => { failures.push(e?.message ?? String(e)); }),
+    ];
+    await Promise.all(tasks);
+
+    if (seq !== loadSeq) return;
+    if (failures.length && get(packages).length === 0) {
+      error.set(`Could not load packages: ${failures.join('; ')}. Check your network connection and package manager, then refresh.`);
+    } else if (failures.length) {
+      error.set(`Some sources did not respond (${failures.join('; ')}). Showing what was loaded.`);
+    }
+    loading.set(false);
+    refreshing.set(false);
   }
 
   function addLog(line: string) {
@@ -116,7 +147,7 @@ export function createPackages() {
   }
 
   return {
-    packages, loading, error, activeAction, installLog, backend, bootcStatus,
+    packages, loading, refreshing, error, activeAction, installLog, backend, bootcStatus,
     loadPackages, performAction, bootcUpgrade,
     closeLog: () => installLog.set(null),
   };
