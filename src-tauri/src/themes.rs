@@ -66,7 +66,7 @@ fn themes_root() -> PathBuf {
 /// missing either is skipped with a `tracing::warn!` rather than
 /// aborting the whole scan — one broken/incomplete theme package
 /// shouldn't hide every other installed theme from the picker.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_system_themes() -> Vec<SystemTheme> {
     let root = themes_root();
     let Ok(entries) = fs::read_dir(&root) else {
@@ -92,7 +92,7 @@ pub fn list_system_themes() -> Vec<SystemTheme> {
 /// Loads one specific theme package by directory name — used to
 /// re-read a single theme (e.g. after `ThemesSection.svelte` asks to
 /// apply one) without re-scanning the whole directory.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_system_theme(id: String) -> Result<SystemTheme, String> {
     let path = themes_root().join(&id);
     load_theme_package(&path, &id)
