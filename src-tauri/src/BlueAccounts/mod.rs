@@ -3,52 +3,52 @@ pub mod vault;
 
 use vault::VaultEntry;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_vault_exists() -> bool {
     vault::vault_exists()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_is_unlocked() -> bool {
     vault::is_unlocked()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_create_vault(master_password: String) -> Result<(), String> {
     vault::create_vault(&master_password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_unlock(master_password: String) -> Result<usize, String> {
     vault::unlock(&master_password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_lock() {
     vault::lock();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_list_entries() -> Result<Vec<VaultEntry>, String> {
     vault::list_entries().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_add_entry(entry: VaultEntry, master_password: String) -> Result<(), String> {
     vault::add_entry(entry, &master_password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_update_entry(entry: VaultEntry, master_password: String) -> Result<(), String> {
     vault::update_entry(entry, &master_password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_delete_entry(id: String, master_password: String) -> Result<(), String> {
     vault::delete_entry(&id, &master_password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_change_master_password(new_password: String) -> Result<(), String> {
     vault::change_master_password(&new_password).map_err(|e| e.to_string())
 }
@@ -59,7 +59,7 @@ pub fn accounts_change_master_password(new_password: String) -> Result<(), Strin
 /// `rand::thread_rng()`'s weaker-but-faster PRNG, since a generated
 /// password is exactly the kind of output where "weaker but faster"
 /// isn't an acceptable tradeoff.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_generate_password(length: usize, use_symbols: bool, use_digits: bool, use_uppercase: bool) -> String {
     use rand::RngCore;
 
