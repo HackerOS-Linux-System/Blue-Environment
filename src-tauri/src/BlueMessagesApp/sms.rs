@@ -95,7 +95,7 @@ pub async fn poll_incoming(existing_texts: &[String]) -> Result<Vec<(String, Str
 /// Adds `phone_number` as a local conversation with `channel: Sms`,
 /// routed through a locally-attached modem via ModemManager (this
 /// module's original path — see [`send_sms`]/[`poll_incoming`]).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sms_add_contact(phone_number: String, name: String) -> Result<super::Conversation, String> {
     super::create_conversation_internal(name, phone_number, super::Channel::Sms)
 }
@@ -104,7 +104,7 @@ pub fn sms_add_contact(phone_number: String, name: String) -> Result<super::Conv
 /// routed through a paired phone via Blue Connect rather than a local
 /// modem (see [`send_sms_via_phone`]/[`poll_incoming_via_phone`] and
 /// this module's doc for what that protocol does and doesn't cover).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sms_add_phone_contact(device_id: String, phone_number: String, name: String) -> Result<super::Conversation, String> {
     super::create_conversation_with_device(name, phone_number, super::Channel::Sms, Some(device_id))
 }
@@ -112,7 +112,7 @@ pub fn sms_add_phone_contact(device_id: String, phone_number: String, name: Stri
 /// Lists currently paired Blue Connect devices, for the frontend's
 /// "send SMS through..." picker when creating a new phone-relayed SMS
 /// conversation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sms_list_paired_phones() -> Vec<crate::blue_connect::PairedDeviceHandlePublic> {
     crate::blue_connect::list_paired_devices()
         .into_iter()
