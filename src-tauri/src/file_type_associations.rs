@@ -124,12 +124,12 @@ fn validate(assoc: &FileTypeAssociation) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_type_get_associations() -> Vec<FileTypeAssociation> {
     load_raw()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_type_get_allowed_icons() -> Vec<String> {
     ALLOWED_ICONS.iter().map(|s| s.to_string()).collect()
 }
@@ -137,7 +137,7 @@ pub fn file_type_get_allowed_icons() -> Vec<String> {
 /// Adds or updates (matched by `id`) one association. Returns an error
 /// message on validation failure so the Settings UI can show exactly
 /// what's wrong, rather than a bare boolean.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_type_upsert_association(assoc: FileTypeAssociation) -> Result<Vec<FileTypeAssociation>, String> {
     validate(&assoc)?;
     let mut list = load_raw();
@@ -152,7 +152,7 @@ pub fn file_type_upsert_association(assoc: FileTypeAssociation) -> Result<Vec<Fi
     Ok(list)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_type_remove_association(id: String) -> Vec<FileTypeAssociation> {
     let mut list = load_raw();
     list.retain(|a| a.id != id);
@@ -166,7 +166,7 @@ pub fn file_type_remove_association(id: String) -> Vec<FileTypeAssociation> {
 /// how a real desktop's MIME-matching (most-specific-wins) behaves,
 /// so an association targeting one exact MIME type isn't shadowed by a
 /// broader wildcard one a user added earlier.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn file_type_resolve(filename: String, mime_type: String) -> Option<FileTypeAssociation> {
     let list = load_raw();
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
