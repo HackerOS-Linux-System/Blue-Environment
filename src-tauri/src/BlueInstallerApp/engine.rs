@@ -101,11 +101,17 @@ fn validate_target(cfg: &InstallConfig) -> InstallResult<()> {
     if !path.exists() {
         return Err(InstallError::new("disk_not_found", format!("Disk \"{}\" does not exist", cfg.disk)));
     }
-    let mounts = fs::read_to_string("/proc/mounts").unwrap_or_default();
-    if mounts.lines().any(|l| l.split_whitespace().next().map(|d| d.starts_with(cfg.disk.as_str())).unwrap_or(false)) {
-        return Err(InstallError::new("disk_busy", format!("\"{}\" (or a partition on it) is currently mounted", cfg.disk))
-            .hint("Unmount it first, or pick a different disk."));
+    // A partition (e.g. /dev/sdb1) is never a valid install target — only whole disks.
+    let name = cfg.disk.rsplit('/').next().unwrap_or("");
+    if Path::new(&format!("/sys/class/block/{name}/partition")).exists() {
+        return Err(InstallError::new("not_a_disk", format!("\"{}\" is a partition, not a whole disk", cfg.disk))
+            .hint("Pick the whole disk (for example /dev/sdb, not /dev/sdb1)."));
     }
+    // NOTE: a mounted target disk is no longer an error here. Desktop
+    // auto-mounters (udisks etc.) routinely mount every partition of a
+    // plugged-in disk, and asking the person to unmount things by hand is
+    // not acceptable for an installer — `release_disk` below does it for
+    // them. It only refuses when the disk is the live boot medium itself.
     if cfg.username.trim().is_empty() {
         return Err(InstallError::new("bad_config", "Username is empty"));
     }
@@ -130,6 +136,228 @@ fn part_device(disk: &str, n: u32) -> String {
     } else {
         format!("{disk}{n}")
     }
+}
+
+// ── Releasing the target disk ─────────────────────────────────────────────
+//
+// Previously the installer simply failed with
+//   "/dev/sdb" (or a partition on it) is currently mounted
+//   Unmount it first, or pick a different disk.
+// whenever any partition of the chosen disk was mounted — which happens
+// all the time (the desktop auto-mounts USB/SATA disks, a previous failed
+// install may have left /mnt/blue-install mounted, swap may be active).
+// Now the installer unmounts/deactivates everything itself and only
+// refuses for the one case that truly cannot work: the disk we are
+// running the live system from.
+
+/// True when `dev` is `disk` itself or one of its partitions
+/// (`/dev/sdb` → `/dev/sdb1`; `/dev/nvme0n1` → `/dev/nvme0n1p2`).
+/// A plain prefix match is wrong: `/dev/sda` is a prefix of `/dev/sdaa`,
+/// and `/dev/nvme0n1` of `/dev/nvme0n10`.
+fn is_on_disk(dev: &str, disk: &str) -> bool {
+    if dev == disk {
+        return true;
+    }
+    let Some(rest) = dev.strip_prefix(disk) else { return false };
+    let disk_ends_with_digit = disk.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false);
+    let digits = if disk_ends_with_digit { rest.strip_prefix('p') } else { Some(rest.strip_prefix('p').unwrap_or(rest)) };
+    matches!(digits, Some(d) if !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// `/proc/mounts` escapes space, tab, newline and backslash as octal (`\040`).
+fn unescape_mount_field(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\' && i + 3 < b.len() && b[i + 1..i + 4].iter().all(|c| (b'0'..=b'7').contains(c)) {
+            let v = (b[i + 1] - b'0') * 64 + (b[i + 2] - b'0') * 8 + (b[i + 3] - b'0');
+            out.push(v);
+            i += 4;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// Parses `/proc/mounts` content into `(device, mountpoint)` pairs. Device
+/// paths that are symlinks (`/dev/disk/by-uuid/…`, `/dev/mapper/…`) are
+/// resolved so they can be compared against `/dev/sdXN`.
+fn parse_mounts(content: &str) -> Vec<(String, String)> {
+    content
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let dev = unescape_mount_field(it.next()?);
+            let mp = unescape_mount_field(it.next()?);
+            let dev = if dev.starts_with("/dev/") {
+                fs::canonicalize(&dev).map(|p| p.to_string_lossy().to_string()).unwrap_or(dev)
+            } else {
+                dev
+            };
+            Some((dev, mp))
+        })
+        .collect()
+}
+
+/// Mount points that mean "this disk holds the running live system" — it
+/// cannot be unmounted, and wiping it would pull the rug from under the
+/// installer itself.
+fn is_live_boot_mountpoint(mp: &str) -> bool {
+    matches!(mp, "/" | "/usr" | "/boot" | "/cdrom")
+        || ["/run/live", "/lib/live", "/run/archiso", "/run/initramfs/live", "/usr/lib/live", "/cdrom/"]
+            .iter()
+            .any(|p| mp.starts_with(p))
+}
+
+/// Block devices stacked on top of `dev` (LUKS / LVM / md), found through
+/// sysfs `holders`, so e.g. `/dev/mapper/vg-root` on `/dev/sdb2` is
+/// released too.
+fn holders_of(dev: &str) -> Vec<String> {
+    let name = dev.rsplit('/').next().unwrap_or("");
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(format!("/sys/class/block/{name}/holders")) {
+        for e in rd.flatten() {
+            let h = e.file_name().to_string_lossy().to_string();
+            out.extend(holders_of(&format!("/dev/{h}")));
+            out.push(format!("/dev/{h}"));
+        }
+    }
+    out
+}
+
+fn partitions_of(disk: &str) -> Vec<String> {
+    let name = disk.rsplit('/').next().unwrap_or("");
+    let mut out = vec![disk.to_string()];
+    if let Ok(rd) = fs::read_dir(format!("/sys/class/block/{name}")) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if n.starts_with(name) && Path::new(&format!("/sys/class/block/{name}/{n}/partition")).exists() {
+                out.push(format!("/dev/{n}"));
+            }
+        }
+    }
+    out
+}
+
+/// Everything (devices) that belongs to the disk: itself, its partitions
+/// and anything stacked on them.
+fn disk_device_set(disk: &str) -> Vec<String> {
+    let mut all = Vec::new();
+    for p in partitions_of(disk) {
+        for h in holders_of(&p) {
+            if !all.contains(&h) {
+                all.push(h);
+            }
+        }
+        if !all.contains(&p) {
+            all.push(p);
+        }
+    }
+    all
+}
+
+/// Unmounts every filesystem and deactivates all swap that lives on `disk`
+/// (or on devices stacked on it), and clears a stale `/mnt/blue-install`
+/// from an earlier attempt. Returns an error only when that is impossible:
+/// the disk carries the live system, or something refuses to let go.
+pub fn release_disk(disk: &str, progress: &Progress, first_pass: bool) -> InstallResult<()> {
+    if first_pass {
+        progress(1, "Releasing the target disk (unmounting)…");
+    }
+
+    // 1) A previous (failed/cancelled) run may have left /mnt/blue-install
+    //    and its bind mounts behind.
+    let stale_prefix = TARGET_ROOT.to_string();
+    let mut stale: Vec<String> = parse_mounts(&fs::read_to_string("/proc/mounts").unwrap_or_default())
+        .into_iter()
+        .map(|(_, mp)| mp)
+        .filter(|mp| *mp == stale_prefix || mp.starts_with(&format!("{stale_prefix}/")))
+        .collect();
+    stale.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    for mp in stale {
+        let _ = Command::new("umount").arg("-l").arg(&mp).output();
+    }
+
+    // 2) Several passes: unmounting can reveal another mount underneath, and
+    //    auto-mounters occasionally re-mount right after udev events.
+    for pass in 0..4 {
+        let devices = disk_device_set(disk);
+        let on_disk = |dev: &str| devices.iter().any(|d| d == dev) || is_on_disk(dev, disk);
+
+        let mounts = parse_mounts(&fs::read_to_string("/proc/mounts").unwrap_or_default());
+        let mut mine: Vec<(String, String)> = mounts.into_iter().filter(|(d, _)| on_disk(d.as_str())).collect();
+
+        if let Some((dev, mp)) = mine.iter().find(|(_, mp)| is_live_boot_mountpoint(mp)) {
+            return Err(InstallError::new(
+                "disk_is_live_medium",
+                format!("\"{disk}\" is the disk this live system is running from ({dev} is mounted at {mp})"),
+            )
+            .hint("Choose a different disk. If you want to install onto this very disk, boot the live image from another USB stick or DVD."));
+        }
+
+        let swaps: Vec<String> = fs::read_to_string("/proc/swaps")
+            .unwrap_or_default()
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.split_whitespace().next().map(|s| s.to_string()))
+            .map(|d| fs::canonicalize(&d).map(|p| p.to_string_lossy().to_string()).unwrap_or(d))
+            .filter(|d| on_disk(d.as_str()))
+            .collect();
+
+        if mine.is_empty() && swaps.is_empty() {
+            break;
+        }
+        if pass == 3 {
+            let left: Vec<String> = mine.iter().map(|(d, m)| format!("{d} → {m}")).chain(swaps.iter().map(|s| format!("{s} (swap)"))).collect();
+            return Err(InstallError::new("disk_busy", format!("Could not release \"{disk}\" — something is still using it"))
+                .hint("Close any program that has files open on this disk and try again, or pick a different disk.")
+                .detail(left.join("\n")));
+        }
+
+        for s in &swaps {
+            let _ = Command::new("swapoff").arg(s).output();
+        }
+        // Deepest mount point first, so /mnt/x/sub goes before /mnt/x.
+        mine.sort_by_key(|(_, mp)| std::cmp::Reverse(mp.matches('/').count()));
+        for (_, mp) in &mine {
+            let plain = Command::new("umount").arg(mp).output();
+            let ok = plain.map(|o| o.status.success()).unwrap_or(false);
+            if !ok {
+                // Busy (a file manager window, a terminal cd'd into it…):
+                // detach lazily — the filesystem disappears from the tree
+                // immediately and the kernel finishes the unmount when the
+                // last user lets go. Nothing here may destroy user data;
+                // the disk is about to be wiped on explicit confirmation.
+                let _ = Command::new("umount").arg("-l").arg(mp).output();
+            }
+        }
+        let _ = Command::new("udevadm").arg("settle").output();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    // 3) Stacked devices (LUKS/LVM/md) on the disk: close them so the
+    //    kernel drops its hold, best effort.
+    for h in disk_device_set(disk).into_iter().filter(|d| d.starts_with("/dev/dm-") || d.starts_with("/dev/md")) {
+        if h.starts_with("/dev/dm-") {
+            let _ = Command::new("dmsetup").args(["remove", "--force", "--retry"]).arg(&h).output();
+        } else {
+            let _ = Command::new("mdadm").args(["--stop"]).arg(&h).output();
+        }
+    }
+
+    // 4) Drop old signatures so a former filesystem / RAID / LVM label on
+    //    the disk can't be re-detected and auto-mounted mid-install.
+    //    ONLY on the first pass — the second pass runs after the new GPT
+    //    has been written and must never wipe it.
+    if first_pass {
+        let _ = Command::new("wipefs").args(["--all", "--force"]).arg(disk).output();
+    }
+    let _ = Command::new("blockdev").arg("--flushbufs").arg(disk).output();
+    let _ = Command::new("udevadm").arg("settle").output();
+    Ok(())
 }
 
 fn partition_disk(cfg: &InstallConfig, progress: &Progress) -> InstallResult<Vec<PlannedPartition>> {
@@ -496,8 +724,12 @@ pub fn run_install(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()
         require_tool(bin, pkg)?;
     }
 
+    release_disk(&cfg.disk, progress, true)?;
     let planned = partition_disk(cfg, progress)?;
     let result = (|| -> InstallResult<()> {
+        // Right after partitioning, udev may let a desktop auto-mounter
+        // grab a brand-new partition before mkfs runs — release again.
+        release_disk(&cfg.disk, progress, false)?;
         format_partitions(&planned, progress)?;
         mount_target(&planned, progress)?;
         copy_system(progress)?;
@@ -512,4 +744,46 @@ pub fn run_install(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()
     result?;
     progress(100, "Installation complete");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_on_disk_matches_only_real_partitions() {
+        assert!(is_on_disk("/dev/sdb", "/dev/sdb"));
+        assert!(is_on_disk("/dev/sdb1", "/dev/sdb"));
+        assert!(is_on_disk("/dev/sdb12", "/dev/sdb"));
+        assert!(!is_on_disk("/dev/sdba", "/dev/sdb")); // another disk
+        assert!(!is_on_disk("/dev/sdb", "/dev/sda"));
+        assert!(is_on_disk("/dev/nvme0n1p2", "/dev/nvme0n1"));
+        assert!(!is_on_disk("/dev/nvme0n10", "/dev/nvme0n1")); // another namespace
+        assert!(!is_on_disk("/dev/nvme0n10p1", "/dev/nvme0n1"));
+        assert!(is_on_disk("/dev/mmcblk0p1", "/dev/mmcblk0"));
+    }
+
+    #[test]
+    fn mount_fields_are_unescaped() {
+        assert_eq!(unescape_mount_field("/media/My\\040Disk"), "/media/My Disk");
+        assert_eq!(unescape_mount_field("/plain"), "/plain");
+        assert_eq!(unescape_mount_field("/x\\134y"), "/x\\y");
+    }
+
+    #[test]
+    fn live_boot_mountpoints_are_detected() {
+        assert!(is_live_boot_mountpoint("/"));
+        assert!(is_live_boot_mountpoint("/run/live/medium"));
+        assert!(is_live_boot_mountpoint("/lib/live/mount/medium"));
+        assert!(is_live_boot_mountpoint("/cdrom"));
+        assert!(!is_live_boot_mountpoint("/media/user/DATA"));
+        assert!(!is_live_boot_mountpoint("/run/media/user/USB"));
+    }
+
+    #[test]
+    fn parse_mounts_reads_pairs() {
+        let m = parse_mounts("/dev/sdb1 /media/a\\040b ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n");
+        assert_eq!(m[0].1, "/media/a b");
+        assert_eq!(m[1], ("tmpfs".to_string(), "/run".to_string()));
+    }
 }
