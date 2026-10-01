@@ -176,9 +176,15 @@ export function createInstallState() {
     await SystemBridge.powerAction('reboot').catch(() => {});
   }
 
+  /** Same as above, but powers the computer off (e.g. to pull the USB stick first). */
+  async function finishAndShutdown() {
+    await clearLiveMode();
+    await SystemBridge.powerAction('shutdown').catch(() => {});
+  }
+
   return {
     step, config, disks, disksLoading, progressPct, progressLabel, installLog, installError,
-    loadDisks, next, back, startInstall, finishAndReboot, validatePartitionPlan,
+    loadDisks, next, back, startInstall, finishAndReboot, finishAndShutdown, validatePartitionPlan,
     suggestTimezoneForLocale, markTimezoneTouched,
   };
 }
