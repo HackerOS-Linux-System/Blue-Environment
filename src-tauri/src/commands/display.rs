@@ -289,8 +289,11 @@ pub fn system_power(action: String) {
         return;
     }
     let cmd = match action.as_str() {
-        "shutdown"  => "shutdown -h now",
-        "reboot"    => "reboot",
+        // logind first (works for the logged-in user via polkit — this is
+        // what the live session needs to power off from the shell), the
+        // classic binaries as fallback on systems without systemd.
+        "shutdown"  => "systemctl poweroff || shutdown -h now || poweroff",
+        "reboot"    => "systemctl reboot || reboot",
         "logout"    => "pkill -u $(whoami)",
         "suspend"   => "systemctl suspend",
         "hibernate" => "systemctl hibernate",
