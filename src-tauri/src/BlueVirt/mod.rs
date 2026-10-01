@@ -75,13 +75,13 @@ fn write_configs(configs: &[VmConfig]) -> Result<(), String> {
 /// is available; anything else means QEMU falls back to pure software
 /// emulation (still functionally correct, just far slower — see
 /// `qemu_args.rs`'s `-cpu qemu64` fallback for that path).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_is_kvm_available() -> bool {
     std::path::Path::new("/dev/kvm").exists()
         && fs::OpenOptions::new().read(true).write(true).open("/dev/kvm").is_ok()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_list_vms() -> Vec<VmSummary> {
     let configs = read_configs();
     with_running(|running| {
@@ -98,7 +98,7 @@ pub fn bv_list_vms() -> Vec<VmSummary> {
 /// Creates a new VM: allocates a real `qcow2` disk image via
 /// `qemu-img create` and saves the configuration. Does not start it —
 /// see [`bv_start_vm`].
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_create_vm(
     name: String,
     os_type: OsType,
@@ -140,7 +140,7 @@ pub fn bv_create_vm(
     Ok(config)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_delete_vm(id: String) -> Result<(), String> {
     // Refuse to delete a running VM's disk out from under it rather
     // than silently stopping it first — deleting is destructive and
@@ -165,7 +165,7 @@ pub fn bv_delete_vm(id: String) -> Result<(), String> {
 /// Spawns a real `qemu-system-x86_64` process for `id` — see module
 /// doc's "What's not real yet" for the one part of this file not
 /// executed against a real QEMU binary in this environment.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_start_vm(id: String) -> Result<(), String> {
     if with_running(|r| r.contains_key(&id)) {
         return Err("VM is already running".to_string());
@@ -192,7 +192,7 @@ pub fn bv_start_vm(id: String) -> Result<(), String> {
 /// the monitor connection itself fails), in which case the process is
 /// killed directly. See module doc's "What's real" section for why the
 /// monitor path is preferred.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bv_stop_vm(id: String, force: bool) -> Result<(), String> {
     if !force {
         if let Ok(mut stream) = UnixStream::connect(monitor_socket_path(&id)) {
