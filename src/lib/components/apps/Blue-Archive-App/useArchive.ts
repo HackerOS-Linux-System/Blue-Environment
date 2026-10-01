@@ -15,7 +15,11 @@ export function createArchive() {
       'blue-archive.open-file'
     );
     if (!path) return;
+    await openPath(path);
+  }
 
+  /** Open a known archive path (Explorer double-click, "Open with…"). */
+  async function openPath(path: string) {
     loading.set(true);
     error.set('');
     status.set('');
@@ -47,5 +51,5 @@ export function createArchive() {
     }
   }
 
-  return { archive, loading, status, error, openFile, extract };
+  return { openPath, archive, loading, status, error, openFile, extract };
 }
