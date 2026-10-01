@@ -224,25 +224,25 @@ pub async fn get_audio_sinks() -> Result<Vec<AudioSink>, String> {
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_sink_volume(sink_name: String, volume: f32) -> Result<(), String> {
     Command::new("pactl").args(["set-sink-volume", &sink_name, &format!("{}%", volume.clamp(0.0, 150.0) as u32)]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_default_sink(sink_name: String) -> Result<(), String> {
     Command::new("pactl").args(["set-default-sink", &sink_name]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn toggle_sink_mute(sink_name: String) -> Result<(), String> {
     Command::new("pactl").args(["set-sink-mute", &sink_name, "toggle"]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_volume(level: i32) {
     let _ = Command::new("pactl").args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", level.clamp(0, 150))]).spawn();
 }
