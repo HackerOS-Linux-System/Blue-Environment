@@ -39,7 +39,9 @@
   import ShellThemeStyle from './lib/components/ShellThemeStyle.svelte';
   import SystemThemeStyle from './lib/components/SystemThemeStyle.svelte';
   import BlueInstallerApp from './lib/components/apps/Blue-Installer/BlueInstallerApp.svelte';
-  import { isLiveMode, liveModeChecked, checkLiveMode } from './lib/utils/liveMode';
+  import { isLiveMode, liveModeChecked, liveView, checkLiveMode } from './lib/utils/liveMode';
+  import { hideSplash, hideSplashAfter } from './lib/utils/splash';
+  import LiveInstallerReturn from './lib/components/LiveInstallerReturn.svelte';
   import { resolveActiveShellTheme } from './lib/data/builtinThemes';
   import { SystemBridge, toAssetUrl } from './lib/utils/systemBridge';
   import { CompositorBridge, takeScreenshotUnified, isNativeBackend } from './lib/utils/compositorBridge';
@@ -189,7 +191,11 @@
   }));
 
   onMount(() => {
-    checkLiveMode();
+    // Startup splash (index.html) stays up until BOTH the live-mode check and
+    // the first config load are done, i.e. until the shell knows what it is
+    // going to show — then fades out. The timeout is a safety net only.
+    const liveCheck = checkLiveMode();
+    hideSplashAfter(10000);
     initLanguage();
     startExternalWindowPolling();
     startParentalControlsUsageTracking();
@@ -199,8 +205,12 @@
     // (not called synchronously before anything else) so it opens as an
     // ordinary window on top of an already-initializing desktop rather
     // than racing window-manager/config setup that hasn't run yet.
+    // Not in a live session: there the person is here to install (or just
+    // look around), not to be welcomed to an installed system.
     if (!hasCompletedWelcome()) {
-      setTimeout(() => openApp(AppId.BLUE_WELCOME), 300);
+      liveCheck.then((live) => {
+        if (!live) setTimeout(() => openApp(AppId.BLUE_WELCOME), 300);
+      });
     }
 
     // Blue Notifications' feed-watcher polling — starts once here,
@@ -211,7 +221,9 @@
     // shell process does).
     createNotificationsStore().startPolling();
 
-    configStore.init().then((cfg) => {
+    const configReady = configStore.init();
+    Promise.allSettled([liveCheck, configReady]).then(() => hideSplash());
+    configReady.then((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
       if (cfg.theme) theme = cfg.theme;
       if (cfg.appsEnabled) appsEnabled = cfg.appsEnabled;
@@ -404,8 +416,11 @@
 </script>
 
 {#if $liveModeChecked && $isLiveMode}
-  <BlueInstallerApp />
-{:else if $liveModeChecked}
+  <!-- Live session: the installer stays mounted (just hidden) while the
+       classic desktop is shown, so nothing entered so far is lost. -->
+  <BlueInstallerApp hidden={$liveView === 'desktop'} />
+{/if}
+{#if $liveModeChecked && (!$isLiveMode || $liveView === 'desktop')}
 <ShellThemeStyle {shellThemeId} />
 <SystemThemeStyle {systemThemeId} />
 <div
@@ -502,6 +517,10 @@
 
   {#if showPowerMenu}
     <PowerMenu shellThemeId={activeShellTheme?.id} on:action={handlePower} on:close={() => (showPowerMenu = false)} />
+  {/if}
+
+  {#if $isLiveMode}
+    <LiveInstallerReturn zIndex={startMenuZIndex - 10} panelPosition={effectivePanelPosition} panelSize={barHeight} />
   {/if}
 
   <ToastContainer />
