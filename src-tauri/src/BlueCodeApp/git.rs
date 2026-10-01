@@ -79,7 +79,7 @@ pub struct GitRepoStatus {
     pub files: Vec<GitFileEntry>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_repo_status(path: String) -> GitRepoStatus {
     if !Path::new(&path).join(".git").exists() && run_git(&path, &["rev-parse", "--is-inside-work-tree"]).is_err() {
         return GitRepoStatus { is_repo: false, branch: String::new(), ahead: 0, behind: 0, files: vec![] };
@@ -116,7 +116,7 @@ pub fn git_repo_status(path: String) -> GitRepoStatus {
 /// shows its raw content instead in that case (this returns an error,
 /// which the Sidebar's diff viewer treats as "nothing to diff, show
 /// current content").
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_diff(path: String, file: String, staged: bool) -> Result<String, String> {
     let mut args = vec!["diff", "--no-color"];
     if staged { args.push("--cached"); }
@@ -125,7 +125,7 @@ pub fn git_diff(path: String, file: String, staged: bool) -> Result<String, Stri
     run_git(&path, &args)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stage(path: String, files: Vec<String>) -> Result<(), String> {
     let mut args = vec!["add", "--"];
     let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
@@ -133,7 +133,7 @@ pub fn git_stage(path: String, files: Vec<String>) -> Result<(), String> {
     run_git(&path, &args).map(|_| ())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_unstage(path: String, files: Vec<String>) -> Result<(), String> {
     let mut args = vec!["restore", "--staged", "--"];
     let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
@@ -146,7 +146,7 @@ pub fn git_unstage(path: String, files: Vec<String>) -> Result<(), String> {
 /// Destructive and irreversible, same as the equivalent action in any
 /// git GUI — the frontend must confirm with the person before calling
 /// this (see Sidebar.svelte's Git panel).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_discard(path: String, file: String, is_untracked: bool) -> Result<(), String> {
     if is_untracked {
         let full = Path::new(&path).join(&file);
@@ -155,7 +155,7 @@ pub fn git_discard(path: String, file: String, is_untracked: bool) -> Result<(),
     run_git(&path, &["restore", "--", &file]).map(|_| ())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_commit(path: String, message: String, files: Vec<String>) -> Result<String, String> {
     if message.trim().is_empty() {
         return Err("Commit message cannot be empty.".to_string());
@@ -175,7 +175,7 @@ pub struct GitLogEntry {
     pub message: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_log(path: String, limit: u32) -> Vec<GitLogEntry> {
     // Custom `%x1f`(unit separator)/`%x1e`(record separator)-delimited
     // format — safer to split on than any character that might appear
