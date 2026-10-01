@@ -255,9 +255,16 @@ export interface ExternalWindow {
 // BlueImagesApp.
 export function toAssetUrl(pathOrFileUrl: string): string {
     if (!pathOrFileUrl) return pathOrFileUrl;
+    if (/^(asset|https?|data|blob):/i.test(pathOrFileUrl) && !pathOrFileUrl.startsWith('file://')) return pathOrFileUrl;
     const rawPath = pathOrFileUrl.startsWith('file://') ? pathOrFileUrl.slice('file://'.length) : pathOrFileUrl;
-    if (rawPath.startsWith('asset://')) return rawPath;
-    return `asset://localhost/${rawPath}`;
+    // Tauri v2 (`convertFileSrc`) wants the WHOLE absolute path
+    // percent-encoded as a single path segment: asset://localhost/%2Fusr%2Fshare%2F...
+    // The old `asset://localhost/${rawPath}` produced `asset://localhost//usr/...`
+    // (double slash, unencoded spaces/unicode), which the protocol handler
+    // resolved to a wrong path → 404, so wallpapers never showed.
+    let decoded = rawPath;
+    try { decoded = decodeURIComponent(rawPath); } catch { /* keep as is */ }
+    return `asset://localhost/${encodeURIComponent(decoded)}`;
 }
 
 // ============================================================================
@@ -951,6 +958,16 @@ export const SystemBridge = {
         // fails is honest; showing two options that 404 when clicked
         // isn't better than that.
         return [];
+    },
+
+    getWallpaperDataUrl: async (path: string): Promise<string | null> => {
+        if (isTauri) {
+            try {
+                const data = await invoke('get_wallpaper_data_url', { path: path.replace(/^file:\/\//, '') });
+                if (data && typeof data === 'string') return data;
+            } catch (e) { console.error('Wallpaper data-url error:', e); }
+        }
+        return null;
     },
 
     getWallpaperPreview: async (path: string): Promise<string | null> => {
