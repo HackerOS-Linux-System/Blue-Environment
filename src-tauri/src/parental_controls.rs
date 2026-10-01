@@ -214,7 +214,7 @@ fn verify_pin_internal(cfg: &mut ParentalControlsConfig, pin: &str) -> bool {
     ok
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_get() -> ParentalControlsConfig {
     let mut cfg = load();
     roll_usage_if_new_day(&mut cfg);
@@ -226,7 +226,7 @@ pub fn parental_controls_get() -> ParentalControlsConfig {
     cfg
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_is_pin_set() -> bool {
     let cfg = load();
     cfg.pin_hash.is_some()
@@ -235,7 +235,7 @@ pub fn parental_controls_is_pin_set() -> bool {
 /// Seconds remaining in an active lockout, or `0` if not currently
 /// locked out. The frontend uses this to show "try again in Ns" instead
 /// of a generic "wrong PIN" on a locked-out attempt.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_lockout_remaining_seconds() -> u64 {
     let cfg = load();
     match cfg.locked_until_unix {
@@ -244,7 +244,7 @@ pub fn parental_controls_lockout_remaining_seconds() -> u64 {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_set_pin(pin: String, current_pin: Option<String>) -> bool {
     let mut cfg = load();
     // If a PIN is already set, changing it requires the current one —
@@ -267,13 +267,13 @@ pub fn parental_controls_set_pin(pin: String, current_pin: Option<String>) -> bo
     save(&cfg)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_verify_pin(pin: String) -> bool {
     let mut cfg = load();
     verify_pin_internal(&mut cfg, &pin)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_set_enabled(enabled: bool, pin: String) -> bool {
     let mut cfg = load();
     if !verify_pin_internal(&mut cfg, &pin) {
@@ -283,7 +283,7 @@ pub fn parental_controls_set_enabled(enabled: bool, pin: String) -> bool {
     save(&cfg)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_set_blocked_apps(apps: Vec<String>, pin: String) -> bool {
     let mut cfg = load();
     if !verify_pin_internal(&mut cfg, &pin) {
@@ -293,7 +293,7 @@ pub fn parental_controls_set_blocked_apps(apps: Vec<String>, pin: String) -> boo
     save(&cfg)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_set_daily_limit(app_id: String, minutes: Option<u32>, pin: String) -> bool {
     let mut cfg = load();
     if !verify_pin_internal(&mut cfg, &pin) {
@@ -306,7 +306,7 @@ pub fn parental_controls_set_daily_limit(app_id: String, minutes: Option<u32>, p
     save(&cfg)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_set_allowed_hours(start: Option<String>, end: Option<String>, pin: String) -> bool {
     let mut cfg = load();
     if !verify_pin_internal(&mut cfg, &pin) {
@@ -319,7 +319,7 @@ pub fn parental_controls_set_allowed_hours(start: Option<String>, end: Option<St
 
 /// Called by the app launcher before spawning an app. Returns a reason
 /// string if launch should be blocked, or `None` if it's allowed.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_check_launch(app_id: String) -> Option<String> {
     let mut cfg = load();
     if !cfg.enabled {
@@ -357,7 +357,7 @@ pub fn parental_controls_check_launch(app_id: String) -> Option<String> {
 /// Records that `app_id` has been actively used for `minutes` more today.
 /// Called periodically (every 60s while the app has focus) by
 /// `startParentalControlsUsageTracking` in `windowManager.ts`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn parental_controls_record_usage(app_id: String, minutes: u32) -> bool {
     let mut cfg = load();
     roll_usage_if_new_day(&mut cfg);
