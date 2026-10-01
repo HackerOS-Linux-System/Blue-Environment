@@ -123,3 +123,10 @@ pub async fn bootc_switch_image(image: String) -> bool {
 pub async fn rpm_ostree_upgrade() -> bool {
     tokio::task::spawn_blocking(packages::rpm_ostree_upgrade).await.unwrap_or(false)
 }
+
+/// Installed packages from the local database only (no network, no update
+/// check) — lets Blue Software paint the "Installed" tab immediately.
+#[tauri::command]
+pub async fn get_installed_packages_fast() -> Vec<ai::PackageInfo> {
+    tokio::task::spawn_blocking(packages::get_installed_fast).await.unwrap_or_default()
+}
