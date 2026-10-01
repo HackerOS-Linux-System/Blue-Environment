@@ -27,7 +27,7 @@ fn videos_dir() -> PathBuf {
 /// Lists `/dev/video*` nodes. Where `v4l2-ctl` is available we also pull a
 /// human-readable device name; otherwise we just fall back to the device
 /// path itself so the picker is never empty when a camera does exist.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn camera_list_devices() -> Vec<CameraDevice> {
     let mut devices = Vec::new();
     let Ok(entries) = std::fs::read_dir("/dev") else { return devices };
@@ -62,7 +62,7 @@ pub fn camera_list_devices() -> Vec<CameraDevice> {
 
 /// Whether ffmpeg is even installed — the frontend uses this to show a
 /// clear "install ffmpeg" message instead of a generic failure.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn camera_check_available() -> bool {
     Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
 }
@@ -71,7 +71,7 @@ pub fn camera_check_available() -> bool {
 /// URL. Used both for "viewfinder" polling and for the actual photo
 /// shutter button (the shutter just additionally persists the same frame
 /// to disk).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn camera_capture_frame(device: String, width: u32, height: u32) -> Result<String, String> {
     let tmp = std::env::temp_dir().join(format!("blue-camera-frame-{}.jpg", std::process::id()));
 
@@ -99,7 +99,7 @@ pub fn camera_capture_frame(device: String, width: u32, height: u32) -> Result<S
 
 /// Captures a photo and saves it permanently under ~/Pictures, returning
 /// the absolute path so the frontend can show/open it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn camera_capture_photo(device: String, width: u32, height: u32) -> Result<String, String> {
     let dir = pictures_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
