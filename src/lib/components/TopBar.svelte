@@ -13,6 +13,8 @@
   import { ICON_COMPONENTS } from '../utils/fileTypeAssociations';
   import { t } from '../stores/language';
   import { createEventDispatcher } from 'svelte';
+  import { showContextMenu, type MenuItem } from '../stores/contextMenu';
+  import { closeWindow } from '../stores/windowManager';
 
   export let openWindows: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
   export let currentWorkspace = 0;
@@ -40,6 +42,70 @@
     switchWorkspace: number;
     toggleClipboard: void;
   }>();
+
+  // --- Right-click menus ----------------------------------------------------
+  // Children call stopPropagation so the panel-level menu doesn't replace theirs.
+  function savePinned(next: AppId[]) { pinnedApps = next; configStore.save({ pinnedApps: next }); }
+
+  function movePinned(index: number, delta: number) {
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= pinnedApps.length) return;
+    const next = pinnedApps.slice();
+    const moved = next.splice(index, 1)[0];
+    next.splice(target, 0, moved);
+    savePinned(next);
+  }
+
+  function pinnedAppMenu(e: MouseEvent, appId: AppId) {
+    e.stopPropagation();
+    const app = APPS[appId];
+    const insts = openWindows.filter((w) => w.appId === appId);
+    const i = pinnedApps.indexOf(appId);
+    const items: MenuItem[] = [
+      { label: insts.length ? `Open new window` : `Open ${app?.title ?? ''}`, action: () => dispatch('openApp', appId) },
+      ...(insts.length ? [{ label: insts.length > 1 ? `Close all windows (${insts.length})` : 'Close window', danger: true, action: () => insts.forEach((w) => closeWindow(w.id)) } as MenuItem] : []),
+      { separator: true },
+      { label: 'Move left', disabled: i <= 0, action: () => movePinned(i, -1) },
+      { label: 'Move right', disabled: i < 0 || i >= pinnedApps.length - 1, action: () => movePinned(i, 1) },
+      { label: 'Unpin from panel', danger: true, disabled: pinnedApps.length <= 1, action: () => savePinned(pinnedApps.filter((x) => x !== appId)) },
+    ];
+    showContextMenu(e, items);
+  }
+
+  function startButtonMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showContextMenu(e, [
+      { label: 'Applications', action: () => dispatch('startClick') },
+      { label: 'Applications (full screen)', action: () => dispatch('startDoubleClick') },
+      { separator: true },
+      { label: 'Terminal', action: () => dispatch('openApp', AppId.TERMINAL) },
+      { label: 'Files', action: () => dispatch('openApp', AppId.EXPLORER) },
+      { label: 'System Monitor', action: () => dispatch('openApp', AppId.SYSTEM_MONITOR) },
+      { label: 'Settings', action: () => dispatch('openApp', AppId.SETTINGS) },
+    ]);
+  }
+
+  function panelMenu(e: MouseEvent) {
+    showContextMenu(e, [
+      { label: 'Panel settings…', action: () => dispatch('openApp', AppId.SETTINGS) },
+      { separator: true },
+      { label: 'Notifications', action: () => dispatch('toggleNotifications') },
+      { label: 'Control Center', action: () => dispatch('toggleControlCenter') },
+      { label: 'Clipboard history', action: () => dispatch('toggleClipboard') },
+      { separator: true },
+      ...Array.from({ length: workspaceCount }, (_, w) => ({ label: `Workspace ${w + 1}`, checked: w === currentWorkspace, action: () => dispatch('switchWorkspace', w) } as MenuItem)),
+    ]);
+  }
+
+  function clockMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showContextMenu(e, [
+      { label: 'Open Calendar', action: () => dispatch('openApp', AppId.BLUE_CALENDAR) },
+      { label: 'Copy date and time', action: () => navigator.clipboard.writeText(new Date().toLocaleString()).catch(() => {}) },
+      { separator: true },
+      { label: 'Date & time settings…', action: () => dispatch('openApp', AppId.SETTINGS) },
+    ]);
+  }
 
   // --- IME candidate window indicator --------------------------------------
   // See CompositorBridge.onImeCandidateWindow / protocols/input_method.rs on
@@ -309,6 +375,7 @@
 {#if enabled}
 <div
   class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
+  on:contextmenu={panelMenu} role="presentation"
   style="height:{panelHeight}px; z-index:50; {shellThemeId === 'hydra'
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
     : `background-color:rgba(15, 23, 42, var(--panel-opacity, ${panelOpacity}));`}"
@@ -316,6 +383,7 @@
   <!-- Left: Start + search -->
   <div class="flex items-center gap-3 w-1/3">
     <button
+      on:contextmenu={startButtonMenu}
       on:click={handleStartClick}
       class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
       title="Start (double-click for full screen)"
@@ -351,6 +419,7 @@
           {@const isOpen = openInsts.length > 0}
           {@const isActive = openInsts.some((w) => w.isActive && !w.isMinimized)}
           <button
+            on:contextmenu={(e) => pinnedAppMenu(e, appId)}
             on:click={() => {
               const inst = openWindows.find((w) => w.appId === appId);
               if (inst) dispatch('toggleWindow', inst.id);
