@@ -1,5 +1,5 @@
 # ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
-# Blue Environment v0.7
+# Blue Environment v0.8
 
 Production-grade Wayland desktop environment for LegendaryOS, built on
 [Smithay](https://github.com/Smithay/smithay) (compositor) and
@@ -304,6 +304,15 @@ Known limits: Blue's in-shell windows live in the shell layer, i.e.
 beneath native windows; live workspace switching / DPMS timeout have no
 IPC on sway/wayfire and are keybind/idle-daemon matters; wayfire has no
 live config-reload in this version (settings changes need a fresh login).
+
+## Live session / installer
+
+When booted from the live image (`~/.config/Blue-Environment/.live` exists) Blue Environment shows **Blue Installer** full-screen.
+
+- **Classic desktop** (top-right of the installer) switches to the normal Blue desktop; a floating **Return to Blue Installer** button brings you back. The installer stays mounted, so nothing you entered is lost. Not available while an installation is running.
+- **Power** (top-right) shuts down or restarts the computer from the installer; the final screen also has **Shut Down** next to **Restart Now**.
+- **Mounted target disk**: the installer unmounts every partition of the chosen disk (and swap, stale `/mnt/blue-install` mounts, LUKS/LVM holders) by itself. It only refuses when the chosen disk is the one the live system is running from.
+- **Startup splash**: `src/index.html` + `src/splash.css` paint a loading screen instantly; `hideSplash()` (`src/lib/utils/splash.ts`) fades it out when the shell is ready.
 
 ## Keyboard Shortcuts
 
