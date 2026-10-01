@@ -22,6 +22,8 @@
   import { t } from '../../../stores/language';
 
   export let windowId: string;
+  /** Set when a single audio file was opened from Explorer. */
+  export let openPath: string | undefined = undefined;
 
   interface Track {
     name: string;
@@ -122,7 +124,17 @@
 
   $: if (audioEl) audioEl.volume = muted ? 0 : volume;
 
-  onMount(scanLibrary);
+  onMount(async () => {
+    await scanLibrary();
+    if (openPath) {
+      let i = tracks.findIndex((t) => t.path === openPath);
+      if (i < 0) { // file lives outside ~/Music — add it to the queue
+        tracks = [...tracks, { name: openPath.split('/').pop() ?? openPath, path: openPath, mimeType: 'audio/*' }];
+        i = tracks.length - 1;
+      }
+      playTrack(i);
+    }
+  });
   onDestroy(() => audioEl?.pause());
 </script>
 
