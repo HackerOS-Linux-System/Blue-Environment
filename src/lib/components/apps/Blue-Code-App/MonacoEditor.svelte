@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { registerEditorThemes, registerCompletionProviders } from './completions';
+  import { registerHackerLanguages } from './hackerLanguages';
+  import { blueCodeSettings } from './blueCodeSettings';
 
   export let language: string;
   export let value: string;
@@ -28,6 +30,7 @@
     monaco = await import('monaco-editor');
     registerEditorThemes(monaco);
     registerCompletionProviders(monaco);
+    registerHackerLanguages(monaco);
 
     editor = monaco.editor.create(container, {
       value, language, theme, fontSize,
@@ -57,7 +60,12 @@
       monaco.editor.setModelLanguage(model, language);
     }
   }
-  $: if (editor) editor.updateOptions({ fontSize });
+  $: if (editor) editor.updateOptions({
+    fontSize,
+    minimap: { enabled: $blueCodeSettings.minimap },
+    wordWrap: $blueCodeSettings.wordWrap ? 'on' : 'off',
+    tabSize: $blueCodeSettings.tabSize,
+  });
   $: if (monaco) monaco.editor.setTheme(theme);
 </script>
 
