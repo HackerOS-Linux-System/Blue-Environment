@@ -43,7 +43,7 @@ pub struct DownloadRegistry(pub Mutex<HashMap<String, DownloadRecord>>);
 #[derive(Default)]
 pub struct BlockList(pub std::sync::Arc<Mutex<std::collections::HashSet<String>>>);
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_set_blocklist(
     blocklist: tauri::State<BlockList>,
     registry: tauri::State<WebViewRegistry>,
@@ -113,7 +113,7 @@ pub struct TabMeta {
 /// same per-tab event shape `on_navigation` already uses for
 /// `web-nav-{tab_id}`, so the frontend has one consistent pattern for
 /// "something changed about this specific tab" rather than two.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_report_meta(app: AppHandle, tab_id: String, title: String, favicon_url: String) -> Result<(), String> {
     // Defensive length caps — bound how much a broken or malicious page
     // can push through this into the frontend's tab-strip DOM. Chosen
@@ -186,7 +186,7 @@ fn label_for(tab_id: &str) -> String {
 /// positions/sizes it. `window_label` is the shell's single OS window
 /// (always `"main"` in this codebase, but passed explicitly rather than
 /// hardcoded so this doesn't silently break if that ever changes).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_create(
     app: AppHandle,
     registry: tauri::State<WebViewRegistry>,
@@ -356,7 +356,7 @@ pub fn web_view_create(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_navigate(registry: tauri::State<WebViewRegistry>, tab_id: String, url: String) -> Result<(), String> {
     let parsed = tauri::Url::parse(&url).map_err(|e| format!("invalid URL: {e}"))?;
     let reg = registry.0.lock().unwrap();
@@ -364,7 +364,7 @@ pub fn web_view_navigate(registry: tauri::State<WebViewRegistry>, tab_id: String
     webview.navigate(parsed).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_reload(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
     let reg = registry.0.lock().unwrap();
     let webview = reg.get(&tab_id).ok_or_else(|| format!("no webview for tab {tab_id}"))?;
@@ -377,7 +377,7 @@ pub fn web_view_reload(registry: tauri::State<WebViewRegistry>, tab_id: String) 
 /// a delta — the frontend (`AddressBar.svelte`) tracks each tab's
 /// current zoom level itself and always sends the resulting absolute
 /// value, so this command can stay a thin, stateless wrapper.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_set_zoom(registry: tauri::State<WebViewRegistry>, tab_id: String, factor: f64) -> Result<(), String> {
     let reg = registry.0.lock().unwrap();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
@@ -400,7 +400,7 @@ pub fn web_view_set_zoom(registry: tauri::State<WebViewRegistry>, tab_id: String
 /// try to surface even that (silent no-highlight is the failure mode
 /// for a 0-match query — a real browser's "Phrase not found" toast is a
 /// nicety this can't cheaply replicate without a bridge).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_find(registry: tauri::State<WebViewRegistry>, tab_id: String, query: String, backwards: bool) -> Result<(), String> {
     let reg = registry.0.lock().unwrap();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
@@ -454,7 +454,7 @@ pub fn web_view_find(registry: tauri::State<WebViewRegistry>, tab_id: String, qu
 /// Simplest correct implementation is just re-running the same
 /// highlight/unwrap logic with an empty query, which `web_view_find`'s
 /// script already treats as "tear down existing marks, add none back".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_clear_find(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
     web_view_find(registry, tab_id, String::new(), false)
 }
@@ -465,7 +465,7 @@ pub fn web_view_clear_find(registry: tauri::State<WebViewRegistry>, tab_id: Stri
 /// frontend's job (it only calls this when the measured rect actually
 /// differs from the last one it sent); this command doesn't itself
 /// debounce.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_set_bounds(
     registry: tauri::State<WebViewRegistry>,
     tab_id: String,
@@ -487,14 +487,14 @@ pub fn web_view_set_bounds(
 /// Hiding rather than destroying keeps background tabs' state (scroll
 /// position, form input, in-page JS state) alive across switches,
 /// matching how every real browser's tabs behave.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_set_visible(registry: tauri::State<WebViewRegistry>, tab_id: String, visible: bool) -> Result<(), String> {
     let reg = registry.0.lock().unwrap();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
     if visible { webview.show().map_err(|e| e.to_string()) } else { webview.hide().map_err(|e| e.to_string()) }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_view_close(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
     if let Some(webview) = registry.0.lock().unwrap().remove(&tab_id) {
         webview.close().map_err(|e| e.to_string())?;
@@ -507,7 +507,7 @@ pub fn web_view_close(registry: tauri::State<WebViewRegistry>, tab_id: String) -
 /// useful for e.g. a video call or a picture-in-picture-style site)
 /// rather than removed, but no longer Blue Web's *only* way to show a
 /// page. Unchanged from before.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_open_native(url: String, app: tauri::AppHandle) -> Result<String, String> {
     use tauri::WebviewWindowBuilder;
 
@@ -603,7 +603,7 @@ pub fn web_downloads_list(registry: tauri::State<DownloadRegistry>) -> Vec<Downl
 /// *not* delete the downloaded file itself, matching what "remove from
 /// downloads" means in every mainstream browser (the file stays on
 /// disk; this only clears the entry from the panel).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_download_remove(registry: tauri::State<DownloadRegistry>, id: String) -> Result<(), String> {
     registry.0.lock().unwrap().remove(&id);
     Ok(())
@@ -619,7 +619,7 @@ pub fn web_download_remove(registry: tauri::State<DownloadRegistry>, id: String)
 /// invocation per file manager), so this is the honest, portable
 /// version of "show me where that went" rather than a fragile
 /// per-desktop-environment special case.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn web_download_reveal(app: AppHandle, registry: tauri::State<DownloadRegistry>, id: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     let path = registry.0.lock().unwrap().get(&id).map(|r| r.path.clone())
