@@ -213,6 +213,23 @@
     }
   }
 
+  /** `.blue` is either a Blue Store package (tar+zstd containing `blue.hk`)
+   * or a plain-text HK-style description. For a package we pull out just the
+   * manifest into a temp file and show it highlighted — nothing is installed
+   * or executed by merely opening it. */
+  async function openBlueFile(file: FileEntry) {
+    const editorApp = (configStore.get().defaultTextEditor ?? 'notepad') === 'blue_code' ? AppId.BLUE_CODE : AppId.NOTEPAD;
+    try {
+      const tmp = `/tmp/blue-manifest-${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}.blue`;
+      const r: any = await SystemBridge.executeCommand(
+        `tar --zstd -xOf ${shellQuote(file.path)} blue.hk > ${shellQuote(tmp)} 2>/dev/null && [ -s ${shellQuote(tmp)} ] && echo OK`
+      );
+      const ok = (typeof r === 'string' ? r : (r?.stdout ?? '')).includes('OK');
+      if (ok) { notify('info', `Showing manifest of ${file.name} (blue.hk)`); openApp(editorApp, false, undefined, { openPath: tmp }); return; }
+    } catch { /* not an archive → treat as text */ }
+    openApp(editorApp, false, undefined, { openPath: file.path });
+  }
+
   function handleOpen(file: FileEntry) {
     if (file.is_dir) { navigateTo(file.path); return; }
 
@@ -226,6 +243,18 @@
       SystemBridge.executeCommand(cmd).catch(() => notify('error', `Failed to open with custom command: ${customMatch.label || customMatch.pattern}`));
       return;
     }
+
+    // HackerOS family + Blue's own format. These have no useful MIME type
+    // (xdg reports application/octet-stream or nothing), so they used to
+    // fall through to `xdg-open` and do nothing. Open them in the user's
+    // default text editor (Notepad highlights them automatically).
+    const lowerName = file.name.toLowerCase();
+    if (/\.(h#|hl|hcs|hk|hacker)$/.test(lowerName)) {
+      const editorApp = (configStore.get().defaultTextEditor ?? 'notepad') === 'blue_code' ? AppId.BLUE_CODE : AppId.NOTEPAD;
+      openApp(editorApp, false, undefined, { openPath: file.path });
+      return;
+    }
+    if (lowerName.endsWith('.blue')) { openBlueFile(file); return; }
 
     if (file.mime_type.startsWith('image/')) { openPreview(file); return; }
     if (file.mime_type.startsWith('text/')) {
