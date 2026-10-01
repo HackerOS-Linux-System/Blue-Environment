@@ -43,7 +43,7 @@ fn write_session(s: &StoredXmppSession) -> Result<(), String> {
     std::fs::write(session_path(), serde_json::to_string_pretty(s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn xmpp_has_session() -> bool { read_session().is_some() }
 
 // ── Persistent background connection lifecycle ─────────────────────────
@@ -56,7 +56,7 @@ pub fn xmpp_has_session() -> bool { read_session().is_some() }
 // file, rather than needing a more elaborate cancellation channel.
 static CONNECTION_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn xmpp_logout() -> Result<(), String> {
     CONNECTION_GENERATION.fetch_add(1, Ordering::SeqCst); // orphans any running background thread
     let path = session_path();
@@ -449,7 +449,7 @@ fn handle_incoming_message(app: &AppHandle, el: &XmlElement) {
 }
 
 /// Adds `contact_jid` as a local conversation with `channel: Xmpp`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn xmpp_add_contact(contact_jid: String, name: String) -> Result<super::Conversation, String> {
     super::create_conversation_internal(name, contact_jid, super::Channel::Xmpp)
 }
