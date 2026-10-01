@@ -321,12 +321,12 @@ fn parse_content_disposition_filename(header: &str) -> Option<String> {
     None
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn downloader_list() -> Vec<DownloadItem> {
     read_history()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn downloader_pause(id: String) -> Result<(), String> {
     with_running(|r| {
         r.get(&id).map(|c| c.pause_requested.store(true, Ordering::Relaxed))
@@ -334,7 +334,7 @@ pub fn downloader_pause(id: String) -> Result<(), String> {
     .ok_or_else(|| "That download isn't currently running".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn downloader_cancel(id: String) -> Result<(), String> {
     // If it's currently running, signal the task to stop (which itself
     // deletes the partial file and updates status — see run_download).
@@ -384,7 +384,7 @@ pub async fn downloader_resume(app: AppHandle, id: String) -> Result<(), String>
 /// deletes any partial file on disk — a completed download's actual
 /// file is left alone, since "remove from this list" shouldn't delete
 /// something the person successfully downloaded and may still want).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn downloader_remove(id: String) -> Result<(), String> {
     let mut items = read_history();
     let Some(pos) = items.iter().position(|d| d.id == id) else { return Ok(()); };
