@@ -319,7 +319,9 @@
     ]);
     if (!isOpen) return;
     volume = stats.volume;
-    brightness = stats.brightness >= 0 ? stats.brightness : 80;
+    // Keep the current slider value when the backend can't read a backlight
+    // (-1) instead of snapping to 80%, and never overwrite it mid-drag.
+    if (stats.brightness >= 0 && !draggingBrightness) brightness = stats.brightness;
     battery = stats.battery;
     isCharging = stats.isCharging;
     wifiSSID = stats.wifiSSID;
@@ -333,7 +335,19 @@
   $: if (isOpen) refresh();
 
   async function handleVolume(val: number) { volume = val; await SystemBridge.setVolume(val); }
-  async function handleBrightness(val: number) { brightness = val; await SystemBridge.setBrightness(val); }
+  // Brightness is applied once per ~80 ms while dragging (latest value wins)
+  // instead of firing a backend call for every single `input` event.
+  let draggingBrightness = false;
+  let brightnessTimer: ReturnType<typeof setTimeout> | undefined;
+  function handleBrightness(val: number) {
+    brightness = val;
+    draggingBrightness = true;
+    if (brightnessTimer) clearTimeout(brightnessTimer);
+    brightnessTimer = setTimeout(async () => {
+      await SystemBridge.setBrightness(val).catch(() => {});
+      draggingBrightness = false;
+    }, 80);
+  }
   async function handleToggleMute() {
     const def = sinks.find((s) => s.is_default);
     if (def) { await SystemBridge.toggleSinkMute(def.name); muted = !muted; }
