@@ -100,7 +100,7 @@ pub fn new_pty_sessions() -> PtySessions {
     std::sync::Arc::new(StdMutex::new(HashMap::new()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_create(
     id: String,
     shell: Option<String>,
@@ -153,7 +153,7 @@ pub fn pty_create(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_write(id: String, data: String, sessions: tauri::State<PtySessions>) -> Result<(), String> {
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
     if let Some(session) = map.get_mut(&id) {
@@ -163,12 +163,12 @@ pub fn pty_write(id: String, data: String, sessions: tauri::State<PtySessions>) 
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_resize(_id: String, _cols: u16, _rows: u16, _sessions: tauri::State<PtySessions>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_close(id: String, sessions: tauri::State<PtySessions>) -> Result<(), String> {
     let mut map = sessions.lock().map_err(|e| e.to_string())?;
     if let Some(session) = map.remove(&id) {
