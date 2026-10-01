@@ -56,12 +56,12 @@ fn write_rules(rules: &[NotificationRule]) -> Result<(), String> {
     fs::write(rules_path(), serde_json::to_string_pretty(rules).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn notif_rules_load() -> Vec<NotificationRule> {
     read_rules()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn notif_rules_save(rule: NotificationRule) -> Result<(), String> {
     let mut rules = read_rules();
     if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
@@ -72,7 +72,7 @@ pub fn notif_rules_save(rule: NotificationRule) -> Result<(), String> {
     write_rules(&rules)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn notif_rules_delete(id: String) -> Result<(), String> {
     let mut rules = read_rules();
     rules.retain(|r| r.id != id);
