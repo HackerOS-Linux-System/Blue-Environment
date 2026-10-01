@@ -164,7 +164,15 @@ export function createTerminalSession() {
     unlistenRefs.forEach((fns) => fns.forEach((fn) => fn()));
   }
 
-  return { tabs, activeTab, themeName, fontSize, loaded, newTab, closeTab, initTerminal, dispose };
+  /** xterm draws to <canvas>, so its selection is invisible to the DOM — right-click
+   * menus need these helpers (copy the selection, paste via xterm so bracketed-paste works). */
+  function termFor(id: string) { return termRefs.get(id)?.term; }
+  const getSelection = (id: string): string => termFor(id)?.getSelection?.() ?? '';
+  const pasteText = (id: string, text: string) => termFor(id)?.paste?.(text);
+  const selectAll = (id: string) => termFor(id)?.selectAll?.();
+  const clearTerm = (id: string) => termFor(id)?.clear?.();
+
+  return { tabs, activeTab, themeName, fontSize, loaded, newTab, closeTab, initTerminal, dispose, getSelection, pasteText, selectAll, clearTerm };
 }
 
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
