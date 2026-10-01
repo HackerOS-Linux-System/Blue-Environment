@@ -6,7 +6,7 @@
     ChevronLeft, ChevronRight, Download, Crop,
     Sliders, X, RefreshCw, Image as ImageIcon,
   } from 'lucide-svelte';
-  import { SystemBridge } from '../../../utils/systemBridge';
+  import { SystemBridge, toAssetUrl } from '../../../utils/systemBridge';
 
   interface ImageItem { path: string; name: string; url: string; }
 
@@ -47,7 +47,7 @@
   async function openFiles() {
     const paths = await SystemBridge.pickFiles([{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff'] }], 'Open Images', 'blue-images.open-files');
     if (!paths || paths.length === 0) return;
-    images = paths.map((p) => ({ path: p, name: p.split('/').pop() ?? p, url: `asset://localhost/${p}` }));
+    images = paths.map((p) => ({ path: p, name: p.split('/').pop() ?? p, url: toAssetUrl(p) }));
     idx = 0;
     resetEdits();
   }
