@@ -62,7 +62,7 @@ fn shell_escape(s: &str) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Read a document from disk and return its contents as a string.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_read_file(path: String) -> Result<String, String> {
     let expanded = expand_path(&path);
     std::fs::read_to_string(&expanded)
@@ -70,7 +70,7 @@ pub fn docs_read_file(path: String) -> Result<String, String> {
 }
 
 /// Write document content to disk.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_write_file(path: String, content: String) -> DocResult {
     let expanded = expand_path(&path);
     let dir = Path::new(&expanded).parent().unwrap_or(Path::new("."));
@@ -89,7 +89,7 @@ pub fn docs_write_file(path: String, content: String) -> DocResult {
 }
 
 /// List recently used documents from the XDG recent-files list.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_get_recent() -> Vec<DocMeta> {
     let recent_file = sh(
         "echo ~/.local/share/recently-used.xbel 2>/dev/null"
@@ -150,7 +150,7 @@ pub fn docs_get_recent() -> Vec<DocMeta> {
 }
 
 /// Get metadata and word count for a document on disk.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_get_meta(path: String) -> Result<DocMeta, String> {
     let expanded = expand_path(&path);
     let meta = std::fs::metadata(&expanded)
@@ -199,7 +199,7 @@ pub fn docs_get_meta(path: String) -> Result<DocMeta, String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Export an HTML document to PDF using chromium/wkhtmltopdf.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_export_pdf(html_path: String, output_path: String) -> DocResult {
     let html = expand_path(&html_path);
     let out  = expand_path(&output_path);
@@ -228,7 +228,7 @@ pub fn docs_export_pdf(html_path: String, output_path: String) -> DocResult {
 }
 
 /// Convert an HTML file to plain text.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_export_plaintext(html: String) -> String {
     // Strip tags and decode common HTML entities
     html
@@ -255,7 +255,7 @@ pub fn docs_export_plaintext(html: String) -> String {
 }
 
 /// Convert rich HTML content to Markdown approximation.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_export_markdown(html: String) -> String {
     let md = html
         .replace("<h1>", "# ").replace("</h1>", "\n\n")
@@ -297,7 +297,7 @@ pub fn docs_export_markdown(html: String) -> String {
 
 /// Spell-check a list of words using hunspell.
 /// Returns results for every word (correct + suggestions for wrong ones).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_spellcheck(words: Vec<String>, lang: Option<String>) -> Vec<SpellResult> {
     let lang = lang.unwrap_or_else(|| "en_US".to_string());
     let mut results = Vec::new();
@@ -349,7 +349,7 @@ pub struct DocTemplate {
 }
 
 /// Return a list of built-in document templates.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_get_templates() -> Vec<DocTemplate> {
     vec![
         DocTemplate {
@@ -429,7 +429,7 @@ pub fn docs_get_templates() -> Vec<DocTemplate> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Save a document to the Blue Docs autosave cache.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_autosave(doc_id: String, content: String, name: String) -> bool {
     let cache_dir = sh("echo ${XDG_CACHE_HOME:-~/.cache}/Blue-Environment/docs").unwrap_or_default();
     if sh(&format!("mkdir -p {}", cache_dir)).is_err() { return false; }
@@ -444,7 +444,7 @@ pub fn docs_autosave(doc_id: String, content: String, name: String) -> bool {
 }
 
 /// List all autosaved documents.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_list_autosaved() -> Vec<DocMeta> {
     let cache_dir = sh("echo ${XDG_CACHE_HOME:-~/.cache}/Blue-Environment/docs").unwrap_or_default();
     let cache_dir = cache_dir.trim();
@@ -478,7 +478,7 @@ pub fn docs_list_autosaved() -> Vec<DocMeta> {
 
 /// Convert a .docx file to HTML for display in the rich editor.
 /// Tries pandoc first (best quality), then python-docx, then returns raw XML fallback.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_read_docx(path: String) -> Result<String, String> {
     let expanded = expand_path(&path);
 
@@ -536,7 +536,7 @@ except Exception as e:
 }
 
 /// Save the HTML content of the editor back to a .docx file via pandoc.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_write_docx(html_content: String, output_path: String) -> DocResult {
     let expanded = expand_path(&output_path);
 
@@ -569,7 +569,7 @@ pub fn docs_write_docx(html_content: String, output_path: String) -> DocResult {
 
 /// Extract text from a PDF and return it as HTML paragraphs.
 /// Uses pdftohtml (poppler), then pdftotext, then mutool as fallbacks.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_read_pdf(path: String) -> Result<String, String> {
     let expanded = expand_path(&path);
 
@@ -633,7 +633,7 @@ pub fn docs_read_pdf(path: String) -> Result<String, String> {
 }
 
 /// Export an HTML document to DOCX using pandoc.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docs_export_docx(html: String, path: String) -> DocResult {
     docs_write_docx(html, path)
 }
