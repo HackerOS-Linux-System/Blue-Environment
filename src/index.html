@@ -4,8 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blue Environment</title>
+    <link rel="stylesheet" href="/splash.css" />
   </head>
   <body>
+    <!-- Startup splash: painted before any JS runs, removed by
+         hideSplash() (src/lib/utils/splash.ts) once the shell is ready. -->
+    <div id="blue-splash" role="status" aria-live="polite">
+      <svg class="blue-splash-logo" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="bsg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#3b82f6" />
+            <stop offset="1" stop-color="#4338ca" />
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="88" height="88" rx="24" fill="url(#bsg)" />
+        <path d="M48 20 L55 41 L76 48 L55 55 L48 76 L41 55 L20 48 L41 41 Z" fill="#ffffff" />
+      </svg>
+      <div class="blue-splash-title">Blue Environment</div>
+      <div class="blue-splash-status">Starting…</div>
+      <div class="blue-splash-spinner"></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/main.ts"></script>
   </body>
