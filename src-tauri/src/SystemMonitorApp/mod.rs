@@ -434,7 +434,7 @@ pub fn get_temperatures() -> Vec<TempSensor> {
 // Processes
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_processes() -> Vec<ProcessEntry> {
     use sysinfo::{System, ProcessStatus};
     let mut sys = System::new_all();
@@ -475,7 +475,7 @@ pub fn get_processes() -> Vec<ProcessEntry> {
     procs
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn kill_process(pid: u32, signal: Option<i32>) -> bool {
     let sig = signal.unwrap_or(15); // SIGTERM default
     Command::new("kill")
@@ -486,7 +486,7 @@ pub fn kill_process(pid: u32, signal: Option<i32>) -> bool {
         .unwrap_or(false)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn renice_process(pid: u32, nice: i32) -> bool {
     let nice = nice.clamp(-20, 19);
     Command::new("renice")
@@ -502,17 +502,17 @@ pub fn renice_process(pid: u32, nice: i32) -> bool {
 // Tauri commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_cpu_metrics() -> CpuInfo {
     get_cpu_info()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_memory_metrics() -> MemInfo {
     get_mem_info()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_disk_metrics() -> Vec<DiskEntry> {
     get_disks()
 }
@@ -526,17 +526,17 @@ pub async fn get_network_metrics() -> Result<Vec<NetInterface>, String> {
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_gpu_metrics() -> Vec<GpuInfo> {
     get_gpu_info()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_temp_sensors() -> Vec<TempSensor> {
     get_temperatures()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_system_snapshot() -> SystemSnapshot {
     let uptime = std::fs::read_to_string("/proc/uptime")
         .unwrap_or_default()
