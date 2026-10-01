@@ -7,9 +7,14 @@
   import PackageRow from './PackageRow.svelte';
   import InstallLogTerminal from './InstallLogTerminal.svelte';
 
-  const { packages, loading, error, activeAction, installLog, loadPackages, performAction, closeLog } = createPackages();
+  const { packages, loading, refreshing, error, activeAction, installLog, loadPackages, performAction, closeLog } = createPackages();
 
-  let activeTab: SoftwareTab = 'available';
+  let activeTab: SoftwareTab = 'installed';
+  // Rendering thousands of cards at once (a normal Installed list) freezes
+  // the webview; show a page at a time instead.
+  const PAGE = 120;
+  let shown = PAGE;
+  $: if (searchQuery !== undefined || activeTab) shown = PAGE;
   let searchQuery = '';
   let viewMode: ViewMode = 'grid';
 
@@ -41,8 +46,8 @@
         <Package size={26} class="text-blue-400" />
         <h1 class="text-xl font-bold">Blue Software</h1>
       </div>
-      <button on:click={loadPackages} disabled={$loading} class="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50">
-        <RefreshCw size={16} class={$loading ? 'animate-spin' : ''} />
+      <button on:click={loadPackages} disabled={$refreshing} class="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50">
+        <RefreshCw size={16} class={$refreshing ? 'animate-spin' : ''} />
       </button>
     </div>
 
@@ -92,16 +97,26 @@
       </div>
     {:else if viewMode === 'grid'}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {#each filtered as pkg (`${pkg.source}-${pkg.id}`)}
+        {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
           <PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} />
         {/each}
       </div>
     {:else}
       <div class="space-y-1">
-        {#each filtered as pkg (`${pkg.source}-${pkg.id}`)}
+        {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
           <PackageRow {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} />
         {/each}
       </div>
+    {/if}
+    {#if filtered.length > shown}
+      <div class="text-center py-4">
+        <button on:click={() => (shown += PAGE)} class="px-4 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm">
+          Show more ({filtered.length - shown} left)
+        </button>
+      </div>
+    {/if}
+    {#if $refreshing && !$loading}
+      <div class="text-center text-xs text-slate-500 py-2 flex items-center justify-center gap-2"><Loader2 size={12} class="animate-spin" /> Checking updates and available apps…</div>
     {/if}
   </div>
 
