@@ -19,7 +19,7 @@ pub struct ArchiveInfo {
 
 /// Lists the contents of an archive file. Supports tar (all variants)
 /// and zip; falls back to 7z for anything else.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_list(path: String) -> ArchiveInfo {
     let p = PathBuf::from(&path);
     let name_lower = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
@@ -104,7 +104,7 @@ fn list_7z(path: &str) -> ArchiveInfo {
 
 /// Extracts an archive to `dest_dir`. Uses pkexec for privilege escalation
 /// only if the destination requires it (most user-home extractions don't).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_extract(path: String, dest_dir: String) -> Result<String, String> {
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let name_lower = PathBuf::from(&path).file_name()
@@ -127,7 +127,7 @@ pub fn archive_extract(path: String, dest_dir: String) -> Result<String, String>
 }
 
 /// Creates a new zip archive from `files` (a list of paths to include).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_create(output_path: String, files: Vec<String>) -> Result<(), String> {
     if files.is_empty() { return Err("No files specified".to_string()); }
     let status = Command::new("zip")
