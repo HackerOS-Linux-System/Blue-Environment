@@ -142,7 +142,7 @@ fn ensure_default_conversation(items: &mut Vec<Conversation>) -> Vec<Conversatio
     items.clone()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_load_conversations() -> Vec<Conversation> {
     let mut items = read_conversations();
     let mut items = ensure_default_conversation(&mut items);
@@ -184,12 +184,12 @@ fn create_conversation_with_device(title: String, participant: String, channel: 
     Ok(convo)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_create_conversation(title: String, participant: String, channel: Channel) -> Result<Conversation, String> {
     create_conversation_internal(title, participant, channel)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_delete_conversation(id: String) -> Result<(), String> {
     let mut items = read_conversations();
     items.retain(|c| c.id != id);
@@ -197,7 +197,7 @@ pub fn messages_delete_conversation(id: String) -> Result<(), String> {
     storage::delete_for_conversation(&id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_set_pinned(id: String, pinned: bool) -> Result<(), String> {
     let mut items = read_conversations();
     if let Some(c) = items.iter_mut().find(|c| c.id == id) {
@@ -206,7 +206,7 @@ pub fn messages_set_pinned(id: String, pinned: bool) -> Result<(), String> {
     write_conversations(&items)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_load_thread(conversation_id: String) -> Vec<Message> {
     storage::thread(&conversation_id)
 }
@@ -272,7 +272,7 @@ pub async fn messages_send(conversation_id: String, body: String) -> Result<Mess
 
 /// Marks every message in `conversation_id` read and zeroes its unread
 /// count — called when the frontend opens a conversation's thread.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_mark_read(conversation_id: String) -> Result<(), String> {
     storage::mark_read(&conversation_id)?;
 
