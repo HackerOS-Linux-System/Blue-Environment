@@ -1151,6 +1151,12 @@ export const SystemBridge = {
     deleteFile:    async (path: string)                               => { if (isTauri) await invoke('delete_file',    { path }); },
     copyFile:      async (src: string, dest: string)                  => { if (isTauri) await invoke('copy_file',      { src, dest }); },
     moveFile:      async (src: string, dest: string)                  => { if (isTauri) await invoke('move_file',      { src, dest }); },
+    moveToTrash:   async (paths: string[])                            => { if (isTauri) await invoke('move_to_trash', { paths }); },
+    compressFiles: async (paths: string[], format: string, name?: string): Promise<string> => isTauri ? await invoke('compress_files', { paths, format, name: name ?? null }) : '',
+    extractArchiveHere: async (path: string): Promise<string> => isTauri ? await invoke('extract_archive_here', { path }) : '',
+    getOpenWithApps: async (mime: string, all = true): Promise<{ id: string; name: string; icon?: string; exec: string; recommended: boolean }[]> => isTauri ? await invoke('get_open_with_apps', { mime, all }) : [],
+    openWithApp:   async (exec: string, path: string)                 => { if (isTauri) await invoke('open_with_app', { exec, path }); },
+    getFileDetails: async (path: string): Promise<{ permissions: string; owner: string; group: string; size_bytes: number; accessed: string; modified: string; symlink_target?: string }> => await invoke('get_file_details', { path }),
     createTextFile: async (path: string, name: string, content = '') => { if (isTauri) await invoke('create_text_file', { path, name, content }); },
 
     // --- Terminal & commands ---
