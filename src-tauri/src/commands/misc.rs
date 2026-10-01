@@ -5,12 +5,12 @@ use tauri::Emitter;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_icon_themes() -> Vec<String> {
     crate::icon_resolver::list_installed_icon_themes()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_icon_theme(theme: Option<String>) {
     crate::icon_resolver::set_icon_theme(theme);
 }
@@ -20,7 +20,7 @@ pub fn set_icon_theme(theme: Option<String>) {
 /// — same "only ever offer what's actually present" approach as
 /// `list_icon_themes` above, just for cursor themes' own directory
 /// layout instead of icon themes' `index.theme` marker file.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_cursor_themes() -> Vec<String> {
     let mut themes = Vec::new();
     let search_roots = [
@@ -53,7 +53,7 @@ pub fn list_cursor_themes() -> Vec<String> {
 /// comparison) since XCursor theme selection was already a
 /// filesystem-convention setting industry-wide, not a per-compositor
 /// protocol extension.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_cursor_theme(theme: String) -> Result<(), String> {
     let default_dir = dirs::home_dir().ok_or("No home dir")?.join(".icons/default");
     fs::create_dir_all(&default_dir).map_err(|e| e.to_string())?;
@@ -61,7 +61,7 @@ pub fn set_cursor_theme(theme: String) -> Result<(), String> {
     fs::write(&index_path, format!("[Icon Theme]\nInherits={theme}\n")).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_panel_enabled(enabled: bool) -> Result<(), String> {
     println!("Panel enabled: {}", enabled);
     Ok(())
@@ -88,7 +88,7 @@ fn data_url_mime(data_url: &str) -> String {
         .to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clipboard_copy(text: String) -> Result<(), String> {
     use std::io::Write;
     use crate::session::{self, SessionType};
@@ -109,7 +109,7 @@ pub fn clipboard_copy(text: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clipboard_paste() -> Result<String, String> {
     use crate::session::{self, SessionType};
 
@@ -122,7 +122,7 @@ pub fn clipboard_paste() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_clipboard_image(data_url: String) -> Result<(), String> {
     use std::io::Write;
     use crate::session::{self, SessionType};
@@ -150,7 +150,7 @@ pub fn write_clipboard_image(data_url: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_file_from_data_url(path: String, data_url: String) -> Result<(), String> {
     let bytes = decode_data_url(&data_url)?;
     if let Some(parent) = PathBuf::from(&path).parent() {
@@ -159,7 +159,7 @@ pub fn save_file_from_data_url(path: String, data_url: String) -> Result<(), Str
     fs::write(&path, bytes).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_config_file(filename: String) -> Result<String, String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
     let path = home.join(".config/Blue-Environment").join(&filename);
@@ -167,7 +167,7 @@ pub fn read_config_file(filename: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_config_file(filename: String, content: String) -> Result<(), String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
     let path = home.join(".config/Blue-Environment").join(&filename);
@@ -175,7 +175,7 @@ pub fn write_config_file(filename: String, content: String) -> Result<(), String
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_cache_file(filename: String) -> Result<String, String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
     let path = home.join(".cache/Blue-Environment").join(&filename);
@@ -183,7 +183,7 @@ pub fn read_cache_file(filename: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_cache_file(filename: String, content: String) -> Result<(), String> {
     let home = dirs::home_dir().ok_or("No home dir")?;
     let path = home.join(".cache/Blue-Environment").join(&filename);
@@ -300,20 +300,20 @@ pub fn notifications_path() -> PathBuf {
 // same algorithm, guaranteed by the type system rather than by three people
 // remembering to keep three copies in sync.
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_pattern_lock(username: String, pattern: Vec<u8>) -> Result<(), String> {
     let home = dirs::home_dir().ok_or("No home directory")?;
     blue_auth::save_pattern(&username, &home, &pattern)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_pattern_lock(username: String) -> Result<(), String> {
     let _ = username;
     let home = dirs::home_dir().ok_or("No home directory")?;
     blue_auth::delete_pattern(&home)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pattern_is_configured(username: String, home: String) -> bool {
     let _ = username;
     blue_auth::pattern_is_configured(&home)
@@ -321,7 +321,7 @@ pub fn pattern_is_configured(username: String, home: String) -> bool {
 
 /// Same fprintd check BEDM's greeter uses — both now call into the shared
 /// `blue-auth` crate instead of maintaining separate copies of the logic.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn has_fingerprint(username: String) -> bool {
     blue_auth::has_fingerprint(&username)
 }
