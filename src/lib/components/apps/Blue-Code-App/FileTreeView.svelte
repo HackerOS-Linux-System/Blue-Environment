@@ -2,6 +2,7 @@
   import { Folder, ChevronRight, ChevronDown, FileCode, Trash2, Edit2 } from 'lucide-svelte';
   import type { FileNode } from './types';
   import { createEventDispatcher } from 'svelte';
+  import { blueCodeSettings } from './blueCodeSettings';
 
   export let nodes: FileNode[];
   export let level = 0;
@@ -45,7 +46,19 @@
       class="flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-white/5 group text-sm {node.type === 'directory' && node.path === selectedDir ? 'bg-blue-600/10' : ''}"
       style="padding-left:{level * 12 + 4}px;"
       on:dblclick={() => node.type === 'file' && dispatch('openFile', node.path)}
-      on:click={() => node.type === 'directory' && dispatch('toggleDir', node)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => node.type === 'directory' && dispatch('toggleDir', node))(); } }}>
+      on:click={() => {
+        if (node.type === 'directory') dispatch('toggleDir', node);
+        // Default: one click opens the file. A double-click then re-fires
+        // openFile for an already-open path, which is a harmless tab switch.
+        else if ($blueCodeSettings.openOnSingleClick) dispatch('openFile', node.path);
+      }}
+      role="button" tabindex="0"
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (node.type === 'directory') dispatch('toggleDir', node); else dispatch('openFile', node.path);
+        }
+      }}>
       {#if node.type === 'directory'}
         <span class="text-slate-500 w-4 shrink-0">{#if node.expanded}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</span>
       {/if}
