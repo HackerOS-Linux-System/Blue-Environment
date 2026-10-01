@@ -100,8 +100,60 @@ fn run_check(cmd: &str) -> bool {
 /// rather than fabricating a path, so the frontend correctly falls back
 /// to its generic package icon.
 fn icon_for_package(name: &str) -> Option<String> {
+    // Cached: the same package name is often looked up several times per
+    // refresh (installed + available lists), and each uncached lookup walks
+    // every icon theme on disk via linicon.
+    static CACHE: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>> =
+        once_cell::sync::Lazy::new(|| std::sync::Mutex::new(Default::default()));
+    if let Ok(c) = CACHE.lock() {
+        if let Some(hit) = c.get(name) { return hit.clone(); }
+    }
     let resolved = crate::icon_resolver::resolve_icon(name);
-    if resolved.is_empty() { None } else { Some(resolved) }
+    let out = if resolved.is_empty() { None } else { Some(resolved) };
+    if let Ok(mut c) = CACHE.lock() { c.insert(name.to_string(), out.clone()); }
+    out
+}
+
+/// Names (lower-case, without `.desktop`) of every application that ships a
+/// .desktop launcher. Used to decide which *installed* packages are worth an
+/// icon lookup at all: a typical system has 1500-3000 installed packages but
+/// only a few dozen GUI apps, and resolving an icon for every library
+/// (`libc6`, `zlib`...) was what made Blue Software spin for minutes — each
+/// miss walks all icon themes. Computed once per process.
+fn desktop_app_names() -> &'static std::collections::HashSet<String> {
+    static NAMES: once_cell::sync::Lazy<std::collections::HashSet<String>> = once_cell::sync::Lazy::new(|| {
+        let mut set = std::collections::HashSet::new();
+        let mut dirs_to_scan = vec![
+            std::path::PathBuf::from("/usr/share/applications"),
+            std::path::PathBuf::from("/usr/local/share/applications"),
+            std::path::PathBuf::from("/var/lib/flatpak/exports/share/applications"),
+        ];
+        if let Some(h) = dirs::home_dir() {
+            dirs_to_scan.push(h.join(".local/share/applications"));
+            dirs_to_scan.push(h.join(".local/share/flatpak/exports/share/applications"));
+        }
+        for d in dirs_to_scan {
+            let Ok(rd) = std::fs::read_dir(d) else { continue };
+            for e in rd.flatten() {
+                let f = e.file_name().to_string_lossy().to_lowercase();
+                if let Some(stem) = f.strip_suffix(".desktop") { set.insert(stem.to_string()); }
+            }
+        }
+        set
+    });
+    &NAMES
+}
+
+/// Icon lookup for an *installed* package: only when it plausibly is a GUI
+/// app (has a .desktop launcher or is in the popular list); everything else
+/// returns None instantly, so the frontend shows its generic package icon.
+fn icon_for_installed(name: &str) -> Option<String> {
+    let lower = name.to_lowercase();
+    if desktop_app_names().contains(&lower) || POPULAR_APPS.contains(&lower.as_str()) {
+        icon_for_package(name)
+    } else {
+        None
+    }
 }
 
 /// Formats a size given in raw bytes (the unit rpm's %{SIZE} tag
@@ -152,7 +204,7 @@ pub fn get_dnf_packages() -> Vec<PackageInfo> {
                       version: p[1].trim().to_string(),
                       source: "dnf".to_string(), installed: true,
                       update_available: None, // filled in below
-                      icon: icon_for_package(&name),
+                      icon: icon_for_installed(&name),
                       size: format_bytes(size_bytes),
         });
     }
@@ -249,16 +301,19 @@ pub fn get_flatpak_packages() -> Vec<PackageInfo> {
                       size: cols.get(3).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         });
     }
-    let search_raw = run_timeout("flatpak", &["search","--columns=application,name,description,version"], RUN_TIMEOUT_NETWORK);
-    for line in search_raw.lines().skip(1).take(20) {
+    // `flatpak search` with no search term exits with an error (so the
+    // "Available" list was always empty). `remote-ls` reads the locally
+    // cached appstream of the configured remote(s) — no term needed.
+    let search_raw = run_timeout("flatpak", &["remote-ls","--app","--columns=application,name,description,version"], RUN_TIMEOUT_NETWORK);
+    for line in search_raw.lines().take(60) {
         let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() < 4 { continue; }
+        if cols.len() < 3 { continue; }
         let id = cols[0].trim().to_string();
-        if installed_ids.contains(&id) { continue; }
+        if id.is_empty() || installed_ids.contains(&id) { continue; }
         packages.push(PackageInfo {
             id: id.clone(), name: cols[1].trim().to_string(),
                       description: cols[2].trim().to_string(),
-                      version: cols[3].trim().to_string(),
+                      version: cols.get(3).map(|v| v.trim().to_string()).unwrap_or_default(),
                       source: "flatpak".to_string(), installed: false,
                       update_available: None, icon: icon_for_package(&id), size: None,
         });
@@ -267,6 +322,7 @@ pub fn get_flatpak_packages() -> Vec<PackageInfo> {
 }
 
 pub fn install_flatpak(pkg_id: &str) -> bool {
+    let _ = Command::new("flatpak").args(["remote-add","--user","--if-not-exists","flathub","https://dl.flathub.org/repo/flathub.flatpakrepo"]).status();
     Command::new("flatpak").args(["install","--assumeyes","--user","flathub",pkg_id])
     .status().map(|s| s.success()).unwrap_or(false)
 }
@@ -417,7 +473,7 @@ pub fn get_apt_packages() -> Vec<PackageInfo> {
             version: p[1].trim().to_string(),
             source: "apt".to_string(), installed: true,
             update_available: None, // filled in below
-            icon: icon_for_package(&name),
+            icon: icon_for_installed(&name),
             size: if size_kb > 0 { Some(format!("{:.1} MB", size_kb as f64 / 1024.0)) } else { None },
         });
     }
@@ -521,26 +577,28 @@ pub fn get_pacman_packages() -> Vec<PackageInfo> {
     let mut pkgs = Vec::new();
     let mut installed_names: std::collections::HashSet<String> = Default::default();
 
-    let raw = run("pacman", &["-Q", "--noconfirm"]);
-    for line in raw.lines() {
-        let mut p = line.splitn(2, ' ');
-        let name    = p.next().unwrap_or("").trim().to_string();
-        let version = p.next().unwrap_or("").trim().to_string();
+    // ONE `pacman -Qi` for the whole system (stanzas separated by blank
+    // lines) instead of the previous `pacman -Qi <name>` per installed
+    // package — that was 1000+ process spawns, each with its own timeout.
+    let raw = run_timeout("pacman", &["-Qi"], RUN_TIMEOUT_NETWORK);
+    for stanza in raw.split("\n\n") {
+        let (mut name, mut version, mut desc) = (String::new(), String::new(), String::new());
+        for line in stanza.lines() {
+            let Some((k, v)) = line.split_once(':') else { continue };
+            match k.trim() {
+                "Name" => name = v.trim().to_string(),
+                "Version" => version = v.trim().to_string(),
+                "Description" => desc = v.trim().to_string(),
+                _ => {}
+            }
+        }
         if name.is_empty() { continue; }
         installed_names.insert(name.clone());
-        // Get description from pkginfo
-        let desc = run("pacman", &["-Qi", &name])
-            .lines()
-            .find(|l| l.starts_with("Description"))
-            .and_then(|l| l.split(':').nth(1))
-            .unwrap_or("")
-            .trim()
-            .to_string();
         pkgs.push(PackageInfo {
             id: name.clone(), name: name.clone(), description: desc,
             version, source: "pacman".to_string(), installed: true,
             update_available: None, // filled in below
-            icon: icon_for_package(&name), size: None,
+            icon: icon_for_installed(&name), size: None,
         });
     }
 
@@ -788,7 +846,7 @@ pub fn get_rpm_ostree_packages() -> Vec<PackageInfo> {
             description: p[2].to_string(), version: p[1].to_string(),
             source: "rpm-ostree".to_string(), installed: true,
             update_available: if update_pending { Some(true) } else { None },
-            icon: icon_for_package(p[0]), size: None,
+            icon: icon_for_installed(p[0]), size: None,
         })
     }).collect();
     for pkg_name in layered {
@@ -904,4 +962,70 @@ pub fn detect_backend() -> PkgBackend {
 
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fast, local-only listing (installed packages; no network, no update checks)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Installed packages only, from the local package database. Returns in well
+/// under a second on a healthy system, so Blue Software can show the
+/// "Installed" tab immediately while the slower full query (updates +
+/// "Available" suggestions) is still running in the background.
+pub fn get_installed_fast() -> Vec<PackageInfo> {
+    let mut pkgs: Vec<PackageInfo> = Vec::new();
+    match detect_backend() {
+        PkgBackend::Apt => {
+            if !run_check("dpkg") { return pkgs; }
+            let raw = run("dpkg-query", &["-W", "-f=${Package}|${Version}|${Status}|${Installed-Size}|${binary:Summary}\n"]);
+            for line in raw.lines() {
+                let p: Vec<&str> = line.splitn(5, '|').collect();
+                if p.len() < 5 || !p[2].contains("installed") { continue; }
+                let name = p[0].trim().to_string();
+                let size_kb: u64 = p[3].trim().parse().unwrap_or(0);
+                pkgs.push(PackageInfo {
+                    id: name.clone(), name: name.clone(), description: p[4].trim().to_string(),
+                    version: p[1].trim().to_string(), source: "apt".to_string(), installed: true,
+                    update_available: None, icon: icon_for_installed(&name),
+                    size: if size_kb > 0 { Some(format!("{:.1} MB", size_kb as f64 / 1024.0)) } else { None },
+                });
+            }
+        }
+        PkgBackend::Pacman => {
+            if !run_check("pacman") { return pkgs; }
+            let raw = run_timeout("pacman", &["-Qi"], RUN_TIMEOUT_NETWORK);
+            for stanza in raw.split("\n\n") {
+                let (mut name, mut version, mut desc) = (String::new(), String::new(), String::new());
+                for line in stanza.lines() {
+                    let Some((k, v)) = line.split_once(':') else { continue };
+                    match k.trim() { "Name" => name = v.trim().to_string(), "Version" => version = v.trim().to_string(), "Description" => desc = v.trim().to_string(), _ => {} }
+                }
+                if name.is_empty() { continue; }
+                pkgs.push(PackageInfo {
+                    id: name.clone(), name: name.clone(), description: desc, version,
+                    source: "pacman".to_string(), installed: true, update_available: None,
+                    icon: icon_for_installed(&name), size: None,
+                });
+            }
+        }
+        _ => {
+            // rpm-based (dnf / zypper / rpm-ostree): the rpm database is local.
+            if !run_check("rpm") { return pkgs; }
+            let raw = run("rpm", &["-qa", "--queryformat", "%{NAME}|%{VERSION}-%{RELEASE}|%{SUMMARY}|%{SIZE}\n"]);
+            for line in raw.lines() {
+                let p: Vec<&str> = line.splitn(4, '|').collect();
+                if p.len() < 4 { continue; }
+                let name = p[0].to_string();
+                let size_bytes: u64 = p[3].trim().parse().unwrap_or(0);
+                pkgs.push(PackageInfo {
+                    id: name.clone(), name: name.clone(), description: p[2].trim().to_string(),
+                    version: p[1].trim().to_string(), source: "dnf".to_string(), installed: true,
+                    update_available: None, icon: icon_for_installed(&name), size: format_bytes(size_bytes),
+                });
+            }
+        }
+    }
+    pkgs.sort_by(|a, b| a.name.cmp(&b.name));
+    pkgs
 }
