@@ -55,7 +55,7 @@
 
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5">
     <span class="block text-sm font-medium text-slate-400 mb-2">{$t('settings.display.brightness')}</span>
-    <input type="range" min="0" max="100" bind:value={brightness} on:mouseup={() => SystemBridge.setBrightness(brightness)}
+    <input type="range" min="1" max="100" bind:value={brightness} on:change={() => SystemBridge.setBrightness(brightness)}
       class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
     <div class="flex justify-between text-xs text-slate-500 mt-1"><span>0%</span><span>{brightness}%</span><span>100%</span></div>
   </div>
