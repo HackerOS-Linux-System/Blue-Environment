@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_wallpapers() -> Vec<String> {
     let mut wallpapers: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -249,7 +249,7 @@ fn generate_wallpaper_thumbnail(path: &str) -> Result<String, String> {
 ///      system — the frontend's caller is responsible for having a
 ///      sane final fallback (a plain color) for that case; this
 ///      function doesn't invent a path that isn't real.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resolve_default_wallpaper() -> Option<String> {
     let standard_default = std::path::Path::new("/usr/share/wallpapers/default.png");
     if standard_default.exists() {
@@ -258,7 +258,7 @@ pub fn resolve_default_wallpaper() -> Option<String> {
     get_wallpapers().into_iter().next()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_distro_info() -> std::collections::HashMap<String, String> {
     let mut info = std::collections::HashMap::new();
     info.insert("Name".to_string(), "LegendaryOS".to_string());
@@ -277,7 +277,7 @@ pub fn load_distro_info() -> std::collections::HashMap<String, String> {
     info
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn system_power(action: String) {
     // Log out on the labwc backend: ask labwc to exit (`labwc -e`) — that
     // ends the whole session cleanly instead of `pkill`-ing the user.
