@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { watchedInvoke } from '../../../stores/appHealth';
   import { onMount, onDestroy } from 'svelte';
   import {
     Cpu, MemoryStick, Network, HardDrive, Activity,
@@ -16,7 +17,8 @@
     type ProcessEntry, type CpuInfo, type MemInfo, type DiskEntry, type NetInterface, type GpuInfo, type TempSensor,
   } from './types';
 
-  function invoke<T>(cmd: string, args?: any): Promise<T> { return SystemBridge.invokeCommand<T>(cmd, args); }
+  export let windowId: string | undefined = undefined;
+  const invoke = watchedInvoke(windowId, (cmd, args) => SystemBridge.invokeCommand(cmd, args));
 
   let tab: MonitorTab = 'overview';
 
@@ -41,7 +43,13 @@
   let killing: number | null = null;
   let interval: ReturnType<typeof setInterval>;
 
+  let ticking = false;
   async function tick() {
+    // Never stack requests: if the previous refresh hasn't finished (slow disk /
+    // process listing) skip this one instead of piling up work. Also skip while
+    // the window is in a background tab / minimised.
+    if (ticking || document.hidden) return;
+    ticking = true;
     try {
       const [cpuData, memData, diskData, netData, gpuData, tempData, procData] = await Promise.allSettled([
         invoke<CpuInfo>('get_cpu_metrics'),
@@ -68,7 +76,7 @@
       }
       if (tempData.status === 'fulfilled') temps = tempData.value;
       if (procData.status === 'fulfilled') procs = procData.value;
-    } catch {}
+    } catch {} finally { ticking = false; }
   }
 
   onMount(() => { tick(); interval = setInterval(tick, 2000); });
