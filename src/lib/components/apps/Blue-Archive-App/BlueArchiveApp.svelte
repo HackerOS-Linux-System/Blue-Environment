@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { Archive, FolderOpen, Download, File, Folder, AlertCircle, Loader2, Info, Plus } from 'lucide-svelte';
   import { createArchive } from './useArchive';
   import CreateArchiveDialog from './CreateArchiveDialog.svelte';
 
-  const { archive, loading, status, error, openFile, extract } = createArchive();
+  export let openPath: string | undefined = undefined;
+  const { archive, loading, status, error, openFile, extract, openPath: loadPath } = createArchive();
+  onMount(() => { if (openPath) loadPath(openPath); });
   let showCreate = false;
   let search = '';
   let sortBy: 'name' | 'size' = 'name';
