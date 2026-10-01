@@ -4,6 +4,11 @@
 local BLUE_DIR = "/usr/share/Blue-Environment"
 local BLUE_BIN = "/usr/share/Blue-Environment/blue-environment"
 local VERSION_FILE = "/usr/share/Blue-Environment/.version"
+-- Wzorzec dla pkill -f: tylko procesy, których CAŁA linia poleceń zaczyna się
+-- od ścieżki binarki (sama powłoka Blue). Goły "blue-environment" pasowałby
+-- też do kompozytora (labwc -s '/usr/share/.../blue-environment --labwc-child'),
+-- więc "blue refresh" ubijał całą sesję graficzną.
+local SHELL_PATTERN = "^/usr/share/Blue-Environment/blue-environment( |$)"
 local REMOTE_VERSION_URL = "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/version.hacker"
 local RELEASE_BASE = "https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download"
 
@@ -33,6 +38,44 @@ local function trim(s)
     return (s:gsub("^%s*(.-)%s*$", "%1"))
 end
 
+-- Cytowanie argumentu dla powłoki ('...' z ucieczką apostrofów).
+local function shell_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+-- Czy os.execute zakończyło się sukcesem - działa tak samo w Lua 5.1
+-- (zwraca liczbę) i 5.2+ (zwraca true/nil, "exit"/"signal", kod).
+-- Zwraca: ok (bool), kod wyjścia (liczba).
+local function exec_status(a, b, c)
+    if type(a) == "number" then
+        return a == 0, a
+    end
+    if a == true then
+        return true, 0
+    end
+    local code = tonumber(c) or 1
+    if b == "signal" then
+        return false, 128 + code
+    end
+    -- Niektóre kompilacje Lua oddają surowy status wait() (kod << 8).
+    if code > 255 then
+        code = code // 256
+    end
+    return false, code
+end
+
+-- Czy proces działa już WEWNĄTRZ sesji graficznej (jest WAYLAND_DISPLAY lub
+-- DISPLAY) - np. "blue start" wpisane w terminalu na działającym pulpicie.
+-- Gdy ich nie ma (menedżer logowania SDDM/GDM/HDM albo konsola TTY),
+-- "blue start" jest poleceniem SAMEJ sesji.
+local function in_graphical_session()
+    local function set(name)
+        local v = os.getenv(name)
+        return v ~= nil and v ~= ""
+    end
+    return set("WAYLAND_DISPLAY") or set("DISPLAY")
+end
+
 -- ============================================================
 --  FUNKCJE
 -- ============================================================
@@ -41,7 +84,10 @@ local function help()
     print_color("cyan", "blue — narzędzie Blue Environment")
     print("")
     print("  Użycie:")
-    print("    blue start                 Uruchamia Blue Environment")
+    print("    blue start                 Uruchamia Blue Environment (w sesji z menedżera")
+    print("                               logowania - na pierwszym planie, na pulpicie - w tle)")
+    print("      --foreground, -f         wymusza pierwszy plan")
+    print("      --background, -b         wymusza tło")
     print("    blue update                Sprawdza i aktualizuje Blue Environment")
     print("    blue refresh               Odświeża / restartuje środowisko")
     print("    blue kill                  Zatrzymuje Blue Environment (placeholder)")
@@ -115,9 +161,11 @@ local function do_update()
     local tmp_bin = "/tmp/blue-environment-" .. remote_ver
 
     print("Pobieram binarkę: " .. download_url)
-    local download_status = os.execute("curl -fL --progress-bar -o " .. tmp_bin .. " " .. download_url)
+    local dl_ok = exec_status(os.execute("curl -fL --progress-bar -o " ..
+        shell_quote(tmp_bin) .. " " .. shell_quote(download_url)))
 
-    if type(download_status) == "boolean" and not download_status or download_status ~= 0 then
+    if not dl_ok then
+        os.execute("rm -f " .. shell_quote(tmp_bin))
         print_color("red", "Błąd pobierania binarki.")
         return
     end
@@ -128,7 +176,7 @@ local function do_update()
     end
 
     print("Zatrzymuję starą binarkę (jeśli działa)...")
-    os.execute("pkill -f blue-environment || true")
+    os.execute("pkill -f " .. shell_quote(SHELL_PATTERN) .. " || true")
 
     print("Usuwam starą binarkę...")
     os.execute("rm -f " .. BLUE_BIN)
@@ -149,27 +197,77 @@ local function do_update()
     print_color("green", "✓ Blue Environment zaktualizowany do wersji " .. remote_ver)
 end
 
-local function do_start()
+-- Uruchamia powłokę w tle, odłączoną od terminala (setsid + nohup), żeby
+-- przeżyła zamknięcie okna terminala. Zwraca true, gdy udało się wystartować.
+local function spawn_detached(args)
+    local cmd = "setsid -f nohup " .. shell_quote(BLUE_BIN) .. (args ~= "" and (" " .. args) or "") ..
+        " >/dev/null 2>&1 </dev/null"
+    local ok = exec_status(os.execute(cmd))
+    return ok
+end
+
+-- "blue start" jest też poleceniem SESJI menedżera logowania
+-- (Exec=blue start w pliku .desktop). Menedżer (SDDM/GDM/...) uznaje sesję
+-- za zakończoną w chwili, gdy to polecenie wyjdzie, i zabija wszystko, co
+-- uruchomiła - dlatego odpalenie binarki w tle (" &") i natychmiastowe
+-- wyjście dawało czarny ekran i pętlę relogin. Zasada:
+--   * brak WAYLAND_DISPLAY/DISPLAY (sesja z DM / TTY) -> binarka na
+--     PIERWSZYM PLANIE, "blue start" wychodzi dopiero gdy ona się skończy
+--     (i zwraca jej kod wyjścia);
+--   * jest sesja graficzna (np. wywołanie z terminala na pulpicie) -> w tle,
+--     oddane od razu, jak dotychczas;
+--   * --foreground / -f oraz --background / -b wymuszają jeden z trybów.
+local function do_start(opt)
     if not file_exists(BLUE_BIN) then
         print_color("red", "Nie znaleziono binarki: " .. BLUE_BIN)
         print("Spróbuj najpierw: blue update")
-        return
+        os.exit(1)
+    end
+
+    local foreground
+    if opt == "--foreground" or opt == "-f" then
+        foreground = true
+    elseif opt == "--background" or opt == "-b" then
+        foreground = false
+    elseif opt ~= "" then
+        print_color("red", "Nieznana opcja: " .. opt .. " (użyj --foreground lub --background)")
+        os.exit(2)
+    else
+        foreground = not in_graphical_session()
+    end
+
+    if foreground then
+        io.stdout:flush()
+        -- "exec" w podpowłoce: binarka zastępuje sh, więc nie zostaje
+        -- zbędny proces pośredni; Lua czeka na jej zakończenie.
+        local ok, code = exec_status(os.execute("exec " .. shell_quote(BLUE_BIN)))
+        os.exit(ok and 0 or code)
     end
 
     print("Uruchamiam Blue Environment...")
-    os.execute(BLUE_BIN .. " &")
-    print_color("green", "Blue Environment uruchomiony.")
+    if spawn_detached("") then
+        print_color("green", "Blue Environment uruchomiony.")
+    else
+        print_color("red", "Nie udało się uruchomić Blue Environment.")
+        os.exit(1)
+    end
 end
 
 local function do_refresh()
     print("Odświeżam Blue Environment...")
-    os.execute("pkill -f blue-environment || true")
+    -- Ubijamy tylko powłokę (nie kompozytor, który ją uruchomił).
+    os.execute("pkill -f " .. shell_quote(SHELL_PATTERN) .. " || true")
 
     if file_exists(BLUE_BIN) then
-        os.execute(BLUE_BIN .. " &")
-        print_color("green", "Blue Environment odświeżony.")
+        if spawn_detached("") then
+            print_color("green", "Blue Environment odświeżony.")
+        else
+            print_color("red", "Nie udało się ponownie uruchomić Blue Environment.")
+            os.exit(1)
+        end
     else
         print_color("red", "Brak binarki — uruchom blue update.")
+        os.exit(1)
     end
 end
 
@@ -212,7 +310,7 @@ local arg2 = arg[2] or ""
 if cmd == "" or cmd == "help" or cmd == "-h" or cmd == "--help" then
     help()
 elseif cmd == "start" then
-    do_start()
+    do_start(arg2)
 elseif cmd == "update" then
     do_update()
 elseif cmd == "refresh" then
