@@ -202,7 +202,7 @@ fn enforce_age_retention(conn: &Connection, max_age_days: i64) -> rusqlite::Resu
 /// `enforce_retention_for`/`enforce_age_retention` themselves consult,
 /// so this always reflects what's actually being enforced, not a
 /// separately-tracked "intended" value that could drift from reality.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_get_retention_settings() -> (i64, i64) {
     (retention_max_messages_per_conversation(), retention_max_age_days())
 }
@@ -216,7 +216,7 @@ pub fn messages_get_retention_settings() -> (i64, i64) {
 /// wiring this into `Config`/`config.hk` so it survives a restart is
 /// real, separate follow-up work (this project's small-`.hk` tier is
 /// exactly where a "keep messages for N days" setting belongs).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_set_retention_settings(max_per_conversation: i64, max_age_days: i64) -> Result<(), String> {
     std::env::set_var("BLUE_MESSAGES_MAX_PER_CONVERSATION", max_per_conversation.to_string());
     std::env::set_var("BLUE_MESSAGES_MAX_AGE_DAYS", max_age_days.to_string());
