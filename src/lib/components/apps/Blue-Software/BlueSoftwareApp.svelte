@@ -6,6 +6,18 @@
   import PackageCard from './PackageCard.svelte';
   import PackageRow from './PackageRow.svelte';
   import InstallLogTerminal from './InstallLogTerminal.svelte';
+  import CommunityStore from './CommunityStore.svelte';
+  import { showContextMenu } from '../../../stores/contextMenu';
+  import type { PackageKind } from '../../../utils/blueStore';
+
+  // Top-level sections: the system package manager (apt/dnf/pacman/flatpak/…)
+  // plus the three community stores fed by the JSON indexes.
+  type Section = 'system' | PackageKind;
+  let section: Section = 'system';
+  const sections: { id: Section; label: string }[] = [
+    { id: 'system', label: 'System' }, { id: 'app', label: 'Community Apps' },
+    { id: 'plugin', label: 'Plugins' }, { id: 'theme', label: 'Themes' },
+  ];
 
   const { packages, loading, refreshing, error, activeAction, installLog, loadPackages, performAction, closeLog } = createPackages();
 
@@ -19,6 +31,21 @@
   let viewMode: ViewMode = 'grid';
 
   onMount(loadPackages);
+
+  function pkgMenu(e: MouseEvent, pkg: PackageInfo) {
+    const copy = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+    showContextMenu(e, [
+      ...(pkg.installed
+        ? [
+            ...(pkg.update_available ? [{ label: 'Update', action: () => performAction(pkg, 'update') }] : []),
+            { label: 'Uninstall', danger: true, action: () => performAction(pkg, 'remove') },
+          ]
+        : [{ label: 'Install', action: () => performAction(pkg, 'install') }]),
+      { separator: true },
+      { label: 'Copy package name', action: () => copy(pkg.name) },
+      { label: 'Copy description', disabled: !pkg.description, action: () => copy(pkg.description) },
+    ]);
+  }
 
   $: filtered = $packages.filter((p) => {
     const q = searchQuery.toLowerCase();
@@ -51,6 +78,13 @@
       </button>
     </div>
 
+    <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit">
+      {#each sections as sec (sec.id)}
+        <button on:click={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.label}</button>
+      {/each}
+    </div>
+
+    {#if section === 'system'}
     <div class="flex gap-0 border-b border-white/10 mb-3">
       {#each tabs as t (t.id)}
         <button on:click={() => (activeTab = t.id)}
@@ -74,8 +108,12 @@
         <button on:click={() => (viewMode = 'list')} class="p-1.5 rounded {viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/10'}"><List size={15} /></button>
       </div>
     </div>
+    {/if}
   </div>
 
+  {#if section !== 'system'}
+    <div class="flex-1 min-h-0"><CommunityStore kind={section} /></div>
+  {:else}
   <div class="flex-1 overflow-y-auto p-4">
     {#if $error}
       <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4 flex items-center gap-2 text-red-400 text-sm">
@@ -98,13 +136,13 @@
     {:else if viewMode === 'grid'}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
-          <PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} />
+          <div on:contextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
         {/each}
       </div>
     {:else}
       <div class="space-y-1">
         {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
-          <PackageRow {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} />
+          <div on:contextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageRow {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
         {/each}
       </div>
     {/if}
@@ -119,6 +157,7 @@
       <div class="text-center text-xs text-slate-500 py-2 flex items-center justify-center gap-2"><Loader2 size={12} class="animate-spin" /> Checking updates and available apps…</div>
     {/if}
   </div>
+  {/if}
 
   {#if $installLog}
     <InstallLogTerminal log={$installLog} on:close={closeLog} />
