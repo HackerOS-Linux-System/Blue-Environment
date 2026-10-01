@@ -7,6 +7,8 @@
     Sliders, X, RefreshCw, Image as ImageIcon,
   } from 'lucide-svelte';
   import { SystemBridge, toAssetUrl } from '../../../utils/systemBridge';
+  import { showContextMenu, type MenuItem } from '../../../stores/contextMenu';
+  import { configStore } from '../../../utils/configStore';
 
   /** Set by Explorer/Desktop (utils/openFile.ts): open this image straight away. */
   export let openPath: string | undefined = undefined;
@@ -58,6 +60,68 @@
   function resetEdits() {
     zoom = 1; rotation = 0; flipH = false; flipV = false;
     adj = { ...DEFAULT_ADJ }; cropBox = null; cropMode = false;
+  }
+
+  const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+  const folderOf = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/';
+
+  async function trashImage(i: number) {
+    const img = images[i]; if (!img) return;
+    try {
+      await SystemBridge.moveToTrash([img.path]);
+      images = images.filter((_, j) => j !== i);
+      idx = Math.max(0, Math.min(idx, images.length - 1));
+      resetEdits();
+    } catch { /* leave the list untouched if the trash call failed */ }
+  }
+  const setWallpaper = (p: string) => configStore.save({ wallpaper: `file://${p}` });
+
+  function imageItems(i: number): MenuItem[] {
+    const img = images[i];
+    return [
+      { label: 'Copy path', action: () => copyText(img.path) },
+      { label: 'Copy file name', action: () => copyText(img.name) },
+      { label: 'Open containing folder', action: () => SystemBridge.executeCommand(`xdg-open '${folderOf(img.path).replace(/'/g, "'\\''")}' >/dev/null 2>&1 &`) },
+      { separator: true },
+      { label: 'Set as wallpaper', action: () => setWallpaper(img.path) },
+      { separator: true },
+      { label: 'Move to Trash', danger: true, action: () => trashImage(i) },
+    ];
+  }
+
+  function stageMenu(e: MouseEvent) {
+    if (!current) {
+      showContextMenu(e, [{ label: 'Open images…', action: openFiles }]);
+      return;
+    }
+    showContextMenu(e, [
+      ...(images.length > 1 ? [
+        { label: 'Previous image', shortcut: '←', disabled: idx === 0, action: prev },
+        { label: 'Next image', shortcut: '→', disabled: idx === images.length - 1, action: next },
+        { separator: true } as MenuItem,
+      ] : []),
+      { label: 'Zoom in', action: () => (zoom = Math.min(5, zoom + 0.25)) },
+      { label: 'Zoom out', action: () => (zoom = Math.max(0.1, zoom - 0.25)) },
+      { label: 'Actual size', action: () => (zoom = 1) },
+      { separator: true },
+      { label: 'Rotate left', action: () => (rotation = (rotation - 90) % 360) },
+      { label: 'Rotate right', action: () => (rotation = (rotation + 90) % 360) },
+      { label: 'Flip horizontally', checked: flipH, action: () => (flipH = !flipH) },
+      { label: 'Flip vertically', checked: flipV, action: () => (flipV = !flipV) },
+      { label: 'Reset edits', action: resetEdits },
+      { separator: true },
+      { label: 'Export as PNG', action: () => exportImage('png') },
+      { label: 'Export as JPG', action: () => exportImage('jpg') },
+      { separator: true },
+      ...imageItems(idx),
+      { separator: true },
+      { label: 'Open images…', action: openFiles },
+    ]);
+  }
+
+  function thumbMenu(e: MouseEvent, i: number) {
+    e.stopPropagation();
+    showContextMenu(e, [{ label: 'Show', action: () => { idx = i; resetEdits(); } }, { separator: true }, ...imageItems(i)]);
   }
 
   function prev() { idx = Math.max(0, idx - 1); resetEdits(); }
@@ -214,7 +278,7 @@
       </div>
     {/if}
 
-    <div class="flex-1 overflow-hidden relative flex items-center justify-center bg-slate-950" on:wheel={handleScroll}>
+    <div class="flex-1 overflow-hidden relative flex items-center justify-center bg-slate-950" on:wheel={handleScroll} on:contextmenu={stageMenu} role="presentation">
       {#if !current}
         <div class="flex flex-col items-center gap-4 text-slate-600">
           <ImageIcon size={56} strokeWidth={1} />
@@ -246,7 +310,7 @@
   {#if images.length > 1}
     <div class="shrink-0 flex gap-1.5 px-3 py-2 bg-slate-900 border-t border-white/5 overflow-x-auto scrollbar-hide">
       {#each images as img, i (img.path)}
-        <button on:click={() => { idx = i; resetEdits(); }} class="w-12 h-12 rounded-lg overflow-hidden shrink-0 border-2 transition-all {i === idx ? 'border-blue-500' : 'border-transparent hover:border-slate-500'}">
+        <button on:contextmenu={(e) => thumbMenu(e, i)} on:click={() => { idx = i; resetEdits(); }} class="w-12 h-12 rounded-lg overflow-hidden shrink-0 border-2 transition-all {i === idx ? 'border-blue-500' : 'border-transparent hover:border-slate-500'}">
           <img src={img.url} alt={img.name} class="w-full h-full object-cover" />
         </button>
       {/each}
