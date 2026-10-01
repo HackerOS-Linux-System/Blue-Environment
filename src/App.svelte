@@ -31,6 +31,8 @@
   import NotificationCenter from './lib/components/NotificationCenter.svelte';
   import ClipboardPanel from './lib/components/ClipboardPanel.svelte';
   import ToastContainer from './lib/components/ToastContainer.svelte';
+  import ContextMenu from './lib/components/ContextMenu.svelte';
+  import { installGlobalContextMenu } from './lib/utils/globalContextMenu';
   import WorkspaceSwitcher from './lib/components/WorkspaceSwitcher.svelte';
   import DialogHost from './lib/components/DialogHost.svelte';
   import BlueFilePicker from './lib/components/BlueFilePicker.svelte';
@@ -177,6 +179,14 @@
   );
 
   let cleanupKeyboard: () => void;
+
+  // Kill the webview's native right-click menu (Back/Forward/Reload/Inspect)
+  // everywhere and replace it with shell menus — see globalContextMenu.ts.
+  onMount(() => installGlobalContextMenu({
+    minimize: (id) => minimizeWindow(id),
+    maximize: (id) => maximizeWindow(id),
+    close: (id) => closeWindow(id),
+  }));
 
   onMount(() => {
     checkLiveMode();
@@ -495,6 +505,7 @@
   {/if}
 
   <ToastContainer />
+  <ContextMenu />
   <DialogHost />
   <BlueFilePicker />
   <OnscreenKeyboard bind:visible={onscreenKeyboardVisible} />
