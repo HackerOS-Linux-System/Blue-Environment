@@ -34,17 +34,30 @@ on:
         description: 'Ref to build (branch/tag/sha)'
         required: false
         default: ''
+      arch:
+        description: >-
+          Target architecture. Default x86_64. Pick ONE architecture, or
+          "all" for all four. x86_64 and aarch64 build natively on GitHub's
+          own runners (full bundles: .deb/.rpm/.AppImage). armv7 and riscv64
+          have no GitHub runners, so they are built under QEMU emulation
+          (binary + tar.gz only, much slower — expect hours). Tag pushes and
+          the nightly schedule always build x86_64 only.
+        required: false
+        type: choice
+        default: 'x86_64'
+        options:
+          - x86_64
+          - aarch64
+          - armv7
+          - riscv64
+          - all
       build_mode:
         description: >-
-          "All" runs `tauri build`, which produces the full bundle set
-          `tauri.conf.json`'s `targets: "all"` asks for (on Linux: .deb,
-          .rpm, .AppImage) alongside the raw binary — the default, and
-          always what tag pushes/the nightly schedule get regardless of
-          this input (only a manual run can choose "Binary"). "Binary"
-          instead does a plain `cargo build --release` on `src-tauri`
-          directly (after building the frontend once, since the binary
-          embeds it) and skips bundling entirely — useful for a quick
-          "does it still build" check without waiting on the bundler.
+          "all" runs `tauri build` (full bundle set: .deb/.rpm/.AppImage
+          plus the raw binary) — the default, and always what tag
+          pushes/nightly get. "binary" does a plain `cargo build --release`
+          and skips bundling (quick "does it still build" check). Only
+          applies to x86_64/aarch64; armv7/riscv64 are always binary-only.
         required: false
         type: choice
         default: 'all'
@@ -64,40 +77,51 @@ jobs:
   # Binary" expression independently in more than one place.
   # ──────────────────────────────────────────────────────────────────────
   resolve-mode:
-    name: Resolve build mode
+    name: Resolve build mode and architectures
     runs-on: ubuntu-latest
     outputs:
       binary_only: ${{ steps.resolve.outputs.binary_only }}
+      native_matrix: ${{ steps.resolve.outputs.native_matrix }}
+      emulated_matrix: ${{ steps.resolve.outputs.emulated_matrix }}
     steps:
       - id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_ARCH: ${{ inputs.arch }}
+          IN_MODE: ${{ inputs.build_mode }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "binary" ]; then
+          set -e
+          arch="x86_64"
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$IN_ARCH" ]; then arch="$IN_ARCH"; fi
+          case "$arch" in
+            all)            native='["x86_64","aarch64"]'; emulated='["armv7","riscv64"]' ;;
+            x86_64|aarch64) native="[\"$arch\"]";          emulated='[]' ;;
+            armv7|riscv64)  native='[]';                     emulated="[\"$arch\"]" ;;
+            *) echo "Unknown arch: $arch" >&2; exit 1 ;;
+          esac
+          echo "native_matrix=$native"     >> "$GITHUB_OUTPUT"
+          echo "emulated_matrix=$emulated" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$IN_MODE" = "binary" ]; then
             echo "binary_only=true" >> "$GITHUB_OUTPUT"
           else
             echo "binary_only=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "Building: native=$native emulated=$emulated"
 
   # ──────────────────────────────────────────────────────────────────────
-  # Builds the shell — native per architecture (GitHub's ubuntu-24.04-arm
-  # runner avoids the correctness risk of cross-compiling Tauri's
-  # webkit2gtk dependency). Both modes need the frontend built first
-  # (`tauri build`'s own `beforeBuildCommand` in tauri.conf.json does
-  # this for "All" automatically; "Binary" does the equivalent manually
-  # before `cargo build`, since skipping the bundler means skipping that
-  # hook too).
+  # Native builds (x86_64 + aarch64) — one matrix entry per SELECTED
+  # architecture (see the `arch` input above); skipped when only an
+  # emulated architecture was selected.
   # ──────────────────────────────────────────────────────────────────────
   build:
     name: Build (${{ matrix.arch }}, ${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }})
     needs: resolve-mode
+    if: needs.resolve-mode.outputs.native_matrix != '[]'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            runner: ubuntu-latest
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+        arch: ${{ fromJSON(needs.resolve-mode.outputs.native_matrix) }}
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -224,6 +248,79 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────────────────────────────
+  # Emulated builds (armv7, riscv64) — GitHub has no runners for these, so
+  # the Rust binary is compiled inside a QEMU-emulated Ubuntu 22.04
+  # container (uraimo/run-on-arch-action). The frontend is built ONCE on the
+  # fast x86_64 host and only `cargo build` runs under emulation; the output
+  # is the raw binary + tar.gz (no .deb/.rpm/.AppImage — the bundlers aren't
+  # worth running under emulation). Slow by nature: the job allows up to 6h.
+  # ──────────────────────────────────────────────────────────────────────
+  build-emulated:
+    name: Build (${{ matrix.arch }}, emulated binary)
+    needs: resolve-mode
+    if: needs.resolve-mode.outputs.emulated_matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.resolve-mode.outputs.emulated_matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Build frontend on the host (architecture-independent)
+        run: |
+          mkdir -p src-tauri/icons
+          cp images/icon.png src-tauri/icons/icon.png
+          npm install
+          npm run build
+
+      - name: Compile the Rust shell under QEMU (${{ matrix.arch }})
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: ${{ matrix.arch }}
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          dockerRunArgs: --volume "${PWD}:/work"
+          install: |
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              ca-certificates curl build-essential pkg-config file git \
+              libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+              librsvg2-dev libssl-dev libudev-dev
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          run: |
+            set -e
+            . "$HOME/.cargo/env"
+            cd /work
+            cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Stage a generic portable tarball
+        run: |
+          set -e
+          stage="dist-stage/blue-environment-${{ matrix.arch }}"
+          mkdir -p "$stage"
+          cp target/release/blue-environment "$stage/"
+          cp images/icon.png "$stage/icon.png" 2>/dev/null || true
+          tar -C dist-stage -czf "dist-stage/blue-environment-${{ matrix.arch }}.tar.gz" "blue-environment-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.arch }}-binary
+          path: |
+            target/release/blue-environment
+            dist-stage/blue-environment-${{ matrix.arch }}.tar.gz
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────────────
   # Full source-tree zip — every file at the built ref, unmodified and
   # newly-added alike, as a single downloadable archive. Independent of
   # the All/Binary choice above (a source snapshot isn't a build
@@ -262,8 +359,11 @@ jobs:
 
   release:
     name: Attach artifacts to GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, package-source-zip]
+    # `build`/`build-emulated` may be legitimately skipped (only the selected
+    # architectures run), so the default "all needs succeeded" check is
+    # replaced by "nothing failed or was cancelled".
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build, build-emulated, package-source-zip]
     runs-on: ubuntu-latest
     permissions:
       contents: write
