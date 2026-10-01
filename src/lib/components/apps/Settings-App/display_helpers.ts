@@ -107,57 +107,72 @@ export function computeSunTimes(lat: number, lon: number, date = new Date()): { 
   return { sunrise: fmt(sunriseUtc + offsetH), sunset: fmt(sunsetUtc + offsetH) };
 }
 
+/**
+ * Night Light.
+ *
+ * Fixes for "brightness/colour changes I never asked for":
+ *  - MANUAL mode used to start `wlsunset -T <night> -t <night-2500>` with no
+ *    schedule/location, i.e. wlsunset's *automatic* day/night mode — the
+ *    screen kept drifting between two temperatures on its own. Manual now
+ *    means one fixed temperature: gammastep/redshift `-O`, or wlsunset forced
+ *    to its "low temperature" mode with SIGUSR1.
+ *  - `pkill -f wlsunset` matched the very `sh -c` running this command line
+ *    (its own command line contains "wlsunset"), killing it before the new
+ *    daemon started. Now `pkill -x` (exact process name).
+ *  - X11 branches chained `cmd & || cmd & || true`, which is a shell syntax
+ *    error — nothing ever started on X11. Now proper if/elif chains.
+ */
+const KILL_DAEMONS = `pkill -x wlsunset 2>/dev/null; pkill -x gammastep 2>/dev/null; pkill -x redshift 2>/dev/null; true`;
+
+function constantTempCmd(tempK: number): string {
+  const t = Math.round(tempK);
+  return [
+    `if command -v gammastep >/dev/null 2>&1; then nohup gammastep -O ${t} >/dev/null 2>&1 &`,
+    `elif command -v wlsunset >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then`,
+    `  nohup wlsunset -t ${t} -T 6500 -S 06:00 -s 18:00 >/dev/null 2>&1 &`,
+    // wlsunset starts in automatic mode; two SIGUSR1s cycle auto → forced high → forced LOW (= fixed temperature).
+    `  sleep 1; pkill -USR1 -x wlsunset; sleep 0.2; pkill -USR1 -x wlsunset`,
+    `elif command -v redshift >/dev/null 2>&1; then nohup redshift -O ${t} >/dev/null 2>&1 &`,
+    `fi; true`,
+  ].join('\n');
+}
+
+function scheduledCmd(dayK: number, nightK: number, geo: GeoCoords | null | undefined): string {
+  const loc = geo ? `-l ${geo.lat} -L ${geo.lon}` : `-S 07:00 -s 19:00`;
+  const gLoc = geo ? `-l ${geo.lat}:${geo.lon}` : `-l 52.0:19.0`;
+  return [
+    `if command -v wlsunset >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then nohup wlsunset ${loc} -T ${dayK} -t ${nightK} >/dev/null 2>&1 &`,
+    `elif command -v gammastep >/dev/null 2>&1; then nohup gammastep ${gLoc} -t ${dayK}:${nightK} >/dev/null 2>&1 &`,
+    `elif command -v redshift >/dev/null 2>&1; then nohup redshift ${gLoc} -t ${dayK}:${nightK} >/dev/null 2>&1 &`,
+    `fi; true`,
+  ].join('\n');
+}
+
 export async function applyNightLight(
   enabled: boolean,
   tempK: number,
   schedule: 'manual' | 'sunset' = 'manual',
   geo?: GeoCoords | null
 ): Promise<void> {
-  await SystemBridge.executeCommand(`pkill -f wlsunset 2>/dev/null; pkill -f gammastep 2>/dev/null; pkill -f redshift 2>/dev/null; true`);
+  await SystemBridge.executeCommand(KILL_DAEMONS);
   if (!enabled) {
-    const o = await SystemBridge.executeCommand(`xrandr | grep ' connected' | head -1 | cut -d' ' -f1`);
+    const o = await SystemBridge.executeCommand(`xrandr 2>/dev/null | grep ' connected' | head -1 | cut -d' ' -f1`);
     const mon = out(o).trim();
     if (mon) await SystemBridge.executeCommand(`xrandr --output ${shellQuote(mon)} --gamma 1:1:1 2>/dev/null || true`);
     return;
   }
-  const session = await SystemBridge.getSessionType();
   const dayTemp = 6500;
-  const nightTemp = tempK;
+  const nightTemp = Math.min(tempK, dayTemp - 100);
 
-  if (schedule === 'sunset' && geo) {
-    // Location-based mode: hand full solar scheduling to the color-temperature daemon itself
-    // (wlsunset -l/-L and gammastep -l both recompute sunrise/sunset every day from lat/lon).
-    if (session.startsWith('wayland')) {
-      await SystemBridge.executeCommand(`wlsunset -l ${geo.lat} -L ${geo.lon} -T ${dayTemp} -t ${nightTemp} &`);
-    } else {
-      await SystemBridge.executeCommand(
-        `which gammastep >/dev/null 2>&1 && gammastep -l ${geo.lat}:${geo.lon} -t ${dayTemp}:${nightTemp} & || which redshift >/dev/null 2>&1 && redshift -l ${geo.lat}:${geo.lon} -t ${dayTemp}:${nightTemp} & || true`
-      );
-    }
+  if (schedule === 'sunset') {
+    // Location-based (or fixed 19:00-07:00 when no location is available):
+    // the ONLY mode that changes by itself over the day — by design.
+    await SystemBridge.executeCommand(scheduledCmd(dayTemp, nightTemp, geo));
     return;
   }
 
-  if (schedule === 'sunset' && !geo) {
-    // No location permission granted: fall back to a fixed civil-twilight approximation
-    // (19:00-07:00) instead of silently doing nothing.
-    if (session.startsWith('wayland')) {
-      await SystemBridge.executeCommand(`wlsunset -t ${nightTemp} -T ${dayTemp} -S 07:00 -s 19:00 &`);
-    } else {
-      await SystemBridge.executeCommand(
-        `which gammastep >/dev/null 2>&1 && gammastep -O ${nightTemp} & || which redshift >/dev/null 2>&1 && redshift -O ${nightTemp} & || true`
-      );
-    }
-    return;
-  }
-
-  // Manual: always-on fixed temperature (previous default behaviour).
-  if (session.startsWith('wayland')) {
-    await SystemBridge.executeCommand(`wlsunset -T ${nightTemp} -t ${Math.max(1000, nightTemp - 2500)} &`);
-  } else {
-    await SystemBridge.executeCommand(
-      `which gammastep >/dev/null 2>&1 && gammastep -O ${nightTemp} & || which redshift >/dev/null 2>&1 && redshift -O ${nightTemp} & || true`
-    );
-  }
+  // Manual: one fixed temperature, never changes on its own.
+  await SystemBridge.executeCommand(constantTempCmd(tempK));
 }
 
 export async function getCurrentResolution(): Promise<string> {
