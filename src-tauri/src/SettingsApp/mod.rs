@@ -916,23 +916,26 @@ pub fn settings_set_night_light(config: NightLightConfig) -> SettingsResult {
         return SettingsResult::ok();
     }
 
-    // Kill existing
-    sh_ok("pkill -x wlsunset 2>/dev/null; pkill -x redshift 2>/dev/null");
+    // Kill existing (exact process names — `-f` would also match this very shell).
+    sh_ok("pkill -x wlsunset 2>/dev/null; pkill -x gammastep 2>/dev/null; pkill -x redshift 2>/dev/null");
 
-    // Start wlsunset
-    if sh_ok(&format!(
-        "wlsunset -t {} -T 6500 -l 0 -L 0 & 2>/dev/null",
-        config.temperature
-    )) {
-        return SettingsResult::ok();
+    // `manual` = one FIXED temperature. The old code launched
+    // `wlsunset -l 0 -L 0` (automatic day/night for the middle of the Gulf of
+    // Guinea), so the screen shifted at times that had nothing to do with the
+    // user's location or settings.
+    let t = config.temperature.clamp(1000, 6500);
+    if sh_ok("command -v gammastep >/dev/null 2>&1") {
+        if sh_ok(&format!("nohup gammastep -O {} >/dev/null 2>&1 &", t)) { return SettingsResult::ok(); }
     }
-
-    // Fallback: redshift
-    if sh_ok(&format!(
-        "redshift -O {} &",
-        config.temperature
-    )) {
-        return SettingsResult::ok();
+    if sh_ok("command -v wlsunset >/dev/null 2>&1") {
+        // wlsunset starts in automatic mode; two SIGUSR1 → forced low temperature (constant).
+        if sh_ok(&format!(
+            "nohup wlsunset -t {} -T 6500 -S 06:00 -s 18:00 >/dev/null 2>&1 & sleep 1; pkill -USR1 -x wlsunset; sleep 0.2; pkill -USR1 -x wlsunset",
+            t
+        )) { return SettingsResult::ok(); }
+    }
+    if sh_ok("command -v redshift >/dev/null 2>&1") {
+        if sh_ok(&format!("nohup redshift -O {} >/dev/null 2>&1 &", t)) { return SettingsResult::ok(); }
     }
 
     SettingsResult::err("Neither wlsunset nor redshift found — install one of them")
