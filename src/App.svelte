@@ -108,6 +108,31 @@
   // both use for "is there a real override active right now".
   $: activeShellTheme = resolveActiveShellTheme(shellThemeId);
   $: effectiveWallpaper = activeShellTheme?.wallpaper || wallpaper;
+
+  // Wallpaper loading with a safety net. The primary path is the `asset:`
+  // protocol (cheap, streamed by the webview). If that can't load the file
+  // (scope mismatch, unusual webview build...) we fall back to reading the
+  // file through a Rust command and feeding it as a data: URL, instead of
+  // silently showing only the gradient like before.
+  let wallpaperCss = '';
+  let wallpaperToken = 0;
+  async function resolveWallpaperCss(path: string) {
+    const token = ++wallpaperToken;
+    if (!path) { wallpaperCss = ''; return; }
+    const assetUrl = toAssetUrl(path);
+    const ok = await new Promise<boolean>((res) => {
+      const img = new Image();
+      img.onload = () => res(true);
+      img.onerror = () => res(false);
+      img.src = assetUrl;
+    });
+    if (token !== wallpaperToken) return;
+    if (ok) { wallpaperCss = assetUrl; return; }
+    const data = await SystemBridge.getWallpaperDataUrl(path);
+    if (token !== wallpaperToken) return;
+    wallpaperCss = data ?? '';
+  }
+  $: resolveWallpaperCss(effectiveWallpaper);
   // Theme layout's panelPosition can in principle be 'left'/'right' too
   // (richer future themes) — TopBar only understands 'top'/'bottom'
   // today, so only override with the theme's own choice when it's one
@@ -392,7 +417,7 @@
        keeps the blur contained to just the background. -->
   <div
     class="absolute pointer-events-none"
-    style="inset:-40px; background-size:cover; background-position:center; background-image:{effectiveWallpaper ? `url(${toAssetUrl(effectiveWallpaper)}), ` : ''}{fallbackGradient}; filter:blur(var(--wallpaper-blur, 0px));"
+    style="inset:-40px; background-size:cover; background-position:center; background-image:{wallpaperCss ? `url('${wallpaperCss}'), ` : ''}{fallbackGradient}; filter:blur(var(--wallpaper-blur, 0px));"
     aria-hidden="true"
   ></div>
 
