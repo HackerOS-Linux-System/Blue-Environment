@@ -7,6 +7,8 @@
   import { toAssetUrl } from '../../../utils/systemBridge';
 
   const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+  import { showContextMenu } from '../../../stores/contextMenu';
+  import { openInMPV } from './playlist';
   export let openPath: string | undefined = undefined;
   const { playlist, currentIdx, openFiles, addPath, remove } = createPlaylist();
   onMount(() => { if (openPath) addPath(openPath); });
@@ -37,6 +39,39 @@
     // needs the asset-protocol conversion.
     videoEl.src = toAssetUrl(currentItem.url);
     videoEl.play().catch(() => {});
+  }
+
+  const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+  const rawPath = (url: string) => url.replace(/^file:\/\//, '');
+  function videoMenu(e: MouseEvent) {
+    showContextMenu(e, [
+      ...(currentItem ? [
+        { label: playing ? 'Pause' : 'Play', shortcut: 'Space', action: togglePlay },
+        { label: 'Fullscreen', action: toggleFullscreen },
+        { label: 'Picture-in-picture', action: togglePiP },
+        { label: muted ? 'Unmute' : 'Mute', action: () => { muted = !muted; if (videoEl) videoEl.muted = muted; } },
+        { label: 'Speed', children: [0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => ({ label: `${s}×`, checked: speed === s, action: () => changeSpeed(s) })) },
+        { separator: true },
+        { label: 'Previous', disabled: $currentIdx <= 0, action: prev },
+        { label: 'Next', disabled: $currentIdx >= $playlist.length - 1, action: next },
+        { separator: true },
+        { label: 'Copy path', action: () => copyText(rawPath(currentItem.url)) },
+        { label: 'Open in external player (mpv/vlc)', action: () => openInMPV(currentItem.url) },
+        { separator: true },
+      ] : []),
+      { label: 'Open video files…', action: openFiles },
+      { label: showPlaylist ? 'Hide playlist' : 'Show playlist', action: () => (showPlaylist = !showPlaylist) },
+    ]);
+  }
+  function playlistItemMenu(e: MouseEvent, i: number) {
+    e.stopPropagation();
+    const it = $playlist[i];
+    showContextMenu(e, [
+      { label: 'Play', action: () => currentIdx.set(i) },
+      { label: 'Copy path', action: () => copyText(rawPath(it.url)) },
+      { separator: true },
+      { label: 'Remove from playlist', danger: true, action: () => remove(i) },
+    ]);
   }
 
   function togglePlay() { if (!videoEl) return; playing ? videoEl.pause() : videoEl.play(); }
@@ -71,7 +106,7 @@
 
 <div bind:this={containerEl} class="flex flex-col h-full bg-black text-white overflow-hidden relative">
   <div class="flex flex-1 overflow-hidden">
-    <div class="flex-1 flex items-center justify-center bg-black relative">
+    <div class="flex-1 flex items-center justify-center bg-black relative" on:contextmenu={videoMenu} role="presentation">
       {#if !currentItem}
         <div class="flex flex-col items-center gap-4 text-slate-600">
           <Video size={48} />
@@ -102,7 +137,7 @@
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each $playlist as item, i (i)}
-            <div on:click={() => currentIdx.set(i)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => currentIdx.set(i))(); } }}
+            <div on:contextmenu={(e) => playlistItemMenu(e, i)} on:click={() => currentIdx.set(i)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => currentIdx.set(i))(); } }}
               class="flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-white/5 group {i === $currentIdx ? 'bg-blue-600/20 text-white' : 'text-slate-400 hover:bg-white/5'}">
               <span class="flex-1 text-xs truncate">{item.name}</span>
               <button on:click={(e) => { e.stopPropagation(); remove(i); }} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400">
