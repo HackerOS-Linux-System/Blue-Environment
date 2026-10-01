@@ -52,12 +52,12 @@ fn write_sources(sources: &[NewsSource]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn news_load_sources() -> Vec<NewsSource> {
     read_sources()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn news_add_source(name: String, url: String, category: String) -> Result<NewsSource, String> {
     let source = NewsSource {
         id: format!("src{}", chrono::Local::now().timestamp_millis()),
@@ -69,14 +69,14 @@ pub fn news_add_source(name: String, url: String, category: String) -> Result<Ne
     Ok(source)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn news_remove_source(id: String) -> Result<(), String> {
     let mut sources = read_sources();
     sources.retain(|s| s.id != id);
     write_sources(&sources)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn news_set_source_enabled(id: String, enabled: bool) -> Result<(), String> {
     let mut sources = read_sources();
     if let Some(s) = sources.iter_mut().find(|s| s.id == id) { s.enabled = enabled; }
