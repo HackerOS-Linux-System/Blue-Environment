@@ -15,6 +15,30 @@
   import { configStore } from '../utils/configStore';
   import { listInstalled, onStoreChanged, type Receipt } from '../utils/blueStore';
   import { openCommunityApp } from '../stores/windowManager';
+  import { showContextMenu, type MenuItem } from '../stores/contextMenu';
+
+  const DEFAULT_PINNED = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS] as string[];
+  const pinnedNow = () => ((configStore.get().pinnedApps as string[] | undefined)?.length ? (configStore.get().pinnedApps as string[]) : DEFAULT_PINNED);
+
+  /** Right-click on any app entry: open, pin/unpin on the panel, copy command. */
+  function appMenu(e: MouseEvent, app: AnyApp) {
+    e.stopPropagation();
+    const internal = 'isInternal' in app && !app.communityReceipt;
+    const pinned = pinnedNow();
+    const isPinned = pinned.includes(app.id);
+    const items: MenuItem[] = [{ label: 'Open', action: () => handleLaunch(app) }];
+    if (internal) {
+      items.push({
+        label: isPinned ? 'Unpin from panel' : 'Pin to panel',
+        action: () => configStore.save({ pinnedApps: isPinned ? pinned.filter((x) => x !== app.id) : [...pinned, app.id] }),
+      });
+    }
+    if (!('isInternal' in app) && (app as any).exec) {
+      items.push({ separator: true });
+      items.push({ label: 'Copy launch command', action: () => navigator.clipboard.writeText((app as any).exec).catch(() => {}) });
+    }
+    showContextMenu(e, items);
+  }
 
   interface SystemApp { id: string; name: string; comment: string; icon: string; exec: string; categories: string[]; desktop_file: string; is_external: boolean; }
   interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; cloneId?: string; communityReceipt?: Receipt; }
@@ -367,7 +391,7 @@
             <div class="grid grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
               {#each shownTiles as app (app.id)}
                 {@const external = !('isInternal' in app)}
-                <button on:click={() => handleLaunch(app)}
+                <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
                   title={external ? app.comment || app.name : app.name}
                   style="content-visibility:auto; contain-intrinsic-size:auto 112px;"
                   class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border border-transparent hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-colors group text-center">
@@ -417,7 +441,7 @@
 
     <div class="p-2 grid grid-cols-5 gap-1 border-b border-white/5">
       {#each internalApps.slice(0, 5) as app (app.id)}
-        <button on:click={() => handleLaunch(app)} class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 transition-colors group" title={app.name}>
+        <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 transition-colors group" title={app.name}>
           <div class="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 group-hover:bg-blue-600/30 transition-colors">
             <AppIconGlyph icon={app.icon} name={app.name} size={18} />
           </div>
@@ -444,7 +468,7 @@
           {#each recentApps.slice(0, 3) as id (id)}
             {@const app = allApps.find((a) => a.id === id)}
             {#if app}
-              <button on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
+              <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
                 <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
                   <AppIconGlyph icon={app.icon} name={app.name} size={20} />
                 </div>
@@ -460,7 +484,7 @@
           <div class="h-px bg-white/5 my-1" />
         {/if}
         {#each (searchTerm ? allApps : allApps.filter((a) => !recentApps.includes(a.id))).slice(0, 12) as app (app.id)}
-          <button on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
+          <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
             <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
               <AppIconGlyph icon={app.icon} name={app.name} size={20} />
             </div>
