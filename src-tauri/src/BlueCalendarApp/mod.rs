@@ -63,12 +63,12 @@ fn write_events(events: &[CalendarEvent]) -> Result<(), String> {
     fs::write(events_path(), json).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_load_events() -> Vec<CalendarEvent> {
     read_events()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_save_event(event: CalendarEvent) -> Result<(), String> {
     let mut events = read_events();
     if let Some(existing) = events.iter_mut().find(|e| e.id == event.id) {
@@ -79,7 +79,7 @@ pub fn calendar_save_event(event: CalendarEvent) -> Result<(), String> {
     write_events(&events)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_delete_event(id: String) -> Result<(), String> {
     let mut events = read_events();
     events.retain(|e| e.id != id);
@@ -109,12 +109,12 @@ fn write_subscriptions(subs: &[CalendarSubscription]) -> Result<(), String> {
     fs::write(subscriptions_path(), serde_json::to_string_pretty(subs).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_list_subscriptions() -> Vec<CalendarSubscription> {
     read_subscriptions()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_add_subscription(name: String, url: String, color: String) -> Result<CalendarSubscription, String> {
     let sub = CalendarSubscription {
         id: format!("sub{}", chrono::Local::now().timestamp_millis()),
@@ -126,7 +126,7 @@ pub fn calendar_add_subscription(name: String, url: String, color: String) -> Re
     Ok(sub)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_remove_subscription(id: String) -> Result<(), String> {
     let mut subs = read_subscriptions();
     subs.retain(|s| s.id != id);
@@ -135,7 +135,7 @@ pub fn calendar_remove_subscription(id: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_set_subscription_enabled(id: String, enabled: bool) -> Result<(), String> {
     let mut subs = read_subscriptions();
     if let Some(s) = subs.iter_mut().find(|s| s.id == id) { s.enabled = enabled; }
@@ -147,7 +147,7 @@ pub fn calendar_set_subscription_enabled(id: String, enabled: bool) -> Result<()
 /// hitting the network — the frontend calls this on startup to show
 /// last-known events immediately, then calls `calendar_sync_subscription`
 /// in the background to refresh.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn calendar_cached_subscription_events(id: String) -> Vec<CalendarEvent> {
     fs::read_to_string(subscription_cache_path(&id)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
