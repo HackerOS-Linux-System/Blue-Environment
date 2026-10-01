@@ -3,6 +3,25 @@
   import type { FileNode } from './types';
   import { createEventDispatcher } from 'svelte';
   import { blueCodeSettings } from './blueCodeSettings';
+  import { showContextMenu } from '../../../stores/contextMenu';
+  import { FilePlus as FilePlusI, FolderPlus as FolderPlusI, Edit2 as EditI, Trash2 as TrashI, Link2 as LinkI, FileCode as FileCodeI, RefreshCw as RefreshI } from 'lucide-svelte';
+
+  function nodeMenu(e: MouseEvent, node: FileNode) {
+    e.stopPropagation();
+    const copy = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+    const rel = rootPath && node.path.startsWith(rootPath) ? node.path.slice(rootPath.length).replace(/^\//, '') : node.path;
+    showContextMenu(e, [
+      ...(node.type === 'file' ? [{ label: 'Open', icon: FileCodeI, action: () => dispatch('openFile', node.path) }] : []),
+      { label: 'New file…', icon: FilePlusI, action: () => dispatch('newFile') },
+      { label: 'New folder…', icon: FolderPlusI, action: () => dispatch('newFolder') },
+      { separator: true },
+      { label: 'Rename…', icon: EditI, shortcut: 'F2', action: () => dispatch('rename', node) },
+      { label: 'Delete', icon: TrashI, danger: true, action: () => dispatch('delete', node) },
+      { separator: true },
+      { label: 'Copy path', icon: LinkI, action: () => copy(node.path) },
+      { label: 'Copy relative path', icon: LinkI, action: () => copy(rel) },
+    ]);
+  }
 
   export let nodes: FileNode[];
   export let level = 0;
@@ -15,7 +34,7 @@
   export let gitStatus: Record<string, string> = {};
   export let rootPath = '';
 
-  const dispatch = createEventDispatcher<{ openFile: string; toggleDir: FileNode; rename: FileNode; delete: FileNode }>();
+  const dispatch = createEventDispatcher<{ openFile: string; toggleDir: FileNode; rename: FileNode; delete: FileNode; newFile: void; newFolder: void; refresh: void }>();
 
   const STATUS_COLOR: Record<string, string> = {
     M: 'text-yellow-400', A: 'text-green-400', D: 'text-red-400', U: 'text-orange-400', '?': 'text-slate-500',
@@ -45,6 +64,7 @@
     <div
       class="flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-white/5 group text-sm {node.type === 'directory' && node.path === selectedDir ? 'bg-blue-600/10' : ''}"
       style="padding-left:{level * 12 + 4}px;"
+      on:contextmenu={(e) => nodeMenu(e, node)}
       on:dblclick={() => node.type === 'file' && dispatch('openFile', node.path)}
       on:click={() => {
         if (node.type === 'directory') dispatch('toggleDir', node);
@@ -81,7 +101,7 @@
     </div>
     {#if node.type === 'directory' && node.expanded && node.children}
       <svelte:self nodes={node.children} level={level + 1} {selectedDir} {gitStatus} {rootPath}
-        on:openFile on:toggleDir on:rename on:delete />
+        on:openFile on:toggleDir on:rename on:delete on:newFile on:newFolder on:refresh />
     {/if}
   </div>
 {/each}
