@@ -358,7 +358,7 @@ pub async fn bc_start_discovery(timeout_secs: u64) -> Result<Vec<DiscoveredDevic
 /// restarts (see `devices.json` under `connect_dir()`), so a phone
 /// that was paired yesterday still shows up (as paired, but possibly
 /// offline) without needing a fresh discovery broadcast first.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bc_get_devices() -> Vec<DiscoveredDevice> {
     with_known_devices(|devices| {
         let mut list: Vec<DiscoveredDevice> = devices.values().cloned().collect();
@@ -367,7 +367,7 @@ pub fn bc_get_devices() -> Vec<DiscoveredDevice> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bc_forget_device(device_id: String) {
     with_known_devices(|devices| {
         devices.remove(&device_id);
@@ -592,7 +592,7 @@ pub async fn bc_listen_for_pairing(app: AppHandle, timeout_secs: u64) -> Result<
 /// [`PENDING_INCOMING_PAIRING`]). Returns an error if nothing is
 /// actually pending, e.g. the dialog was shown but the request already
 /// timed out before the person clicked anything.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bc_confirm_incoming_pairing(accept: bool) -> Result<(), String> {
     let sender = pending_incoming_pairing().lock().unwrap().take();
     match sender {
