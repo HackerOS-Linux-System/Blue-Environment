@@ -21,6 +21,8 @@
   import { SystemBridge, toAssetUrl } from '../../../utils/systemBridge';
   import { t } from '../../../stores/language';
 
+  import { showContextMenu } from '../../../stores/contextMenu';
+  import { openApp } from '../../../stores/windowManager';
   export let windowId: string;
   /** Set when a single audio file was opened from Explorer. */
   export let openPath: string | undefined = undefined;
@@ -68,6 +70,37 @@
     // `<audio>` element's src attribute) — explicitly call `.play()`
     // after the src change has had a chance to take, on the next tick.
     requestAnimationFrame(() => audioEl?.play());
+  }
+
+  const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+  function trackMenu(e: MouseEvent, i: number) {
+    e.stopPropagation();
+    const t = tracks[i];
+    showContextMenu(e, [
+      { label: i === currentIndex && isPlaying ? 'Pause' : 'Play', action: () => (i === currentIndex ? togglePlay() : playTrack(i)) },
+      { separator: true },
+      { label: 'Copy path', action: () => copyText(t.path) },
+      { label: 'Copy file name', action: () => copyText(t.name) },
+      { label: 'Open containing folder', action: () => SystemBridge.executeCommand(`xdg-open '${(t.path.slice(0, t.path.lastIndexOf('/')) || '/').replace(/'/g, "'\\''")}' >/dev/null 2>&1 &`) },
+      { separator: true },
+      { label: 'Move to Trash', danger: true, action: async () => {
+          try { await SystemBridge.moveToTrash([t.path]); tracks = tracks.filter((_, j) => j !== i); if (currentIndex === i) { audioEl?.pause(); currentIndex = -1; } else if (currentIndex > i) currentIndex--; } catch { /* keep the list as is */ }
+      } },
+    ]);
+  }
+  function playerMenu(e: MouseEvent) {
+    showContextMenu(e, [
+      { label: isPlaying ? 'Pause' : 'Play', disabled: tracks.length === 0, action: togglePlay },
+      { label: 'Next track', disabled: tracks.length < 2, action: next },
+      { label: 'Previous track', disabled: tracks.length < 2, action: prev },
+      { separator: true },
+      { label: 'Shuffle', checked: shuffle, action: () => (shuffle = !shuffle) },
+      { label: 'Repeat', checked: repeat, action: () => (repeat = !repeat) },
+      { label: muted ? 'Unmute' : 'Mute', action: () => (muted = !muted) },
+      { separator: true },
+      { label: 'Refresh library', action: scanLibrary },
+      { label: 'Open Music folder', action: () => SystemBridge.executeCommand(`xdg-open '${musicDir.replace(/'/g, "'\\''")}' >/dev/null 2>&1 &`) },
+    ]);
   }
 
   function togglePlay() {
@@ -138,7 +171,7 @@
   onDestroy(() => audioEl?.pause());
 </script>
 
-<div class="flex flex-col h-full bg-slate-900 text-white text-sm">
+<div class="flex flex-col h-full bg-slate-900 text-white text-sm" on:contextmenu={playerMenu} role="presentation">
   <div class="flex items-center justify-between px-4 h-11 border-b border-white/5 shrink-0">
     <div class="flex items-center gap-2">
       <Music size={16} class="text-blue-400" />
@@ -160,7 +193,7 @@
       </div>
     {:else}
       {#each tracks as track, i (track.path)}
-        <button on:click={() => playTrack(i)}
+        <button on:contextmenu={(e) => trackMenu(e, i)} on:click={() => playTrack(i)}
           class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 text-left transition-colors {i === currentIndex ? 'bg-blue-500/10' : ''}">
           <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 {i === currentIndex ? 'bg-blue-500/20' : 'bg-slate-800'}">
             {#if i === currentIndex && isPlaying}
