@@ -20,13 +20,19 @@ export function createPlaylist() {
     if (wasEmpty) currentIdx.set(0);
   }
 
+  /** Add one known path and start playing it (Explorer double-click). */
+  function addPath(path: string) {
+    playlist.update((prev) => [...prev, { name: path.split('/').pop() || path, url: `file://${path}` }]);
+    currentIdx.set(get(playlist).length - 1);
+  }
+
   function remove(i: number) {
     const len = get(playlist).length;
     playlist.update((prev) => prev.filter((_, j) => j !== i));
     currentIdx.update((prev) => (i < prev ? prev - 1 : Math.min(prev, len - 2)));
   }
 
-  return { playlist, currentIdx, openFiles, remove };
+  return { playlist, currentIdx, openFiles, addPath, remove };
 }
 
 export async function openInMPV(url: string): Promise<void> {
