@@ -11,7 +11,7 @@
   </div>
   <div>
     <h2 class="text-2xl font-bold text-white mb-2">Installation failed</h2>
-    <p class="text-slate-400 max-w-md">{$installError ?? 'An unknown error occurred.'}</p>
+    <p class="text-slate-400 max-w-md whitespace-pre-line">{$installError ?? 'An unknown error occurred.'}</p>
   </div>
   <button on:click={() => state.step.set('summary')} class="flex items-center gap-2 px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-medium transition-colors">
     <RotateCcw size={16} /> Back to Summary
