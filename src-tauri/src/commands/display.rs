@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use glob::glob;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 #[tauri::command]
@@ -12,33 +11,57 @@ pub fn get_wallpapers() -> Vec<String> {
     let default_path = std::path::Path::new("/usr/share/Blue-Environment/wallpapers/default.png");
     if default_path.exists() {
         wallpapers.push(format!("file://{}", default_path.to_string_lossy()));
-        seen.insert("default.png".to_string());
+        seen.insert(default_path.to_string_lossy().to_string());
     }
 
-    let patterns = [
-        "/usr/share/Blue-Environment/wallpapers/*.png",
-        "/usr/share/Blue-Environment/wallpapers/*.jpg",
-        "/usr/share/wallpapers/*.png",
-        "/usr/share/wallpapers/*.jpg",
-        "/usr/share/backgrounds/*.png",
-        "/usr/share/backgrounds/*.jpg",
+    // Recursive scan (depth ≤ 3): wallpaper packs live in sub-folders, e.g.
+    // /usr/share/wallpapers/HackerOS-Wallpapers/Wallpaper22.png — the old
+    // flat globs never saw those (and shell themes point straight at them).
+    let mut roots: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/share/Blue-Environment/wallpapers"),
+        PathBuf::from("/usr/share/wallpapers"),
+        PathBuf::from("/usr/local/share/wallpapers"),
+        PathBuf::from("/usr/share/backgrounds"),
     ];
-
-    for pat in &patterns {
-        if let Ok(entries) = glob(pat) {
-            for entry in entries.filter_map(Result::ok) {
-                let fname = entry.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                if !seen.contains(&fname) {
-                    seen.insert(fname.clone());
-                    wallpapers.push(format!("file://{}", entry.to_string_lossy()));
-                }
+    if let Some(h) = dirs::home_dir() {
+        roots.push(h.join("Pictures/Wallpapers"));
+        roots.push(h.join(".local/share/wallpapers"));
+    }
+    for root in &roots {
+        if !root.is_dir() { continue; }
+        for entry in walkdir::WalkDir::new(root).max_depth(3).follow_links(true).into_iter().filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() { continue; }
+            let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            if !matches!(ext.as_str(), "png" | "jpg" | "jpeg") { continue; }
+            let key = path.to_string_lossy().to_string();
+            if seen.insert(key.clone()) {
+                wallpapers.push(format!("file://{}", key));
             }
         }
     }
-    if wallpapers.is_empty() {
-        wallpapers.push("file:///usr/share/Blue-Environment/wallpapers/default.png".to_string());
-    }
     wallpapers
+}
+
+/// Full-resolution wallpaper as a `data:` URL. Fallback for the desktop
+/// background when the `asset:` protocol refuses/can't load the file (path
+/// outside `assetProtocol.scope`, odd webview build...). Capped at 40 MB and
+/// restricted to image extensions so it can't be abused to read arbitrary files.
+#[tauri::command]
+pub async fn get_wallpaper_data_url(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let clean = path.strip_prefix("file://").unwrap_or(&path).to_string();
+        let p = std::path::Path::new(&clean);
+        let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let mime = match ext.as_str() {
+            "png" => "image/png", "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp", "bmp" => "image/bmp", _ => return Err("not an image".to_string()),
+        };
+        let meta = fs::metadata(p).map_err(|e| e.to_string())?;
+        if meta.len() > 40 * 1024 * 1024 { return Err("file too large".to_string()); }
+        let bytes = fs::read(p).map_err(|e| e.to_string())?;
+        Ok(format!("data:{};base64,{}", mime, BASE64.encode(bytes)))
+    }).await.map_err(|e| e.to_string())?
 }
 
 /// Returns a small, cached JPEG thumbnail of the wallpaper at `path` as
