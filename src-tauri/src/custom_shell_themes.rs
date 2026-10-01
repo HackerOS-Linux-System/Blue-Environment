@@ -147,12 +147,12 @@ fn validate(theme: &CustomShellTheme) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn custom_theme_list() -> Vec<CustomShellTheme> {
     load_raw()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn custom_theme_upsert(theme: CustomShellTheme) -> Result<Vec<CustomShellTheme>, String> {
     validate(&theme)?;
     let mut list = load_raw();
@@ -167,7 +167,7 @@ pub fn custom_theme_upsert(theme: CustomShellTheme) -> Result<Vec<CustomShellThe
     Ok(list)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn custom_theme_remove(id: String) -> Vec<CustomShellTheme> {
     let mut list = load_raw();
     list.retain(|t| t.id != id);
@@ -178,7 +178,7 @@ pub fn custom_theme_remove(id: String) -> Vec<CustomShellTheme> {
 /// Parses and validates a theme from JSON text (an imported `.json`
 /// file's contents) without saving it — the Settings UI shows a preview
 /// before the person commits to `custom_theme_upsert`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn custom_theme_parse_import(json_text: String) -> Result<CustomShellTheme, String> {
     let mut theme: CustomShellTheme = serde_json::from_str(&json_text).map_err(|e| format!("Not a valid theme file: {e}"))?;
     validate(&theme)?;
