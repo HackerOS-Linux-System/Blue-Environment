@@ -40,7 +40,13 @@
           "/tmp/**",
           "/mnt/**",
           "/media/**",
-          "/run/media/**"
+          "/run/media/**",
+          "/usr/share/wallpapers/**",
+          "/usr/share/Blue-Environment/**",
+          "/usr/local/share/wallpapers/**",
+          "/usr/share/themes/**",
+          "/usr/share/applications/**",
+          "/usr/local/share/icons/**"
         ]
       }
     }
