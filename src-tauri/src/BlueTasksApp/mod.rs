@@ -69,13 +69,13 @@ fn ensure_default_list(lists: &mut Vec<TaskList>) -> Vec<TaskList> {
     lists.clone()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_load_lists() -> Vec<TaskList> {
     let mut lists = read_lists();
     ensure_default_list(&mut lists)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_save_list(list: TaskList) -> Result<(), String> {
     let mut lists = read_lists();
     if let Some(existing) = lists.iter_mut().find(|l| l.id == list.id) {
@@ -86,7 +86,7 @@ pub fn tasks_save_list(list: TaskList) -> Result<(), String> {
     write_lists(&lists)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_delete_list(id: String) -> Result<(), String> {
     let mut lists = read_lists();
     lists.retain(|l| l.id != id);
@@ -101,12 +101,12 @@ pub fn tasks_delete_list(id: String) -> Result<(), String> {
     write_tasks(&tasks)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_load_tasks() -> Vec<Task> {
     read_tasks()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_upsert(task: Task) -> Result<(), String> {
     let mut tasks = read_tasks();
     if let Some(existing) = tasks.iter_mut().find(|t| t.id == task.id) {
@@ -117,14 +117,14 @@ pub fn tasks_upsert(task: Task) -> Result<(), String> {
     write_tasks(&tasks)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_delete(id: String) -> Result<(), String> {
     let mut tasks = read_tasks();
     tasks.retain(|t| t.id != id);
     write_tasks(&tasks)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tasks_set_done(id: String, done: bool) -> Result<(), String> {
     let mut tasks = read_tasks();
     if let Some(t) = tasks.iter_mut().find(|t| t.id == id) {
