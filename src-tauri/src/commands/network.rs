@@ -137,7 +137,7 @@ pub async fn disconnect_wifi() -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn toggle_wifi(enabled: bool) {
     let _ = Command::new("nmcli").args(["radio", "wifi", if enabled { "on" } else { "off" }]).spawn();
 }
