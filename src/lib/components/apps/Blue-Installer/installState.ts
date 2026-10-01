@@ -121,27 +121,34 @@ export function createInstallState() {
 
     const userDirs = userDirNamesForLocale(cfg.locale);
 
-    const args = [
-      `--disk ${cfg.disk.path}`,
-      `--confirm-erase ${cfg.disk.path}`,
-      `--locale ${cfg.locale}`,
-      `--keyboard ${cfg.keyboardLayout}`,
-      `--timezone ${cfg.timezone || 'UTC'}`,
-      `--hostname ${JSON.stringify(cfg.hostname)}`,
-      `--username ${JSON.stringify(cfg.username)}`,
-      `--fullname ${JSON.stringify(cfg.fullName || cfg.username)}`,
-      cfg.autoLogin ? '--autologin' : '',
-      // Localized ~/Desktop, ~/Downloads, etc. names for the chosen
-      // language (e.g. Polish → "Pobrane"), created + chowned for the new
-      // user by blue-installer-apply.rb after useradd.
-      `--userdirs ${JSON.stringify(JSON.stringify(userDirs))}`,
-      // Manual partitioning: hand the whole plan to the privileged backend as JSON.
-      // The default "erase" mode omits this and blue-installer-apply.rb falls back
-      // to its built-in two-partition (ESP + root) layout.
-      cfg.diskMode === 'manual' && cfg.partitions.length
-        ? `--partitions ${JSON.stringify(JSON.stringify(cfg.partitions))}`
-        : '',
-    ].filter(Boolean).join(' ');
+    // Structured payload for the Rust `installer_run(config: InstallConfig)` command
+    // (src-tauri/src/BlueInstallerApp/engine.rs, serde camelCase). The old shell-script
+    // style `{ args, password }` call is gone — Tauri rejected it with
+    // "invalid args `config` … missing required key config", so installs never started.
+    //
+    // NOTE the one renamed field: our UI type uses `sizeMiB`, serde's camelCase of the
+    // Rust field `size_mib` is `sizeMib`. Sent as `sizeMiB` it would silently deserialize
+    // to None ("rest of the disk") for EVERY partition in manual mode.
+    const manual = cfg.diskMode === 'manual' && cfg.partitions.length > 0;
+    const plan = (manual ? cfg.partitions : defaultPartitionPlan()).map((p) => ({
+      id: p.id, role: p.role, filesystem: p.filesystem, mountpoint: p.mountpoint,
+      sizeMib: p.sizeMiB ?? null,
+    }));
+    const payload = {
+      disk: cfg.disk.path,
+      confirmErase: cfg.disk.path,   // second guard: must equal `disk`, checked again in the privileged engine
+      diskMode: manual ? 'manual' : 'erase',
+      partitions: plan,
+      locale: cfg.locale,
+      keyboardLayout: cfg.keyboardLayout,
+      timezone: cfg.timezone || 'UTC',
+      hostname: cfg.hostname,
+      username: cfg.username,
+      fullName: cfg.fullName || cfg.username,
+      password: cfg.password,        // travels inside the stdin JSON to the privileged helper, never argv
+      autoLogin: cfg.autoLogin,
+      userDirs,
+    };
 
     try {
       if (!SystemBridge.isTauri()) {
@@ -152,12 +159,14 @@ export function createInstallState() {
 
       // Password is piped via stdin (never placed on the command line /
       // process listing) — see script's `read -r -s PASSWORD` step.
-      await SystemBridge.invokeCommand('installer_run', { args, password: cfg.password });
+      await SystemBridge.invokeCommand('installer_run', { config: payload });
       // installer_run is expected to emit `installer-progress` events while
       // running; the caller (BlueInstallerApp.svelte) subscribes to those
       // via tauriListen and updates progressPct/installLog directly.
     } catch (e: any) {
-      installError.set(e?.message ?? String(e));
+      // Backend errors are structured ({ code, message, hint?, detail? }) — show all of it.
+      const msg = e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e));
+      installError.set([msg, e?.hint, e?.detail].filter(Boolean).join('\n'));
       step.set('error');
     }
   }
