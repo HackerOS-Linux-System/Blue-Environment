@@ -8,6 +8,9 @@
   } from 'lucide-svelte';
   import { SystemBridge, toAssetUrl } from '../../../utils/systemBridge';
 
+  /** Set by Explorer/Desktop (utils/openFile.ts): open this image straight away. */
+  export let openPath: string | undefined = undefined;
+
   interface ImageItem { path: string; name: string; url: string; }
 
   interface Adjustments {
@@ -69,7 +72,22 @@
     if (e.key === 'Escape') { cropMode = false; cropBox = null; fullscreen = false; }
   }
 
-  onMount(() => window.addEventListener('keydown', handleKeyDown));
+  const IMG_RE = /\.(jpe?g|png|gif|webp|bmp|svg|avif|tiff?|ico)$/i;
+  async function loadFromPath(path: string) {
+    const dir = path.slice(0, path.lastIndexOf('/')) || '/';
+    let siblings: string[] = [];
+    try {
+      const entries: any[] = (await SystemBridge.getFiles(dir)) ?? [];
+      siblings = entries.filter((e) => !e.is_dir && IMG_RE.test(e.name)).map((e) => e.path).sort((a, b) => a.localeCompare(b));
+    } catch { /* fall back to the single file */ }
+    if (!siblings.includes(path)) siblings = [path];
+    // Browse the whole folder (←/→), starting at the clicked image — like every image viewer.
+    images = siblings.map((p) => ({ path: p, name: p.split('/').pop() ?? p, url: toAssetUrl(p) }));
+    idx = Math.max(0, siblings.indexOf(path));
+    resetEdits();
+  }
+
+  onMount(() => { window.addEventListener('keydown', handleKeyDown); if (openPath) loadFromPath(openPath); });
   onDestroy(() => window.removeEventListener('keydown', handleKeyDown));
 
   function handleScroll(e: WheelEvent) {
