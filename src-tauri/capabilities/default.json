@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main Blue Environment window \u2014 grants access to all custom Rust commands and required core plugin permissions. NOTE: this file previously had a duplicate, malformed override (\"core:default\" shadowed by an empty-allow-list duplicate) that broke IPC app-wide; if commands break app-wide again, check for a duplicate identifier with a narrower \"allow\" list shadowing the real grant before assuming a webview-scoping issue. Every one of this app's custom commands also needs an explicit allow-<command> permission here (Tauri's ACL denies anything not listed) \u2014 this is NOT hand-maintained: it is generated, together with build.rs's command list, by scripts/gen-tauri-allowlist.mjs from the single source of truth, main.rs's generate_handler![...] list. Run `node scripts/gen-tauri-allowlist.mjs` (or `npm run gen:allowlist`) after adding, removing, or renaming any #[tauri::command] in the handler list \u2014 do not hand-edit the allow-* entries below, they will be overwritten. `npm run gen:allowlist:check` (wired into CI) fails the build if this file has drifted from main.rs.",
+  "description": "Capability for the main Blue Environment window — grants access to all custom Rust commands and required core plugin permissions. NOTE: this file previously had a duplicate, malformed override (\"core:default\" shadowed by an empty-allow-list duplicate) that broke IPC app-wide; if commands break app-wide again, check for a duplicate identifier with a narrower \"allow\" list shadowing the real grant before assuming a webview-scoping issue. Every one of this app's custom commands also needs an explicit allow-<command> permission here (Tauri's ACL denies anything not listed) — this is NOT hand-maintained: it is generated, together with build.rs's command list, by scripts/gen-tauri-allowlist.mjs from the single source of truth, main.rs's generate_handler![...] list. Run `node scripts/gen-tauri-allowlist.mjs` (or `npm run gen:allowlist`) after adding, removing, or renaming any #[tauri::command] in the handler list — do not hand-edit the allow-* entries below, they will be overwritten. `npm run gen:allowlist:check` (wired into CI) fails the build if this file has drifted from main.rs.",
   "windows": [
     "main"
   ],
@@ -35,7 +35,9 @@
         "/tmp/**",
         "/mnt/**",
         "/media/**",
-        "/run/media/**"
+        "/run/media/**",
+        "/usr/share/wallpapers/**",
+        "/usr/share/Blue-Environment/**"
       ]
     },
     "shell:default",
@@ -182,6 +184,7 @@
     "allow-get-gpu-metrics",
     "allow-get-home-path",
     "allow-get-hostname",
+    "allow-get-installed-packages-fast",
     "allow-get-memory-metrics",
     "allow-get-native-packages",
     "allow-get-network-metrics",
@@ -196,6 +199,7 @@
     "allow-get-system-stats",
     "allow-get-temp-sensors",
     "allow-get-username",
+    "allow-get-wallpaper-data-url",
     "allow-get-wallpaper-preview",
     "allow-get-wallpapers",
     "allow-get-weather",
@@ -360,6 +364,14 @@
     "allow-spawn-terminal",
     "allow-start-language-server",
     "allow-stop-language-server",
+    "allow-store-check-updates",
+    "allow-store-fetch-index",
+    "allow-store-install",
+    "allow-store-list-installed",
+    "allow-store-read-file",
+    "allow-store-read-icon",
+    "allow-store-resolve",
+    "allow-store-uninstall",
     "allow-system-power",
     "allow-take-screenshot",
     "allow-tasks-delete",
@@ -401,15 +413,7 @@
     "allow-xmpp-has-session",
     "allow-xmpp-login",
     "allow-xmpp-logout",
-    "allow-xmpp-refresh-thread",
-    "allow-store-check-updates",
-    "allow-store-fetch-index",
-    "allow-store-install",
-    "allow-store-list-installed",
-    "allow-store-read-file",
-    "allow-store-read-icon",
-    "allow-store-resolve",
-    "allow-store-uninstall"
+    "allow-xmpp-refresh-thread"
   ],
   "local": true,
   "remote": {
