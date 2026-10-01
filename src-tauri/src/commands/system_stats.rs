@@ -155,17 +155,26 @@ pub fn get_battery_info() -> (f32, bool) {
 }
 
 pub fn get_brightness() -> i32 {
-    let paths = ["/sys/class/backlight/intel_backlight", "/sys/class/backlight/amdgpu_bl0", "/sys/class/backlight/acpi_video0"];
-    for p in &paths {
-        let cur = fs::read_to_string(format!("{}/brightness", p));
-        let max = fs::read_to_string(format!("{}/max_brightness", p));
+    // Any backlight device (intel_backlight, amdgpu_bl*, acpi_video*, nvidia_*,
+    // nv_backlight, vendor drivers...), not just three hardcoded names — when
+    // none matched, -1 made the Control Center slider silently snap back to
+    // 80% every time it was opened, which looked like the shell changing
+    // brightness by itself.
+    let Ok(rd) = fs::read_dir("/sys/class/backlight") else { return -1 };
+    let mut best: Option<(i32, i32)> = None; // (max, percent) — prefer the device with the finest range
+    for e in rd.flatten() {
+        let p = e.path();
+        let cur = fs::read_to_string(p.join("brightness"));
+        let max = fs::read_to_string(p.join("max_brightness"));
         if let (Ok(c), Ok(m)) = (cur, max) {
             let c: f32 = c.trim().parse().unwrap_or(0.0);
-            let m: f32 = m.trim().parse().unwrap_or(1.0);
-            return ((c / m) * 100.0) as i32;
+            let m: f32 = m.trim().parse().unwrap_or(0.0);
+            if m <= 0.0 { continue; }
+            let pct = ((c / m) * 100.0).round() as i32;
+            if best.map_or(true, |(bm, _)| (m as i32) > bm) { best = Some((m as i32, pct)); }
         }
     }
-    -1
+    best.map(|(_, pct)| pct).unwrap_or(-1)
 }
 
 pub fn get_pipewire_volume() -> Option<i32> {
