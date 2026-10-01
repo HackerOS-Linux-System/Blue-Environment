@@ -16,6 +16,7 @@
   // see languageMap.ts.
   import MonacoEditor from '../Blue-Code-App/MonacoEditor.svelte';
   import { getLang } from '../Blue-Code-App/languageMap';
+  import { HACKER_LANG_IDS } from '../Blue-Code-App/hackerLanguages';
 
   /** Set when launched from Explorer with "open this file" — see
    * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
@@ -57,7 +58,11 @@
   // AND there's a real language to highlight, so an untitled/plaintext
   // note still gets the plain textarea even with the setting enabled.
   $: activeLang = activeTab ? getLang(activeTab.title) : 'plaintext';
-  $: monacoActive = syntaxHighlightingEnabled && activeLang !== 'plaintext';
+  // The HackerOS formats (.h# .hl .hcs .hk .hacker) and Blue's own .blue are
+  // always highlighted — nothing else in the system can show them readably,
+  // so unlike general code files this doesn't wait for the toolbar toggle.
+  $: isHackerFamily = (HACKER_LANG_IDS as readonly string[]).includes(activeLang);
+  $: monacoActive = (syntaxHighlightingEnabled || isHackerFamily) && activeLang !== 'plaintext';
 
   function handleMonacoMount(e: CustomEvent<{ editor: any; monaco: any }>) {
     e.detail.editor.onDidChangeCursorPosition((ev: any) => {
