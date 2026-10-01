@@ -7,7 +7,10 @@
     Grid, List, Eye, X, Edit, Search,
     SortAsc, SortDesc, Columns, Info, Check, AlertCircle, Loader2,
     Star, StarOff, Archive as ArchiveIcon, FileBox,
+    FilePlus, FolderPlus, ExternalLink, Link2, ArchiveRestore, FolderOpen, ClipboardPaste, CheckSquare, AppWindow,
   } from 'lucide-svelte';
+  import { openFileWithDefaultApp } from '../../../utils/openFile';
+  import { showContextMenu, type MenuItem } from '../../../stores/contextMenu';
   import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm, activeDialog } from '../../../stores/dialog';
   import { get } from 'svelte/store';
@@ -97,17 +100,213 @@
 
   // --- Properties panel (właściwości pliku) ----------------------------------------------
   let propertiesFile: FileEntry | null = null;
-  function openProperties(file: FileEntry) { propertiesFile = file; }
-  function closeProperties() { propertiesFile = null; }
-
-  // --- Right-click context menu -----------------------------------------------------------
-  let ctxMenu: { x: number; y: number; file: FileEntry } | null = null;
-  function openContextMenu(e: MouseEvent, file: FileEntry) {
-    e.preventDefault();
-    if (!selected.has(file.path)) selected = new Set([file.path]);
-    ctxMenu = { x: e.clientX, y: e.clientY, file };
+  let propertiesDetails: { permissions: string; owner: string; group: string; size_bytes: number; accessed: string; modified: string; symlink_target?: string } | null = null;
+  function formatBytes(n: number) {
+    if (n < 1024) return `${n} B`;
+    const u = ['KB', 'MB', 'GB', 'TB']; let v = n / 1024, i = 0;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 ? 2 : 1)} ${u[i]} (${n.toLocaleString()} bytes)`;
   }
-  function closeContextMenu() { ctxMenu = null; }
+  async function openProperties(file: FileEntry) {
+    propertiesFile = file; propertiesDetails = null;
+    try { const d = await SystemBridge.getFileDetails(file.path); if (propertiesFile?.path === file.path) propertiesDetails = d; } catch { /* panel still shows basic info */ }
+  }
+  function closeProperties() { propertiesFile = null; propertiesDetails = null; }
+
+  // --- Right-click menus (rendered by the shell-wide <ContextMenu/>) ----------------------
+  // Every right-click inside Explorer is handled here: on a file/folder, on
+  // empty space, on a sidebar bookmark and on a tab — the webview's native
+  // "Back / Forward / Reload / Inspect" menu never shows (see globalContextMenu.ts).
+
+  const openWithCache = new Map<string, { id: string; name: string; icon?: string; exec: string; recommended: boolean }[]>();
+  async function openWithApps(mime: string) {
+    const key = mime || 'application/octet-stream';
+    if (!openWithCache.has(key)) {
+      try { openWithCache.set(key, await SystemBridge.getOpenWithApps(key, true)); } catch { openWithCache.set(key, []); }
+    }
+    return openWithCache.get(key)!;
+  }
+
+  let homeCache = '';
+  async function realPath(p: string): Promise<string> {
+    if (p !== 'HOME' && !p.startsWith('HOME/')) return p;
+    if (!homeCache) { try { homeCache = await SystemBridge.invokeCommand<string>('get_home_path'); } catch { homeCache = ''; } }
+    return homeCache ? homeCache + p.slice(4) : p;
+  }
+  async function copyPathToClipboard(paths: string[]) {
+    const real = await Promise.all(paths.map(realPath));
+    try { await navigator.clipboard.writeText(real.join('\n')); notify('info', paths.length > 1 ? `Copied ${paths.length} paths` : 'Path copied'); }
+    catch { notify('error', 'Could not access the clipboard'); }
+  }
+
+  async function createFile(defaultName = 'New File.txt', content = '', title = 'New File') {
+    const name = await dialogPrompt({ title, placeholder: defaultName, defaultValue: defaultName, confirmLabel: 'Create' });
+    if (!name?.trim()) return;
+    if (name.includes('/')) { notify('error', 'A name cannot contain "/"'); return; }
+    if (files.some((f) => f.name === name.trim())) { notify('error', `"${name.trim()}" already exists`); return; }
+    try { await SystemBridge.createTextFile(activeTab.path, name.trim(), content); notify('success', `Created: ${name.trim()}`); await loadFiles(activeTab.path); }
+    catch { notify('error', 'Failed to create file'); }
+  }
+
+  async function trashSelected() {
+    if (selected.size === 0) return;
+    const items = [...selected];
+    try { await SystemBridge.moveToTrash(items); notify('success', `Moved ${items.length} item(s) to Trash`); }
+    catch (e) { notify('error', typeof e === 'string' ? e : 'Could not move to Trash'); }
+    selected = new Set();
+    loadFiles(activeTab.path);
+  }
+
+  async function compressSelected(format: string) {
+    if (!selected.size) return;
+    notify('info', 'Compressing…');
+    try { const out = await SystemBridge.compressFiles([...selected], format); notify('success', `Created ${out.split('/').pop()}`); loadFiles(activeTab.path); }
+    catch (e) { notify('error', typeof e === 'string' ? e : 'Compression failed'); }
+  }
+  async function extractHere(file: FileEntry) {
+    notify('info', 'Extracting…');
+    try { const out = await SystemBridge.extractArchiveHere(file.path); notify('success', `Extracted to ${out.split('/').pop()}`); loadFiles(activeTab.path); }
+    catch (e) { notify('error', typeof e === 'string' ? e : 'Extraction failed'); }
+  }
+
+  const NEW_TEMPLATES: { label: string; name: string; body: string }[] = [
+    { label: 'Text file', name: 'New File.txt', body: '' },
+    { label: 'Markdown', name: 'README.md', body: '# Title\n' },
+    { label: 'H# source (.h#)', name: 'main.h#', body: ';; H# program\n' },
+    { label: 'Hacker Lang (.hl)', name: 'script.hl', body: ';; Hacker Lang script\n' },
+    { label: 'HackerScript (.hcs)', name: 'main.hcs', body: '!! HackerScript\n' },
+    { label: 'HK config (.hk)', name: 'config.hk', body: '! HK config\n[config]\n' },
+    { label: 'Hacker config (.hacker)', name: 'config.hacker', body: '# Hacker config\n' },
+    { label: 'Blue manifest (.blue)', name: 'blue.blue', body: '! Blue manifest\n[package]\n' },
+  ];
+
+  async function buildFileMenu(file: FileEntry): Promise<MenuItem[]> {
+    const many = selected.size > 1;
+    const items: MenuItem[] = [];
+    const n = selected.size;
+
+    items.push({ label: many ? `Open ${n} items` : 'Open', icon: Eye, action: () => { for (const p of selected) { const f = files.find((x) => x.path === p); if (f) handleOpen(f); } } });
+    if (!many && file.is_dir) {
+      items.push({ label: 'Open in new tab', icon: FolderOpen, action: () => { const id = `tab-${Date.now()}`; tabs = [...tabs, { id, path: file.path, history: [file.path], historyIndex: 0 }]; activeTabId = id; loadFiles(file.path); } });
+    }
+
+    if (!many && !file.is_dir) {
+      const apps = await openWithApps(file.mime_type);
+      const rec = apps.filter((a) => a.recommended);
+      const other = apps.filter((a) => !a.recommended);
+      const children: MenuItem[] = [
+        { label: 'Notepad', icon: FileText, action: () => openApp(AppId.NOTEPAD, false, undefined, { openPath: file.path }) },
+        { label: 'Blue Code', icon: FileText, action: () => openApp(AppId.BLUE_CODE, false, undefined, { openPath: file.path }) },
+        { label: 'Blue Images', icon: FileText, action: () => openApp(AppId.BLUE_IMAGES, false, undefined, { openPath: file.path }) },
+        { label: 'Blue Archive', icon: ArchiveIcon, action: () => openApp(AppId.BLUE_ARCHIVE, false, undefined, { openPath: file.path }) },
+        { label: 'Blue Video', icon: FileText, action: () => openApp(AppId.BLUE_VIDEOS, false, undefined, { openPath: file.path }) },
+        { label: 'Blue Music', icon: FileText, action: () => openApp(AppId.BLUE_MUSIC, false, undefined, { openPath: file.path }) },
+      ];
+      if (rec.length) { children.push({ separator: true }); for (const a of rec) children.push({ label: a.name, icon: AppWindow, action: () => SystemBridge.openWithApp(a.exec, file.path) }); }
+      if (other.length) { children.push({ separator: true }); for (const a of other) children.push({ label: a.name, icon: AppWindow, action: () => SystemBridge.openWithApp(a.exec, file.path) }); }
+      items.push({ label: 'Open with', icon: ExternalLink, children });
+    }
+
+    items.push({ separator: true });
+    items.push({ label: 'Cut', icon: Scissors, shortcut: 'Ctrl+X', action: cutSelected });
+    items.push({ label: 'Copy', icon: Copy, shortcut: 'Ctrl+C', action: copySelected });
+    items.push({ label: many ? 'Copy paths' : 'Copy path', icon: Link2, action: () => copyPathToClipboard([...selected]) });
+    if (!many && file.is_dir) items.push({ label: 'Paste into folder', icon: ClipboardPaste, disabled: !clipboard, action: () => pasteInto(file.path) });
+    items.push({ separator: true });
+    if (!many) items.push({ label: 'Rename', icon: Edit, shortcut: 'F2', action: () => startRename(file) });
+
+    items.push({
+      label: 'Compress', icon: ArchiveIcon,
+      children: [
+        { label: 'ZIP (.zip)', action: () => compressSelected('zip') },
+        { label: 'TAR.GZ (.tar.gz)', action: () => compressSelected('tar.gz') },
+        { label: 'TAR.XZ (.tar.xz)', action: () => compressSelected('tar.xz') },
+        { label: 'TAR.ZST (.tar.zst)', action: () => compressSelected('tar.zst') },
+      ],
+    });
+    if (!many && isArchive(file)) items.push({ label: 'Extract here', icon: ArchiveRestore, action: () => extractHere(file) });
+
+    if (!many && file.is_dir) {
+      items.push({ label: isCustomBookmark(file.path) ? 'Remove from bookmarks' : 'Add to bookmarks', icon: isCustomBookmark(file.path) ? StarOff : Star, action: () => toggleCustomBookmark(file.path) });
+    }
+
+    items.push({ separator: true });
+    items.push({ label: 'Move to Trash', icon: Trash2, shortcut: 'Del', danger: true, action: trashSelected });
+    items.push({ label: 'Delete permanently', icon: X, shortcut: 'Shift+Del', danger: true, action: deleteSelected });
+    items.push({ separator: true });
+    items.push({ label: 'Properties', icon: Info, disabled: many, action: () => openProperties(file) });
+    return items;
+  }
+
+  async function openContextMenu(e: MouseEvent, file: FileEntry) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selected.has(file.path)) selected = new Set([file.path]);
+    const ev = { clientX: e.clientX, clientY: e.clientY };
+    showContextMenu(ev, await buildFileMenu(file));
+  }
+
+  function openBackgroundMenu(e: MouseEvent) {
+    // Only for empty space — file rows/tiles stop propagation themselves.
+    e.preventDefault();
+    selected = new Set();
+    const cur = activeTab.path;
+    const here: FileEntry = { name: cur === 'HOME' ? '~' : (cur.split('/').pop() || '/'), path: cur, is_dir: true, size: '', mime_type: 'inode/directory' };
+    showContextMenu(e, [
+      {
+        label: 'Create new', icon: FilePlus,
+        children: [
+          { label: 'Folder…', icon: FolderPlus, shortcut: 'Ctrl+N', action: createFolder },
+          { separator: true },
+          ...NEW_TEMPLATES.map((t) => ({ label: t.label + '…', icon: FilePlus, action: () => createFile(t.name, t.body, `New ${t.label}`) })),
+        ],
+      },
+      { separator: true },
+      { label: 'Paste', icon: ClipboardPaste, shortcut: 'Ctrl+V', disabled: !clipboard, action: paste },
+      { label: 'Select all', icon: CheckSquare, shortcut: 'Ctrl+A', action: () => (selected = new Set(sorted.map((f) => f.path))) },
+      { separator: true },
+      {
+        label: 'View', icon: Grid,
+        children: [
+          { label: 'Icons', icon: Grid, checked: viewMode === 'grid', action: () => (viewMode = 'grid') },
+          { label: 'List', icon: List, checked: viewMode === 'list', action: () => (viewMode = 'list') },
+        ],
+      },
+      {
+        label: 'Sort by', icon: SortAsc,
+        children: [
+          ...(['name', 'size', 'modified', 'type'] as SortKey[]).map((k) => ({ label: k[0].toUpperCase() + k.slice(1), checked: sortBy === k, action: () => { sortBy = k; } })),
+          { separator: true },
+          { label: 'Ascending', checked: sortAsc, action: () => (sortAsc = true) },
+          { label: 'Descending', checked: !sortAsc, action: () => (sortAsc = false) },
+        ],
+      },
+      { label: 'Show hidden files', icon: Eye, checked: showHidden, action: () => (showHidden = !showHidden) },
+      { separator: true },
+      { label: 'Copy folder path', icon: Link2, action: () => copyPathToClipboard([cur]) },
+      { label: 'Refresh', icon: RefreshCw, shortcut: 'F5', action: () => loadFiles(cur) },
+      { label: 'Properties', icon: Info, action: () => openProperties(here) },
+    ]);
+  }
+
+  function openBookmarkMenu(e: MouseEvent, path: string, removable = false) {
+    showContextMenu(e, [
+      { label: 'Open', icon: FolderOpen, action: () => navigateTo(path) },
+      { label: 'Open in new tab', icon: ExternalLink, action: () => { const id = `tab-${Date.now()}`; tabs = [...tabs, { id, path, history: [path], historyIndex: 0 }]; activeTabId = id; loadFiles(path); } },
+      { label: 'Copy path', icon: Link2, action: () => copyPathToClipboard([path]) },
+      ...(removable ? [{ separator: true } as MenuItem, { label: 'Remove bookmark', icon: StarOff, danger: true, action: () => toggleCustomBookmark(path) } as MenuItem] : []),
+    ]);
+  }
+
+  function openTabMenu(e: MouseEvent, t: Tab) {
+    showContextMenu(e, [
+      { label: 'New tab', icon: Plus, shortcut: 'Ctrl+T', action: addTab },
+      { label: 'Duplicate tab', icon: Copy, action: () => { const id = `tab-${Date.now()}`; tabs = [...tabs, { id, path: t.path, history: [t.path], historyIndex: 0 }]; activeTabId = id; loadFiles(t.path); } },
+      { separator: true },
+      { label: 'Close tab', icon: X, disabled: tabs.length === 1, action: () => closeTab(t.id) },
+      { label: 'Close other tabs', disabled: tabs.length === 1, action: () => { tabs = tabs.filter((x) => x.id === t.id); activeTabId = t.id; loadFiles(t.path); } },
+    ]);
+  }
 
   let tabs: Tab[] = [{ id: 'tab-1', path: 'HOME', history: ['HOME'], historyIndex: 0 }];
   let activeTabId = 'tab-1';
@@ -244,29 +443,9 @@
       return;
     }
 
-    // HackerOS family + Blue's own format. These have no useful MIME type
-    // (xdg reports application/octet-stream or nothing), so they used to
-    // fall through to `xdg-open` and do nothing. Open them in the user's
-    // default text editor (Notepad highlights them automatically).
-    const lowerName = file.name.toLowerCase();
-    if (/\.(h#|hl|hcs|hk|hacker)$/.test(lowerName)) {
-      const editorApp = (configStore.get().defaultTextEditor ?? 'notepad') === 'blue_code' ? AppId.BLUE_CODE : AppId.NOTEPAD;
-      openApp(editorApp, false, undefined, { openPath: file.path });
-      return;
-    }
-    if (lowerName.endsWith('.blue')) { openBlueFile(file); return; }
-
-    if (file.mime_type.startsWith('image/')) { openPreview(file); return; }
-    if (file.mime_type.startsWith('text/')) {
-      // Previously this also fell into `openPreview` — a read-only pane
-      // inside Explorer itself, not a real editor. Now opens the file
-      // in whichever app the user picked in Settings → Applications
-      // (defaults to Notepad).
-      const editorApp = (configStore.get().defaultTextEditor ?? 'notepad') === 'blue_code' ? AppId.BLUE_CODE : AppId.NOTEPAD;
-      openApp(editorApp, false, undefined, { openPath: file.path });
-      return;
-    }
-    SystemBridge.launchApp(`xdg-open "${file.path}"`);
+    // Everything else: the shell's own apps are the defaults (images → Blue Images,
+    // archives → Blue Archive, video/audio → Blue Video/Music, text & Hacker* → editor).
+    openFileWithDefaultApp(file, () => openBlueFile(file));
   }
 
   async function createFolder() {
@@ -290,12 +469,13 @@
   function copySelected() { if (!selected.size) return; clipboard = { action: 'copy', files: [...selected] }; notify('info', `Copied ${selected.size} item(s)`); }
   function cutSelected() { if (!selected.size) return; clipboard = { action: 'cut', files: [...selected] }; notify('info', `Cut ${selected.size} item(s)`); }
 
-  async function paste() {
+  async function paste() { return pasteInto(activeTab.path); }
+  async function pasteInto(destDir: string) {
     if (!clipboard) return;
     let errors = 0;
     for (const src of clipboard.files) {
       const name = src.split('/').pop() ?? '';
-      const dst = `${activeTab.path}/${name}`;
+      const dst = `${destDir}/${name}`;
       try { if (clipboard.action === 'copy') await SystemBridge.copyFile(src, dst); else await SystemBridge.moveFile(src, dst); }
       catch { errors++; }
     }
@@ -409,15 +589,11 @@
       const f = files.find((f) => selected.has(f.path));
       if (f) startRename(f);
     }
-    if (e.key === 'Delete') { e.preventDefault(); deleteSelected(); }
+    if (e.key === 'Delete') { e.preventDefault(); if (e.shiftKey) deleteSelected(); else trashSelected(); }
+    if (e.key === 'F5') { e.preventDefault(); loadFiles(activeTab.path); }
     if (e.key === 'Escape') { searchTerm = ''; showSearch = false; selected = new Set(); }
   }
   onMount(() => window.addEventListener('keydown', handleKeyDown));
-  onMount(() => {
-    const closeCtx = () => (ctxMenu = null);
-    window.addEventListener('click', closeCtx);
-    return () => window.removeEventListener('click', closeCtx);
-  });
   onDestroy(() => window.removeEventListener('keydown', handleKeyDown));
 
   $: breadcrumbs = activeTab.path.split('/').map((part, i, arr) => ({
@@ -445,19 +621,19 @@
     </div>
     <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
       {#each BOOKMARKS_WITH_ICONS as bm (bm.path)}
-        <button on:click={() => navigateTo(bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+        <button on:click={() => navigateTo(bm.path)} on:contextmenu={(e) => openBookmarkMenu(e, bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <svelte:component this={bm.icon} size={14} />{bm.name}
         </button>
       {/each}
       <div class="h-px bg-white/5 my-2" />
-      <button on:click={() => navigateTo('/')} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:bg-white/5 hover:text-white">
+      <button on:click={() => navigateTo('/')} on:contextmenu={(e) => openBookmarkMenu(e, '/')} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:bg-white/5 hover:text-white">
         <HardDrive size={14} /> / (root)
       </button>
       {#if customBookmarks.length}
         <div class="h-px bg-white/5 my-2" />
         <div class="px-2 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
         {#each customBookmarks as path (path)}
-          <div class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          <div on:contextmenu={(e) => openBookmarkMenu(e, path, true)} class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
             <button on:click={() => navigateTo(path)} class="flex items-center gap-2 flex-1 min-w-0 text-left">
               <Folder size={14} class="shrink-0" /><span class="truncate">{path.split('/').pop()}</span>
             </button>
@@ -471,7 +647,7 @@
   <div class="flex-1 flex flex-col min-w-0">
     <div class="flex items-center bg-slate-800/80 border-b border-white/5 overflow-x-auto shrink-0">
       {#each tabs as t (t.id)}
-        <div on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
+        <div on:contextmenu={(e) => openTabMenu(e, t)} on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
           class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-r border-white/5 shrink-0 group max-w-[140px] {t.id === activeTabId ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
           <Folder size={12} />
           <span class="text-xs truncate">{t.path === 'HOME' ? '~' : t.path.split('/').pop()}</span>
@@ -493,7 +669,7 @@
       <button on:click={() => loadFiles(activeTab.path)} class="p-1.5 hover:bg-white/10 rounded"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
       <div class="w-px h-5 bg-white/10 mx-1" />
       <button on:click={createFolder} title="New folder (Ctrl+N)" class="p-1.5 hover:bg-white/10 rounded"><Plus size={15} /></button>
-      <button on:click={deleteSelected} disabled={!selected.size} title="Delete (Del)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
+      <button on:click={trashSelected} disabled={!selected.size} title="Move to Trash (Del) — Shift+Del deletes permanently" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
       <button on:click={copySelected} disabled={!selected.size} title="Copy (Ctrl+C)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Copy size={15} /></button>
       <button on:click={cutSelected} disabled={!selected.size} title="Cut (Ctrl+X)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Scissors size={15} /></button>
       <button on:click={paste} disabled={!clipboard} title="Paste (Ctrl+V)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Clipboard size={15} class={clipboard ? 'text-blue-400' : ''} /></button>
@@ -522,7 +698,7 @@
     {/if}
 
     <div class="flex-1 flex overflow-hidden">
-      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:click={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
+      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:contextmenu={openBackgroundMenu} on:click={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
         {#if loading}
           <div class="flex items-center justify-center h-full"><Loader2 size={22} class="animate-spin text-blue-400" /></div>
         {:else if sorted.length === 0}
@@ -608,7 +784,7 @@
                   <td class="p-2">
                     <div class="flex gap-1 opacity-0 group-hover:opacity-100">
                       <button on:click|stopPropagation={() => startRename(file)} class="p-1 hover:bg-white/10 rounded text-slate-400"><Edit size={12} /></button>
-                      <button on:click|stopPropagation={() => { selected = new Set([file.path]); setTimeout(deleteSelected, 0); }} class="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
+                      <button on:click|stopPropagation={() => { selected = new Set([file.path]); setTimeout(trashSelected, 0); }} class="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
                     </div>
                   </td>
                 </tr>
@@ -673,28 +849,6 @@
         </div>
       {/if}
 
-      {#if ctxMenu}
-        {@const cf = ctxMenu.file}
-        <div class="fixed z-[60] w-44 bg-slate-800 border border-white/10 rounded-lg shadow-2xl py-1 text-sm" style="left:{ctxMenu.x}px; top:{ctxMenu.y}px;" on:click|stopPropagation>
-          <button on:click={() => { handleOpen(cf); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><Eye size={13} /> Open</button>
-          {#if isArchive(cf)}
-            <button on:click={() => { openPreview(cf); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><ArchiveIcon size={13} /> Preview contents</button>
-          {/if}
-          <button on:click={() => { startRename(cf); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><Edit size={13} /> Rename</button>
-          <button on:click={() => { selected = new Set([cf.path]); copySelected(); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><Copy size={13} /> Copy</button>
-          <button on:click={() => { selected = new Set([cf.path]); cutSelected(); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><Scissors size={13} /> Cut</button>
-          {#if cf.is_dir}
-            <button on:click={() => { toggleCustomBookmark(cf.path); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2">
-              {#if isCustomBookmark(cf.path)}<StarOff size={13} /> Remove bookmark{:else}<Star size={13} /> Add bookmark{/if}
-            </button>
-          {/if}
-          <div class="h-px bg-white/10 my-1" />
-          <button on:click={() => { selected = new Set([cf.path]); deleteSelected(); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400 flex items-center gap-2"><Trash2 size={13} /> Delete</button>
-          <div class="h-px bg-white/10 my-1" />
-          <button on:click={() => { openProperties(cf); closeContextMenu(); }} class="w-full text-left px-3 py-1.5 hover:bg-white/10 flex items-center gap-2"><Info size={13} /> Properties</button>
-        </div>
-      {/if}
-
       {#if propertiesFile}
         {@const pf = propertiesFile}
         <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
@@ -709,7 +863,14 @@
               <div class="flex justify-between"><span class="text-slate-500">Location</span><span class="truncate max-w-[180px]">{pf.path.slice(0, pf.path.lastIndexOf('/')) || '/'}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Full path</span><span class="truncate max-w-[180px]" title={pf.path}>{pf.path}</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Size</span><span>{pf.size}</span></div>
-              <div class="flex justify-between"><span class="text-slate-500">Modified</span><span>{pf.modified ?? '—'}</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Modified</span><span>{propertiesDetails?.modified ?? pf.modified ?? '—'}</span></div>
+              {#if propertiesDetails}
+                <div class="flex justify-between"><span class="text-slate-500">Exact size</span><span class="text-right">{formatBytes(propertiesDetails.size_bytes)}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Accessed</span><span>{propertiesDetails.accessed}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Permissions</span><span class="font-mono">{propertiesDetails.permissions}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Owner</span><span>{propertiesDetails.owner}:{propertiesDetails.group}</span></div>
+                {#if propertiesDetails.symlink_target}<div class="flex justify-between"><span class="text-slate-500">Link to</span><span class="truncate max-w-[180px]" title={propertiesDetails.symlink_target}>{propertiesDetails.symlink_target}</span></div>{/if}
+              {/if}
               {#if isArchive(pf)}
                 <div class="flex justify-between"><span class="text-slate-500">Archive entries</span><span>{archiveEntries?.length ?? '—'}</span></div>
               {/if}
