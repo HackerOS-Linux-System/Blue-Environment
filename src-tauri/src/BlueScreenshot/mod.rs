@@ -16,7 +16,7 @@ fn compute_path() -> Option<PathBuf> {
 /// IPC path (which needs a path to write to, but has no reason to know
 /// Tauri's `dirs` conventions) and the CLI fallback in `take_screenshot`
 /// below agree on where screenshots live.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn default_screenshot_path() -> String {
     compute_path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
 }
@@ -28,7 +28,7 @@ pub fn default_screenshot_path() -> String {
 /// i.e. sessions where HackerOS-Comp isn't actually running the show
 /// (X11, or a different Wayland compositor), where these external tools
 /// are the only option anyway.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn take_screenshot() -> String {
     let Some(path_buf) = compute_path() else { return String::new() };
     let path = path_buf.to_string_lossy().to_string();
