@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { trackBusy } from '../../stores/appHealth';
+  export let windowId: string | undefined = undefined;
   import { onMount, onDestroy } from 'svelte';
   import { SystemBridge, toAssetUrl } from '../../utils/systemBridge';
   import {
@@ -48,17 +50,23 @@
     nativeMode = true;
     stopNativePolling();
 
-    const available = await SystemBridge.cameraCheckAvailable();
+    const available = await trackBusy(windowId, 'camera_check_available', SystemBridge.cameraCheckAvailable());
     if (!available) { ffmpegMissing = true; return; }
     ffmpegMissing = false;
 
-    const list = await SystemBridge.cameraListDevices();
+    const list = await trackBusy(windowId, 'camera_list_devices', SystemBridge.cameraListDevices());
     nativeDevices = list;
     if (list.length === 0) { error = 'No camera device found under /dev/video*.'; return; }
     const device = list[devIdx % list.length].path;
 
+    // One frame request at a time: each capture spawns ffmpeg (~0.3–1 s). The old
+    // fixed 600 ms interval stacked requests whenever a capture was slower than that.
+    let polling = false;
     const poll = async () => {
-      try { nativeFrame = await SystemBridge.cameraCaptureFrame(device, resolution.w, resolution.h); } catch {}
+      if (polling || document.hidden) return;
+      polling = true;
+      try { nativeFrame = await trackBusy(windowId, 'camera_capture_frame', SystemBridge.cameraCaptureFrame(device, resolution.w, resolution.h), 8000); } catch {}
+      finally { polling = false; }
     };
     poll();
     pollTimer = setInterval(poll, 600);
@@ -68,14 +76,14 @@
     stream?.getTracks().forEach((t) => t.stop());
     error = null;
     try {
-      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const allDevices = await trackBusy(windowId, 'enumerateDevices', navigator.mediaDevices.enumerateDevices());
       const cams = allDevices.filter((d) => d.kind === 'videoinput');
       devices = cams;
       const constraints: MediaStreamConstraints = {
         video: { deviceId: cams[devIdx]?.deviceId ? { ideal: cams[devIdx].deviceId } : undefined, width: { ideal: resolution.w }, height: { ideal: resolution.h } },
         audio: mode === 'video',
       };
-      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      const s = await trackBusy(windowId, 'getUserMedia', navigator.mediaDevices.getUserMedia(constraints), 6000);
       stream = s;
       nativeMode = false;
       stopNativePolling();
