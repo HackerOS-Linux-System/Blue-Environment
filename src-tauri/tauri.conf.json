@@ -23,6 +23,7 @@
         "maximized": true,
         "decorations": false,
         "transparent": false,
+        "backgroundColor": "#060d1f",
         "alwaysOnTop": false,
         "center": true
       }
