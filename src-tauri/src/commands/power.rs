@@ -40,13 +40,13 @@ pub async fn get_power_profiles() -> Result<Vec<PowerProfile>, String> {
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_power_profile(profile: String) -> Result<(), String> {
     Command::new("powerprofilesctl").args(["set", &profile]).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_brightness(level: i32) {
     // Never 0 %: a fully black panel with no way to see the slider again.
     let level = level.clamp(1, 100);
