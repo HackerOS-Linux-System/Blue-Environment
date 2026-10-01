@@ -80,7 +80,7 @@ fn read_one_lsp_message<R: Read>(reader: &mut R) -> std::io::Result<Option<Value
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_language_server(app: AppHandle, language: String, root_path: String) -> LspResult {
     let key = format!("{}::{}", language, root_path);
 
@@ -143,7 +143,7 @@ pub fn start_language_server(app: AppHandle, language: String, root_path: String
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_language_server(language: String, root_path: String) -> bool {
     let key = format!("{}::{}", language, root_path);
     if let Some(mut proc) = LSP_PROCESSES.lock().unwrap().remove(&key) {
@@ -158,7 +158,7 @@ pub fn stop_language_server(language: String, root_path: String) -> bool {
 /// framed. `message` should already be a well-formed JSON-RPC 2.0
 /// object (built by the frontend's `lspClient.ts`) — see this module's
 /// doc comment on why framing/transport and protocol are kept separate.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn lsp_send_message(language: String, root_path: String, message: Value) -> Result<(), String> {
     let key = format!("{}::{}", language, root_path);
     let mut procs = LSP_PROCESSES.lock().unwrap();
@@ -170,7 +170,7 @@ pub fn lsp_send_message(language: String, root_path: String, message: Value) -> 
     proc.stdin.flush().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn lsp_is_running(language: String, root_path: String) -> bool {
     let key = format!("{}::{}", language, root_path);
     LSP_PROCESSES.lock().unwrap().contains_key(&key)
