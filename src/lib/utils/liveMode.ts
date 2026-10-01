@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { SystemBridge } from './systemBridge';
 
 /**
@@ -13,9 +13,30 @@ import { SystemBridge } from './systemBridge';
  *     it's not meant to be launchable from the Start Menu or Settings, only
  *     ever entered via this marker file, matching how a real live-ISO
  *     installer behaves.
+ *   - While in live mode the person can flip between two views
+ *     (`liveView`): the installer, and the ordinary ("classic") Blue
+ *     desktop to look around / use a browser / partition manually. The
+ *     installer stays mounted (just hidden) while the desktop is shown, so
+ *     nothing they entered is lost, and the desktop shows a floating
+ *     "Return to Blue Installer" button. None of this exists outside live
+ *     mode: without the `.live` marker there is no installer view at all.
  */
 export const isLiveMode = writable(false);
 export const liveModeChecked = writable(false);
+
+/** Which view a live session currently shows. Meaningless outside live mode. */
+export type LiveView = 'installer' | 'desktop';
+export const liveView = writable<LiveView>('installer');
+
+/** Live mode only: leave the installer and show the classic desktop. */
+export function switchToClassicDesktop(): void {
+  if (get(isLiveMode)) liveView.set('desktop');
+}
+
+/** Live mode only: go back from the classic desktop to the installer. */
+export function returnToInstaller(): void {
+  if (get(isLiveMode)) liveView.set('installer');
+}
 
 export async function checkLiveMode(): Promise<boolean> {
   try {
@@ -36,4 +57,5 @@ export async function checkLiveMode(): Promise<boolean> {
 export async function clearLiveMode(): Promise<void> {
   await SystemBridge.executeCommand('rm -f "$HOME/.config/Blue-Environment/.live"').catch(() => {});
   isLiveMode.set(false);
+  liveView.set('installer');
 }
