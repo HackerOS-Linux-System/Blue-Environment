@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { Video, X, Plus } from 'lucide-svelte';
   import { createPlaylist } from './playlist';
   import Controls from './Controls.svelte';
@@ -6,7 +7,9 @@
   import { toAssetUrl } from '../../../utils/systemBridge';
 
   const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
-  const { playlist, currentIdx, openFiles, remove } = createPlaylist();
+  export let openPath: string | undefined = undefined;
+  const { playlist, currentIdx, openFiles, addPath, remove } = createPlaylist();
+  onMount(() => { if (openPath) addPath(openPath); });
 
   let videoEl: HTMLVideoElement;
   let containerEl: HTMLDivElement;
