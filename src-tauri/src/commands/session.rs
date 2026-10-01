@@ -6,7 +6,7 @@ use std::process::Command;
 
 use crate::cache::CachedApp;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_session_type() -> String {
     session::session_info()
 }
@@ -23,23 +23,23 @@ pub async fn get_system_apps(force_refresh: bool) -> Result<Vec<CachedApp>, Stri
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_recent_apps() -> Vec<String> {
     cache::get_recent_apps()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn record_app_launch(app_id: String) {
     cache::record_app_launch(&app_id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn invalidate_app_cache() {
     apps::clear_memory_cache();
     cache::invalidate_app_cache();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launch_process(command: String, app_id: Option<String>) {
     if let Some(id) = app_id {
         cache::record_app_launch(&id);
@@ -77,22 +77,22 @@ pub async fn get_external_windows() -> Result<Vec<window_tracker::ExternalWindow
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn focus_external_window(win_id: String) {
     window_tracker::focus_window(&win_id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn minimize_external_window(win_id: String) {
     window_tracker::minimize_window(&win_id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn close_external_window(win_id: String) {
     window_tracker::close_window(&win_id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn embed_external_window(win_id: String, _parent_id: String) -> bool {
     // Native Wayland windows (ids sourced from the compositor's own IPC,
     // see `window_tracker::get_wayland_windows_via_compositor_ipc`) route
