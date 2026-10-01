@@ -4,7 +4,26 @@
   import { createArchive } from './useArchive';
   import CreateArchiveDialog from './CreateArchiveDialog.svelte';
 
+  import { showContextMenu } from '../../../stores/contextMenu';
   export let openPath: string | undefined = undefined;
+  const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
+  function entryMenu(e: MouseEvent, entry: { path: string; is_dir: boolean }) {
+    e.stopPropagation();
+    showContextMenu(e, [
+      { label: 'Copy path inside archive', action: () => copyText(entry.path) },
+      { label: 'Copy name', action: () => copyText(entry.path.replace(/\/$/, '').split('/').pop() ?? entry.path) },
+      { separator: true },
+      { label: 'Extract archive…', disabled: !$archive, action: () => extract($archive) },
+    ]);
+  }
+  function archiveMenu(e: MouseEvent) {
+    showContextMenu(e, [
+      { label: 'Extract all…', disabled: !$archive || $loading, action: () => extract($archive) },
+      { label: 'Copy archive path', disabled: !$archive, action: () => $archive && copyText($archive.path) },
+      { separator: true },
+      { label: 'Open another archive…', action: openFile },
+    ]);
+  }
   const { archive, loading, status, error, openFile, extract, openPath: loadPath } = createArchive();
   onMount(() => { if (openPath) loadPath(openPath); });
   let showCreate = false;
@@ -68,15 +87,15 @@
         </select>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <div class="flex-1 overflow-y-auto p-2 space-y-0.5" on:contextmenu={archiveMenu} role="presentation">
         {#each dirs as e, i (i)}
-          <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
+          <div on:contextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
             <Folder size={14} class="text-blue-400 shrink-0" />
             <span class="text-sm text-slate-300 truncate flex-1">{e.path}</span>
           </div>
         {/each}
         {#each files as e, i (i)}
-          <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
+          <div on:contextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
             <File size={14} class="text-yellow-400 shrink-0" />
             <span class="text-sm text-slate-300 truncate flex-1">{e.path}</span>
             <span class="text-xs text-slate-600 shrink-0">{e.size > 0 ? `${(e.size / 1024).toFixed(1)} KB` : ''}</span>
