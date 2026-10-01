@@ -53,11 +53,35 @@ pub struct FileTypeAssociation {
     pub open_with_command: Option<String>,
 }
 
+/// Built-in associations for the HackerOS language family and Blue's own
+/// format. Only used until the user saves their own list — after that the
+/// file on disk is the single source of truth (so they can edit or delete
+/// these like any other association). Colours follow the hdev language table.
+fn default_associations() -> Vec<FileTypeAssociation> {
+    let mk = |ext: &str, icon: &str, color: &str, label: &str| FileTypeAssociation {
+        id: format!("builtin-{}", ext.replace('#', "sharp")),
+        kind: MatchKind::Extension,
+        pattern: ext.to_string(),
+        icon: icon.to_string(),
+        color: color.to_string(),
+        label: label.to_string(),
+        open_with_command: None,
+    };
+    vec![
+        mk("h#", "Code2", "#8b0000", "H# source"),
+        mk("hl", "FileCode", "#a855f7", "Hacker Lang script"),
+        mk("hcs", "FileCode", "#9ca3af", "HackerScript"),
+        mk("hk", "FileCog", "#f59e0b", "HK config"),
+        mk("hacker", "FileCog", "#ef4444", "Hacker config"),
+        mk("blue", "Package", "#3b82f6", "Blue package / manifest"),
+    ]
+}
+
 fn load_raw() -> Vec<FileTypeAssociation> {
-    fs::read_to_string(config_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    match fs::read_to_string(config_path()) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => default_associations(),
+    }
 }
 
 fn save_raw(list: &[FileTypeAssociation]) -> bool {
