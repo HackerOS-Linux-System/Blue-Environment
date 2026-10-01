@@ -10,12 +10,19 @@
    * need their `panelPosition` fix, just the Hydra glow/border accent. */
   export let shellThemeId: string | undefined = undefined;
 
+  /** Actions to leave out (the live installer hides suspend/hibernate — pointless there). */
+  export let hideActions: PowerAction[] = [];
+  /** Stacking order; the installer overlay needs to sit above its own z-[999] layer. */
+  export let zIndex = 50;
+
   const ACTIONS = [
-    { action: 'shutdown' as PowerAction, label: 'Shut Down', Icon: Power, color: '#ef4444', glow: 'rgba(239,68,68,0.3)', description: 'Power off the system' },
-    { action: 'reboot' as PowerAction, label: 'Restart', Icon: RefreshCcw, color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', description: 'Reboot the system' },
-    { action: 'suspend' as PowerAction, label: 'Suspend', Icon: Moon, color: '#3b82f6', glow: 'rgba(59,130,246,0.3)', description: 'Sleep — resume quickly' },
-    { action: 'hibernate' as PowerAction, label: 'Hibernate', Icon: HardDrive, color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', description: 'Save state to disk' },
+    { action: 'shutdown' as PowerAction, busy: 'Shutting down', label: 'Shut Down', Icon: Power, color: '#ef4444', glow: 'rgba(239,68,68,0.3)', description: 'Power off the system' },
+    { action: 'reboot' as PowerAction, busy: 'Restarting', label: 'Restart', Icon: RefreshCcw, color: '#f59e0b', glow: 'rgba(245,158,11,0.3)', description: 'Reboot the system' },
+    { action: 'suspend' as PowerAction, busy: 'Suspending', label: 'Suspend', Icon: Moon, color: '#3b82f6', glow: 'rgba(59,130,246,0.3)', description: 'Sleep — resume quickly' },
+    { action: 'hibernate' as PowerAction, busy: 'Hibernating', label: 'Hibernate', Icon: HardDrive, color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', description: 'Save state to disk' },
   ] as const;
+
+  $: visibleActions = ACTIONS.filter((a) => !hideActions.includes(a.action));
 
   let confirming: PowerAction | null = null;
   let countdown = 5;
@@ -59,8 +66,8 @@
 </script>
 
 <div
-  class="fixed inset-0 z-50 flex items-center justify-center"
-  style="background:rgba(2,8,18,0.8); backdrop-filter:blur(20px);"
+  class="fixed inset-0 flex items-center justify-center"
+  style="z-index:{zIndex}; background:rgba(2,8,18,0.8); backdrop-filter:blur(20px);"
   on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}
 >
   <div
@@ -82,7 +89,7 @@
         <div class="text-6xl font-light tabular-nums mb-2" style="font-family:'Oxanium', monospace; color:{selected.color};">
           {countdown}
         </div>
-        <p class="text-slate-300 mb-1 text-lg">{selected.label}ing…</p>
+        <p class="text-slate-300 mb-1 text-lg">{selected.busy}…</p>
         <p class="text-slate-500 text-sm mb-8">{selected.description}</p>
         <button on:click={cancel} class="bedm-btn-ghost px-8 py-3 rounded-xl text-sm font-medium">
           Cancel
@@ -94,7 +101,7 @@
       </h2>
       <p class="text-center text-slate-500 text-sm mb-8">Choose an action</p>
       <div class="grid grid-cols-2 gap-3">
-        {#each ACTIONS as { action, label, Icon, color, glow, description } (action)}
+        {#each visibleActions as { action, label, Icon, color, glow, description } (action)}
           <button
             on:click={() => handleSelect(action)}
             class="group flex flex-col items-center gap-3 p-5 rounded-2xl transition-all duration-200"
