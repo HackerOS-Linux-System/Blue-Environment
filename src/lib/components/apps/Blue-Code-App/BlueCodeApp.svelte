@@ -12,6 +12,9 @@
   import QuickOpen from './QuickOpen.svelte';
   import TerminalPane from './TerminalPane.svelte';
   import MonacoEditor from './MonacoEditor.svelte';
+  import { HACKER_LANG_LABEL } from './hackerLanguages';
+  import SettingsPanel from './SettingsPanel.svelte';
+  import { blueCodeSettings } from './blueCodeSettings';
 
   export let windowId: string;
   /** Set when launched from Explorer with "open this file" — see
@@ -32,6 +35,7 @@
     // screen) — without this, Quick Open would be unreachable by
     // keyboard until the person opens a file some other way first.
     const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); showSettings = true; return; }
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'p') return;
       e.preventDefault(); // always: also stops the browser's own print dialog on Ctrl+P
       if (e.shiftKey) showCommandPalette = true; else showQuickOpen = true;
@@ -42,7 +46,8 @@
 
   let sidebarTab: SidebarTab = 'files';
   let sidebarCollapsed = false;
-  let showTerminal = true;
+  let showTerminal = $blueCodeSettings.showTerminalOnStart;
+  let showSettings = false;
   let showCommandPalette = false;
   let showQuickOpen = false;
   let commandInput = '';
@@ -55,6 +60,8 @@
   }
 
   $: commands = [
+    { id: 'settings', label: 'Blue Code Settings…', shortcut: 'Ctrl+,', action: () => (showSettings = true) },
+    { id: 'single-click', label: 'Toggle: Open files with single click', shortcut: '', action: () => blueCodeSettings.patch({ openOnSingleClick: !$blueCodeSettings.openOnSingleClick }) },
     { id: 'save', label: 'Save File', shortcut: 'Ctrl+S', action: () => editor.saveFile($activeIdx) },
     { id: 'saveAll', label: 'Save All', shortcut: 'Ctrl+Shift+S', action: editor.saveAll },
     { id: 'newFile', label: 'New File', shortcut: 'Ctrl+N', action: newFile },
@@ -193,12 +200,18 @@
   </div>
 
   <StatusBar
-    languageLabel={$activeFile ? $activeFile.language.toUpperCase() : '—'}
+    languageLabel={$activeFile ? (HACKER_LANG_LABEL[$activeFile.language] ?? $activeFile.language.toUpperCase()) : '—'}
     line={$cursorPos.line} col={$cursorPos.col} errors={$errors} warnings={$warnings}
     editorTheme={$editorTheme} fontSize={$fontSize}
     on:toggleTheme={() => editorTheme.update((t) => (t === 'blue-dark' ? 'blue-light' : 'blue-dark'))}
     on:fontSize={(e) => fontSize.set(e.detail)}
+    on:settings={() => (showSettings = true)}
   />
+
+  <SettingsPanel visible={showSettings} editorTheme={$editorTheme} fontSize={$fontSize}
+    on:close={() => (showSettings = false)}
+    on:theme={(e) => editorTheme.set(e.detail)}
+    on:fontSize={(e) => fontSize.set(e.detail)} />
 
   <CommandPalette visible={showCommandPalette} input={commandInput} {commands}
     on:close={() => { showCommandPalette = false; commandInput = ''; }}
