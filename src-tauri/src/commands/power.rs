@@ -48,9 +48,17 @@ pub fn set_power_profile(profile: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_brightness(level: i32) {
-    if Command::new("brightnessctl").args(["set", &format!("{}%", level)]).spawn().is_err() {
+    // Never 0 %: a fully black panel with no way to see the slider again.
+    let level = level.clamp(1, 100);
+    // `status()` (waits) instead of `spawn()` — a stream of fire-and-forget
+    // spawns while dragging the slider left zombie processes and let older
+    // calls finish AFTER newer ones, making the brightness jump back.
+    let ok = Command::new("brightnessctl").args(["set", &format!("{}%", level)])
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .status().map(|s| s.success()).unwrap_or(false);
+    if !ok {
         let _ = Command::new("sh").arg("-c")
-        .arg(format!("xrandr --output $(xrandr | grep ' connected' | head -1 | cut -d' ' -f1) --brightness {:.2}", level as f32 / 100.0))
-        .spawn();
+            .arg(format!("xrandr --output $(xrandr | grep ' connected' | head -1 | cut -d' ' -f1) --brightness {:.2}", level as f32 / 100.0))
+            .status();
     }
 }
