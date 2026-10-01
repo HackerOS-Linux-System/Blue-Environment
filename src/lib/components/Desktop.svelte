@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openFileWithDefaultApp } from '../utils/openFile';
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { FolderPlus, FilePlus, ClipboardPaste, RefreshCw, Image as ImageIcon } from 'lucide-svelte';
   import { SystemBridge, toAssetUrl } from '../utils/systemBridge';
