@@ -38,7 +38,7 @@ fn today_string() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn screen_time_record_usage(app_id: String, minutes: u32) -> bool {
     let mut log = load();
     let today = today_string();
@@ -67,7 +67,7 @@ pub struct ScreenTimeRangeSummary {
 /// `range`: `"today"`, `"week"` (last 7 days incl. today), `"month"`
 /// (last 30 days incl. today), or `"all"` (every day ever recorded).
 /// Anything else is treated as `"week"`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn screen_time_get_summary(range: String) -> ScreenTimeRangeSummary {
     let log = load();
     let today = chrono::Local::now().date_naive();
@@ -113,7 +113,7 @@ pub fn screen_time_get_summary(range: String) -> ScreenTimeRangeSummary {
 
 /// User-initiated reset of the entire history (not automatic — see
 /// module doc). Returns whether the write succeeded.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn screen_time_clear_history() -> bool {
     save(&ScreenTimeLog::default())
 }
