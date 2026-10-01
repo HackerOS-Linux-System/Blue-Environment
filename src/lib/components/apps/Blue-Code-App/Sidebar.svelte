@@ -2,6 +2,17 @@
   import { RefreshCw, FolderOpen, FolderPlus, FilePlus, AlertCircle, AlertTriangle } from 'lucide-svelte';
   import { onDestroy } from 'svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
+  import { showContextMenu } from '../../../stores/contextMenu';
+
+  function treeBackgroundMenu(e: MouseEvent) {
+    showContextMenu(e, [
+      { label: 'New file…', icon: FilePlus, action: () => tree.createFile() },
+      { label: 'New folder…', icon: FolderPlus, action: () => tree.createFolder() },
+      { label: 'Open folder…', icon: FolderOpen, action: () => tree.openWorkspace() },
+      { separator: true },
+      { label: 'Refresh', icon: RefreshCw, action: () => tree.loadTree($rootPath) },
+    ]);
+  }
   import GitPanel from '../../GitPanel.svelte';
   import type { FileTreeState } from './fileTree';
   import type { EditorFilesState } from './editorFiles';
@@ -113,7 +124,7 @@
   </div>
 
   {#if sidebarTab === 'files'}
-    <div class="flex-1 overflow-y-auto p-1">
+    <div class="flex-1 overflow-y-auto p-1" on:contextmenu={treeBackgroundMenu} role="presentation">
       <div class="flex items-center justify-between px-2 py-1 mb-1">
         <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate" title={$rootPath}>{$rootPath.split('/').pop() || $rootPath || 'Explorer'}</span>
         <div class="flex gap-0.5 shrink-0">
@@ -132,7 +143,10 @@
           on:openFile={(e) => editor.openFile(e.detail)}
           on:toggleDir={(e) => tree.toggleDir(e.detail)}
           on:rename={(e) => handleRename(e.detail)}
-          on:delete={(e) => handleDelete(e.detail)} />
+          on:delete={(e) => handleDelete(e.detail)}
+          on:newFile={() => tree.createFile()}
+          on:newFolder={() => tree.createFolder()}
+          on:refresh={() => tree.loadTree($rootPath)} />
       {/if}
     </div>
   {/if}
