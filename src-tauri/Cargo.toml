@@ -213,6 +213,10 @@ rustls-pemfile                 = "2"
 # doesn't fix it, the next thing to check is whether this binding was
 # ever generated for this crate at all, feature flag or not.
 webkit2gtk = { version = "2.0", features = ["v2_24"] }
+# `gtk::Overlay` / `gtk::Box` — używane w BlueWebApp/linux_embed.rs do osadzenia
+# webview kart Blue Web w oknie powłoki (Tauri/wry na Linuksie pakuje je pod
+# głównym webview w GtkBox). Ta sama wersja, którą już ciągnie webkit2gtk/tauri.
+gtk = "0.18"
 # `glib::Bytes`/`gio::Cancellable` — types `UserContentFilterStore::save`
 # takes/returns per the underlying GObject API (checked against
 # webkitgtk.org's own reference docs for `WebKitUserContentFilterStore`,
