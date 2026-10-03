@@ -11,9 +11,9 @@ import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
-import org.legendaryos.blueconnect.core.DeviceInfo
-import org.legendaryos.blueconnect.core.PacketHandler
-import org.legendaryos.blueconnect.core.Protocol
+import org.hackeros.blueconnect.core.DeviceInfo
+import org.hackeros.blueconnect.core.PacketHandler
+import org.hackeros.blueconnect.core.Protocol
 
 /**
  * The phone side of Blue Messages' SMS bridge (`kdeconnect.sms.request`, the
