@@ -5,6 +5,7 @@
   import WindowControls from './WindowControls.svelte';
   import { resolveActiveShellTheme, DEFAULT_SHELL_THEME_ID, type WindowControlsOrder } from '../data/builtinThemes';
   import { configStore } from '../utils/configStore';
+  import { windowInteracting } from '../stores/overlayState';
 
   export let win: WindowState;
   export let isActive: boolean;
@@ -107,6 +108,7 @@
     e.preventDefault();
     dispatch('focus', win.id);
     isDragging = true;
+    windowInteracting.set(true);
     dragOffset = { x: e.clientX - win.x, y: e.clientY - win.y };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -117,6 +119,7 @@
     e.stopPropagation();
     dispatch('focus', win.id);
     isResizing = true;
+    windowInteracting.set(true);
     resizeStart = { x: e.clientX, y: e.clientY, w: win.width, h: win.height };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -151,6 +154,7 @@
     }
     isDragging = false;
     isResizing = false;
+    windowInteracting.set(false);
     snapRegion = 'none';
     snapPreview = null;
     document.removeEventListener('mousemove', handleMouseMove);
@@ -160,6 +164,8 @@
   onDestroy(() => {
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
+    // Closing a window mid-drag must never leave embedded webviews click-through.
+    if (isDragging || isResizing) windowInteracting.set(false);
   });
 
   $: style = win.isMaximized
