@@ -426,6 +426,8 @@ export const spanish: Translations = {
     'settings.power.profile.balanced.desc': 'Rendimiento y duración de batería equilibrados',
     'settings.power.profile.performance.name': 'Rendimiento',
     'settings.power.profile.performance.desc': 'Máximo rendimiento',
+    'panel.power_mode': 'Modo de energía',
+    'settings.power.no_daemon': 'Los perfiles de energía no están disponibles — instala power-profiles-daemon.',
     'settings.icons.title': 'Iconos',
     'settings.icons.icon_size': 'Tamaño de icono',
     'settings.icons.icon_size_desc': 'Se aplica a los iconos del escritorio y del administrador de archivos.',
