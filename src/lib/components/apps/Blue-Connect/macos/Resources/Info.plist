@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Blue Connect</string>
+    <key>CFBundleDisplayName</key><string>Blue Connect</string>
+    <key>CFBundleIdentifier</key><string>org.legendaryos.blueconnect</string>
+    <key>CFBundleExecutable</key><string>BlueConnect</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+    <key>CFBundleVersion</key><string>__VERSION__</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+    <!-- macOS asks for "Local Network" access the first time we broadcast / accept connections. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Blue Connect finds and talks to your other devices (phone, Blue Environment PC) on your local network.</string>
+</dict>
+</plist>
