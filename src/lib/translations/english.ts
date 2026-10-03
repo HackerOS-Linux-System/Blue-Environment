@@ -251,6 +251,8 @@ export const english: Translations = {
     'settings.power.profile.balanced.desc': 'Balanced performance and battery life',
     'settings.power.profile.performance.name': 'Performance',
     'settings.power.profile.performance.desc': 'Maximum performance',
+    'panel.power_mode': 'Power mode',
+    'settings.power.no_daemon': 'Power profiles are unavailable — install power-profiles-daemon.',
     'settings.network.title': 'Network',
     'settings.network.airplane_mode': 'Airplane Mode',
     'settings.network.on': 'On',
