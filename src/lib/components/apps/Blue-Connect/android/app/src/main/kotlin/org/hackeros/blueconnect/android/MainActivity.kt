@@ -3,8 +3,8 @@ package org.hackeros.blueconnect.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import org.legendaryos.blueconnect.ui.BlueConnectTheme
-import org.legendaryos.blueconnect.ui.ConnectScreen
+import org.hackeros.blueconnect.ui.BlueConnectTheme
+import org.hackeros.blueconnect.ui.ConnectScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
