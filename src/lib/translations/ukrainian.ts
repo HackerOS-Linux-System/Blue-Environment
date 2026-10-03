@@ -426,6 +426,8 @@ export const ukrainian: Translations = {
     'settings.power.profile.balanced.desc': 'Збалансована продуктивність і час роботи від акумулятора',
     'settings.power.profile.performance.name': 'Продуктивність',
     'settings.power.profile.performance.desc': 'Максимальна продуктивність',
+    'panel.power_mode': 'Режим живлення',
+    'settings.power.no_daemon': 'Профілі живлення недоступні — встановіть power-profiles-daemon.',
     'settings.icons.title': 'Значки',
     'settings.icons.icon_size': 'Розмір значків',
     'settings.icons.icon_size_desc': 'Застосовується до значків робочого стола та файлового менеджера.',
