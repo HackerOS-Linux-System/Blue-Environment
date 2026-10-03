@@ -476,6 +476,7 @@ dependencies = [
  "futures-util",
  "gio",
  "glib",
+ "gtk",
  "glob",
  "hk-parser",
  "hmac",
