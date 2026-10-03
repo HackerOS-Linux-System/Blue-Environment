@@ -426,6 +426,8 @@ export const chinese: Translations = {
     'settings.power.profile.balanced.desc': '性能与续航兼顾',
     'settings.power.profile.performance.name': '性能',
     'settings.power.profile.performance.desc': '最高性能',
+    'panel.power_mode': '电源模式',
+    'settings.power.no_daemon': '电源配置不可用 — 请安装 power-profiles-daemon。',
     'settings.icons.title': '图标',
     'settings.icons.icon_size': '图标大小',
     'settings.icons.icon_size_desc': '适用于桌面和文件管理器图标。',
