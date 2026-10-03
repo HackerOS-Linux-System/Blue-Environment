@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Blue Connect for Windows: WPF window + system-tray icon on top of the
+    UI-free protocol core (../BlueConnect.Core).
+
+      dotnet publish BlueConnect.App -c Release -r win-x64 --self-contained `
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms> <!-- only for the tray NotifyIcon -->
+    <Nullable>enable</Nullable>
+    <!-- WPF + WinForms together make implicit usings ambiguous (Application, Button, ...): spell them out. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <AssemblyName>BlueConnect</AssemblyName>
+    <RootNamespace>BlueConnect.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlueConnect.Core\BlueConnect.Core.csproj" />
+  </ItemGroup>
+
+</Project>
