@@ -16,3 +16,6 @@ export const BOOKMARKS = [
   { name: 'Music', path: 'HOME/Music', iconName: 'Music' },
   { name: 'Videos', path: 'HOME/Videos', iconName: 'Video' },
 ] as const;
+
+/** Virtual location that shows Blue's Trash (~/.cache/Blue-Environment/trash/). Items inside are `trash://<id>`. */
+export const TRASH_PATH = 'trash://';
