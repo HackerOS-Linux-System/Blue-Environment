@@ -417,8 +417,48 @@ fn partition_disk(cfg: &InstallConfig, progress: &Progress) -> InstallResult<Vec
     Ok(planned)
 }
 
+/// Destroys any leftover filesystem/RAID/LVM signature inside a freshly
+/// created partition.
+///
+/// This is what fixed
+///   mount: /mnt/blue-install: fsconfig() failed: Can't find a SQUASHFS superblock on sda2
+/// The new GPT's partition 2 landed on top of an old disk's data (typically
+/// a previously written live image, which starts with a squashfs magic at
+/// offset 0). `mkfs.ext4` only rewrites its own structures, so the stale
+/// squashfs magic survived, libblkid saw TWO filesystems, and a plain `mount`
+/// guessed the wrong one. Wiping signatures + zeroing the head of the
+/// partition makes the result unambiguous (and `mount` below also passes an
+/// explicit `-t`).
+fn scrub_partition(device: &str) {
+    let _ = Command::new("wipefs").args(["--all", "--force"]).arg(device).output();
+    if let Ok(mut f) = fs::OpenOptions::new().write(true).open(device) {
+        use std::io::Write;
+        let zeros = vec![0u8; 1024 * 1024];
+        for _ in 0..4 {
+            if f.write_all(&zeros).is_err() {
+                break;
+            }
+        }
+        let _ = f.sync_all();
+    }
+}
+
+/// The kernel filesystem type name `mount -t` needs for a plan entry.
+fn mount_fstype(filesystem: &str) -> &'static str {
+    match filesystem {
+        "fat32" => "vfat",
+        "btrfs" => "btrfs",
+        "xfs" => "xfs",
+        _ => "ext4",
+    }
+}
+
 fn format_partitions(planned: &[PlannedPartition], progress: &Progress) -> InstallResult<()> {
     progress(15, "Formatting partitions…");
+    for p in planned {
+        scrub_partition(&p.device);
+    }
+    let _ = Command::new("udevadm").arg("settle").output();
     for p in planned {
         match p.entry.filesystem.as_str() {
             "fat32" => run(Command::new("mkfs.fat").args(["-F", "32", "-n", "EFI"]).arg(&p.device))?,
@@ -429,6 +469,7 @@ fn format_partitions(planned: &[PlannedPartition], progress: &Progress) -> Insta
             other => return Err(InstallError::new("bad_partition_plan", format!("Unknown filesystem \"{other}\""))),
         };
     }
+    let _ = Command::new("udevadm").arg("settle").output();
     Ok(())
 }
 
@@ -453,7 +494,7 @@ fn mount_target(planned: &[PlannedPartition], progress: &Progress) -> InstallRes
     for p in &sorted {
         let mp = target.join(p.entry.mountpoint.trim_start_matches('/'));
         fs::create_dir_all(&mp).map_err(|e| InstallError::io(&format!("creating {}", mp.display()), e))?;
-        run(Command::new("mount").arg(&p.device).arg(&mp))?;
+        run(Command::new("mount").arg("-t").arg(mount_fstype(&p.entry.filesystem)).arg(&p.device).arg(&mp))?;
     }
     for p in planned {
         if p.entry.filesystem == "swap" {
@@ -785,5 +826,13 @@ mod tests {
         let m = parse_mounts("/dev/sdb1 /media/a\\040b ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n");
         assert_eq!(m[0].1, "/media/a b");
         assert_eq!(m[1], ("tmpfs".to_string(), "/run".to_string()));
+    }
+
+    #[test]
+    fn mount_fstype_is_explicit() {
+        assert_eq!(mount_fstype("fat32"), "vfat");
+        assert_eq!(mount_fstype("ext4"), "ext4");
+        assert_eq!(mount_fstype("btrfs"), "btrfs");
+        assert_eq!(mount_fstype("xfs"), "xfs");
     }
 }
