@@ -426,6 +426,8 @@ export const russian: Translations = {
     'settings.power.profile.balanced.desc': 'Сбалансированная производительность и время работы от батареи',
     'settings.power.profile.performance.name': 'Производительность',
     'settings.power.profile.performance.desc': 'Максимальная производительность',
+    'panel.power_mode': 'Режим питания',
+    'settings.power.no_daemon': 'Профили питания недоступны — установите power-profiles-daemon.',
     'settings.icons.title': 'Значки',
     'settings.icons.icon_size': 'Размер значков',
     'settings.icons.icon_size_desc': 'Применяется к значкам рабочего стола и файлового менеджера.',
