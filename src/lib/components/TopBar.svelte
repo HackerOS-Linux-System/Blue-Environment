@@ -6,6 +6,7 @@
     Search, Wifi, Bell, Command, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
     Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
     Battery, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, BatteryWarning,
+    Zap, Check,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
@@ -211,6 +212,53 @@
     if (b.percentage <= 30) return 'text-amber-400';
     return 'text-slate-300';
   }
+
+  // --- Power mode (power-profiles-daemon) ---------------------------------
+  // Click the battery chip → pick Power Saver / Balanced / Performance.
+  // `get_power_profiles` returns [] when power-profiles-daemon isn't there,
+  // in which case the switcher simply isn't offered (see power.rs).
+  interface PowerProfileItem { name: string; active: boolean; icon?: string; description: string; }
+  let powerProfiles: PowerProfileItem[] = [];
+  let showPowerPopover = false;
+  let powerBusy = false;
+  let powerError = '';
+  let powerTimer: ReturnType<typeof setInterval>;
+  const POWER_KEYS: Record<string, { name: string; desc: string }> = {
+    'power-saver': { name: 'settings.power.profile.power_saver.name', desc: 'settings.power.profile.power_saver.desc' },
+    'balanced': { name: 'settings.power.profile.balanced.name', desc: 'settings.power.profile.balanced.desc' },
+    'performance': { name: 'settings.power.profile.performance.name', desc: 'settings.power.profile.performance.desc' },
+  };
+  $: activePowerProfile = powerProfiles.find((p) => p.active) ?? null;
+  function powerIconFor(name: string) { return name === 'performance' ? Zap : name === 'power-saver' ? Battery : Wind; }
+  function powerColorFor(name: string) { return name === 'performance' ? 'text-amber-300' : name === 'power-saver' ? 'text-green-400' : 'text-blue-300'; }
+  function powerName(p: PowerProfileItem): string { const k = POWER_KEYS[p.name]; return k ? $t(k.name) : p.name; }
+  function powerDesc(p: PowerProfileItem): string { const k = POWER_KEYS[p.name]; return k ? $t(k.desc) : p.description; }
+  async function loadPowerProfiles() {
+    try { powerProfiles = (await SystemBridge.getPowerProfiles()) ?? []; } catch { /* keep last value */ }
+  }
+  async function togglePowerPopover() {
+    showPowerPopover = !showPowerPopover;
+    powerError = '';
+    if (showPowerPopover) await loadPowerProfiles(); // the mode may have been changed elsewhere
+  }
+  async function choosePowerProfile(p: PowerProfileItem) {
+    if (powerBusy || p.active) { showPowerPopover = false; return; }
+    powerBusy = true;
+    powerError = '';
+    const previous = powerProfiles;
+    powerProfiles = powerProfiles.map((x) => ({ ...x, active: x.name === p.name })); // optimistic
+    try {
+      await SystemBridge.setPowerProfile(p.name);
+      await loadPowerProfiles(); // trust what the daemon says, not what we hoped for
+      showPowerPopover = false;
+    } catch (e) {
+      powerProfiles = previous;
+      powerError = e instanceof Error ? e.message : String(e);
+    } finally {
+      powerBusy = false;
+    }
+  }
+
   let clipboardHoverPreviewEnabled = true;
   let showClipboardPreview = false;
   let latestClipboardItem: { id: string; content: string; timestamp: number } | null = null;
@@ -320,6 +368,8 @@
 
     loadBattery();
     batteryTimer = setInterval(loadBattery, 30_000);
+    loadPowerProfiles();
+    powerTimer = setInterval(loadPowerProfiles, 30_000);
 
     unsubConfig = configStore.subscribe((cfg) => {
       const pinned = cfg.pinnedApps as AppId[] | undefined;
@@ -354,6 +404,7 @@
     clearInterval(weatherTimer);
     clearInterval(clipboardTimer);
     clearInterval(batteryTimer);
+    clearInterval(powerTimer);
     clearTimeout(clipboardHoverTimer);
     clearTimeout(clockHoverTimer);
     unsubConfig?.();
@@ -496,11 +547,46 @@
       </div>
     {/if}
 
-    {#if battery?.present}
-      <div class="flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors select-none"
-           title="Battery: {Math.round(battery.percentage)}% — {battery.status}">
-        <svelte:component this={batteryIconFor(battery)} size={15} class={batteryColor(battery)} />
-        <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}">{Math.round(battery.percentage)}%</span>
+    {#if battery?.present || powerProfiles.length > 0}
+      <div class="relative">
+        <button
+          on:click={togglePowerPopover}
+          disabled={powerProfiles.length === 0}
+          class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors {powerProfiles.length ? 'hover:bg-white/5 cursor-pointer' : 'cursor-default'} {showPowerPopover ? 'bg-white/10' : ''}"
+          title="{battery?.present ? `Battery: ${Math.round(battery.percentage)}% — ${battery.status}` : ''}{battery?.present && activePowerProfile ? ' · ' : ''}{activePowerProfile ? `${$t('panel.power_mode')}: ${powerName(activePowerProfile)}` : ''}"
+          aria-haspopup="menu" aria-expanded={showPowerPopover}
+        >
+          {#if battery?.present}
+            <svelte:component this={batteryIconFor(battery)} size={15} class={batteryColor(battery)} />
+            <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}">{Math.round(battery.percentage)}%</span>
+          {/if}
+          {#if activePowerProfile}
+            <svelte:component this={powerIconFor(activePowerProfile.name)} size={13} class={powerColorFor(activePowerProfile.name)} />
+          {/if}
+        </button>
+
+        {#if showPowerPopover}
+          <div class="fixed inset-0 z-40" on:click={() => (showPowerPopover = false)} role="button" tabindex="-1" on:keydown={(e) => { if (e.key === 'Escape') showPowerPopover = false; }} />
+          <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-2 z-50" role="menu">
+            <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{$t('panel.power_mode')}</div>
+            {#each powerProfiles as p (p.name)}
+              <button
+                on:click={() => choosePowerProfile(p)} disabled={powerBusy} role="menuitemradio" aria-checked={p.active}
+                class="w-full flex items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors disabled:opacity-60 {p.active ? 'bg-blue-600/20' : 'hover:bg-white/5'}"
+              >
+                <svelte:component this={powerIconFor(p.name)} size={18} class={powerColorFor(p.name)} />
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs font-medium text-white">{powerName(p)}</div>
+                  <div class="text-[10px] text-slate-400 leading-snug">{powerDesc(p)}</div>
+                </div>
+                {#if p.active}<Check size={15} class="text-blue-400 shrink-0" />{/if}
+              </button>
+            {/each}
+            {#if powerError}
+              <div class="mt-1 px-2 py-1.5 text-[10px] text-red-300 bg-red-500/10 rounded-lg break-words">{powerError}</div>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
 
