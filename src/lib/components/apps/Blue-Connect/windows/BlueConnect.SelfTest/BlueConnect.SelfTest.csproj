@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Dependency-free self-test + interop helper (exit code != 0 on failure).
+       Plain console on purpose: runs anywhere, no NuGet needed. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlueConnect.Core\BlueConnect.Core.csproj" />
+  </ItemGroup>
+
+</Project>
