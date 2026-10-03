@@ -11,7 +11,12 @@
   let interval: ReturnType<typeof setInterval>;
 
   onMount(() => {
-    SystemBridge.getPowerProfiles().then((p) => (profiles = p));
+    SystemBridge.getPowerProfiles().then((p) => {
+      profiles = p;
+      // Show what the system is actually using (was hard-coded to 'balanced').
+      const active = p.find((x) => x.active);
+      if (active) profile = active.name;
+    });
     const refresh = () => SystemBridge.getSystemStats().then((s: any) => (battery = { percentage: s.battery ?? 100, charging: s.isCharging ?? false }));
     refresh();
     interval = setInterval(refresh, 30000);
@@ -42,7 +47,11 @@
     return k ? $t(k.descKey) : p.description;
   }
 
-  async function selectProfile(p: PowerProfile) { profile = p.name; await SystemBridge.setPowerProfile(p.name); }
+  async function selectProfile(p: PowerProfile) {
+    const previous = profile;
+    profile = p.name;
+    try { await SystemBridge.setPowerProfile(p.name); } catch { profile = previous; }
+  }
 </script>
 
 <div class="space-y-6">
@@ -60,6 +69,9 @@
   </div>
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5">
     <h3 class="text-lg font-semibold text-white mb-4">{$t('settings.power.profiles')}</h3>
+    {#if profiles.length === 0}
+      <p class="text-sm text-slate-400">{$t('settings.power.no_daemon')}</p>
+    {/if}
     <div class="space-y-2">
       {#each profiles as p (p.name)}
         {@const Icon = iconFor(p.icon ?? 'Battery')}
