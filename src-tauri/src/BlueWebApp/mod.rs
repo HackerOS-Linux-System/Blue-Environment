@@ -7,6 +7,45 @@ use tauri::webview::{DownloadEvent, NewWindowResponse};
 
 mod content_blocking;
 pub mod capability_selftest;
+// Linux-only: poprawne osadzanie webview-dzieci (GtkOverlay) — patrz
+// `linux_embed.rs` (bez tego strona renderuje się POD powłoką, a nie w oknie).
+#[cfg(target_os = "linux")]
+mod linux_embed;
+
+/// Wołane raz z `setup()` w main.rs: na Linuksie od razu przebudowuje
+/// hierarchię GTK głównego okna (GtkBox → GtkOverlay), żeby pierwsza karta
+/// Blue Web nie powodowała widocznego przeskoku układu. Na pozostałych
+/// platformach no-op. Błędy są tylko logowane — `web_view_create` i tak
+/// próbuje tego samego leniwie.
+pub fn init(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(main_webview) = app.get_webview("main") {
+            let _ = main_webview.with_webview(|pw| {
+                linux_embed::init_for_main_webview(&pw.inner());
+            });
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+    }
+}
+
+/// Zamienia wartości nie-skończone / ujemne na bezpieczne, żeby zła
+/// pomiarka z frontendu nigdy nie wypchnęła webview poza okno.
+fn sane_rect(x: f64, y: f64, width: f64, height: f64) -> Option<(f64, f64, f64, f64)> {
+    if ![x, y, width, height].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let (mut x, mut y, mut w, mut h) = (x, y, width, height);
+    if x < 0.0 { w += x; x = 0.0; }
+    if y < 0.0 { h += y; y = 0.0; }
+    if w < 1.0 || h < 1.0 {
+        return None;
+    }
+    Some((x, y, w, h))
+}
 
 /// Tauri-managed state: every live embedded browser tab's webview,
 /// keyed by the frontend's own tab id (not the Tauri webview label,
@@ -198,12 +237,18 @@ pub fn web_view_create(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    if width <= 0.0 || height <= 0.0 {
-        // The content area can legitimately be zero-sized for one frame
-        // during initial layout, before the first real
-        // getBoundingClientRect() measurement — silently no-op rather
-        // than create a degenerate webview the person would never see
-        // and that'd need cleaning up.
+    // The content area can legitimately be zero-sized for one frame
+    // during initial layout, before the first real
+    // getBoundingClientRect() measurement — silently no-op rather
+    // than create a degenerate webview the person would never see
+    // and that'd need cleaning up. (Frontend `openUrl` waits for layout
+    // before calling this, so a no-op here only happens on a real race.)
+    let Some((x, y, width, height)) = sane_rect(x, y, width, height) else {
+        return Err("web_view_create: invalid bounds (not yet laid out)".to_string());
+    };
+
+    // Do not create a second webview for a tab id that already has one.
+    if registry.0.lock().unwrap().contains_key(&tab_id) {
         return Ok(());
     }
 
@@ -343,6 +388,16 @@ pub fn web_view_create(
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(width, height))
         .map_err(|e| format!("failed to create embedded webview: {e}"))?;
 
+    // Linux: wry spakował webview do GtkBox pod głównym webview (patrz
+    // linux_embed.rs). Przepinamy go do GtkOverlay i ustawiamy bounds —
+    // dopiero po tym wygląda to tak, jak na Windows/macOS.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = webview.with_webview(move |pw| {
+            linux_embed::attach_child(&pw.inner(), x, y, width, height);
+        });
+    }
+
     // Subresource-level blocking — see content_blocking.rs's module doc
     // for exactly what this covers per-platform (real on Linux/Windows,
     // not yet on macOS) and why it's a separate step from the
@@ -474,13 +529,56 @@ pub fn web_view_set_bounds(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let reg = registry.0.lock().unwrap();
-    let Some(webview) = reg.get(&tab_id) else { return Ok(()) }; // tab may have just closed; not an error
-    if width <= 0.0 || height <= 0.0 {
+    let webview = {
+        let reg = registry.0.lock().unwrap();
+        // tab may have just closed; not an error
+        let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+        webview.clone()
+    };
+    let Some((x, y, width, height)) = sane_rect(x, y, width, height) else {
         return Ok(());
+    };
+
+    // Linux: pozycjonowanie przez GtkOverlay (wry ignoruje set_position/
+    // set_size poza GtkFixed — patrz linux_embed.rs).
+    #[cfg(target_os = "linux")]
+    {
+        return webview
+            .with_webview(move |pw| linux_embed::set_bounds(&pw.inner(), x, y, width, height))
+            .map_err(|e| e.to_string());
     }
-    webview.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-    webview.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        webview.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        webview.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())
+    }
+}
+
+/// `interactive = false`: zdarzenia myszy przechodzą przez webview strony do
+/// DOM-u powłoki. Frontend wywołuje to na czas przeciągania / zmiany rozmiaru
+/// okna aplikacji (inaczej `mouseup` ginie nad natywną powierzchnią i okno
+/// "przykleja się" do kursora). Linux: GtkOverlay pass-through; pozostałe
+/// platformy: no-op (tam natywny child view nie przechwytuje zdarzeń
+/// okna powłoki w ten sposób).
+#[tauri::command(async)]
+pub fn web_view_set_interactive(registry: tauri::State<WebViewRegistry>, tab_id: String, interactive: bool) -> Result<(), String> {
+    let webview = {
+        let reg = registry.0.lock().unwrap();
+        let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+        webview.clone()
+    };
+    #[cfg(target_os = "linux")]
+    {
+        return webview
+            .with_webview(move |pw| linux_embed::set_interactive(&pw.inner(), interactive))
+            .map_err(|e| e.to_string());
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (webview, interactive);
+        Ok(())
+    }
 }
 
 /// Tab switching: only the active tab's webview should be visible.
