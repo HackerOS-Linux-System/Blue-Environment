@@ -14,25 +14,80 @@ use std::process::Command;
 /// case a future profile id the frontend doesn't recognize shows up —
 /// see that same `KNOWN_PROFILE_KEYS` fallback path), not the
 /// authoritative display string.
+/// Profile ids found in `powerprofilesctl list` output (order preserved).
+fn parse_profile_names(text: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim_start_matches(|c: char| c == '*' || c.is_whitespace());
+        if let Some(name) = t.strip_suffix(':') {
+            if matches!(name, "power-saver" | "balanced" | "performance") && !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_profile_names;
+
+    #[test]
+    fn parses_real_powerprofilesctl_output() {
+        let out = "  performance:\n    CpuDriver:\tintel_pstate\n    PlatformDriver:\tplatform_profile\n    Degraded:   no\n\n* balanced:\n    CpuDriver:\tintel_pstate\n    PlatformDriver:\tplatform_profile\n\n  power-saver:\n    CpuDriver:\tintel_pstate\n";
+        assert_eq!(parse_profile_names(out), vec!["performance", "balanced", "power-saver"]);
+    }
+
+    #[test]
+    fn two_profile_machine_has_no_performance() {
+        let out = "* balanced:\n    Driver:\tplatform_profile\n\n  power-saver:\n    Driver:\tplatform_profile\n";
+        assert_eq!(parse_profile_names(out), vec!["balanced", "power-saver"]);
+    }
+
+    #[test]
+    fn ignores_garbage() {
+        assert!(parse_profile_names("").is_empty());
+        assert!(parse_profile_names("    Driver:\tx\n  unknown:\n").is_empty());
+    }
+}
+
 #[tauri::command]
 pub async fn get_power_profiles() -> Result<Vec<PowerProfile>, String> {
     tokio::task::spawn_blocking(move || -> Vec<PowerProfile> {
-        let mut profiles = Vec::new();
-        let out = Command::new("powerprofilesctl").arg("list").output();
-        let (has_saver, has_balanced, has_perf, active) = if let Ok(o) = out {
-            let text = String::from_utf8_lossy(&o.stdout).to_string();
-            let active = text.lines().find(|l| l.contains('*'))
-            .and_then(|l| l.split_whitespace().next())
-            .unwrap_or("").trim_end_matches(':').to_string();
-            (text.contains("power-saver"), text.contains("balanced"), text.contains("performance"), active)
-        } else { (false, false, false, "balanced".to_string()) };
-
-        if has_saver || !has_balanced {
-            profiles.push(PowerProfile { name: "power-saver".to_string(), active: active == "power-saver", icon: Some("Battery".to_string()), description: "Power Saver".to_string() });
+        // `powerprofilesctl list` prints e.g.
+        //     * performance:      <- the active one starts with "* "
+        //         Driver: ...
+        //       balanced:
+        //       power-saver:
+        // The old parser took the first whitespace token of the "*" line,
+        // which is the literal "*" — so NO profile ever matched as active.
+        // Profile names are the lines that end with ':' and are not indented
+        // key/value pairs, so parse those, and ask `powerprofilesctl get`
+        // for the active one (authoritative).
+        let Ok(out) = Command::new("powerprofilesctl").arg("list").output() else {
+            // power-profiles-daemon not installed: nothing can be switched, so
+            // report no profiles (the UI hides the panel switcher) instead of
+            // faking a list whose buttons silently do nothing.
+            return Vec::new();
+        };
+        if !out.status.success() {
+            return Vec::new();
         }
-        profiles.push(PowerProfile { name: "balanced".to_string(), active: active == "balanced" || active.is_empty(), icon: Some("Wind".to_string()), description: "Balanced".to_string() });
-        if has_perf {
-            profiles.push(PowerProfile { name: "performance".to_string(), active: active == "performance", icon: Some("Zap".to_string()), description: "Performance".to_string() });
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let names = parse_profile_names(&text);
+        let active = Command::new("powerprofilesctl").arg("get").output().ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| text.lines().find(|l| l.trim_start().starts_with('*'))
+                .map(|l| l.trim_start_matches(|c: char| c == '*' || c.is_whitespace()).trim_end_matches(':').to_string()))
+            .unwrap_or_default();
+
+        // Stable display order: saver → balanced → performance.
+        let mut profiles = Vec::new();
+        for (id, icon, label) in [("power-saver", "Battery", "Power Saver"), ("balanced", "Wind", "Balanced"), ("performance", "Zap", "Performance")] {
+            if names.iter().any(|n| n == id) {
+                profiles.push(PowerProfile { name: id.to_string(), active: active == id, icon: Some(icon.to_string()), description: label.to_string() });
+            }
         }
         profiles
     })
@@ -42,8 +97,21 @@ pub async fn get_power_profiles() -> Result<Vec<PowerProfile>, String> {
 
 #[tauri::command(async)]
 pub fn set_power_profile(profile: String) -> Result<(), String> {
-    Command::new("powerprofilesctl").args(["set", &profile]).spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    // Whitelist: the value comes from the webview, and `powerprofilesctl set`
+    // would otherwise accept (and we'd forward) any string as an argument.
+    if !matches!(profile.as_str(), "power-saver" | "balanced" | "performance") {
+        return Err(format!("unknown power profile: {profile}"));
+    }
+    // `output()` (waits) instead of `spawn()`: the old fire-and-forget call
+    // reported success even when the daemon rejected the profile, and the
+    // UI could re-read the state before the change had happened.
+    let out = Command::new("powerprofilesctl").args(["set", &profile]).output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if err.is_empty() { format!("powerprofilesctl set {profile} failed") } else { err })
+    }
 }
 
 #[tauri::command(async)]
