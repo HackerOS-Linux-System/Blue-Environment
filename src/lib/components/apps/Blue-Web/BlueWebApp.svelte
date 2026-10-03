@@ -47,7 +47,7 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { topmostVisibleWindowId } from '../../../stores/windowManager';
   import { windows } from '../../../stores/windowManager';
-  import { blockingOverlayOpen } from '../../../stores/overlayState';
+  import { blockingOverlayOpen, windowInteracting } from '../../../stores/overlayState';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import { ZOOM_LEVELS } from './types';
@@ -102,8 +102,28 @@
 
   const {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup,
-  } = createTabs(handleNavigate, handleFavicon, () => $settings.searchEngine, () => $settings.defaultZoom);
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
+  } = createTabs(
+    handleNavigate, handleFavicon, () => $settings.searchEngine, () => $settings.defaultZoom,
+    // getBounds / getShouldBeVisible — let tabs.ts measure the content area itself
+    // AFTER Svelte has rendered it (see `openUrl`'s doc), and re-apply the
+    // visibility rules the instant a webview is created.
+    () => measureRect(),
+    () => webviewShouldBeVisible,
+    // A fresh webview must get its real bounds on the very next frame.
+    () => { lastRect = null; },
+    // Creation failed for good: go back to the new-tab page and say why,
+    // instead of leaving a blank content area.
+    (message) => {
+      lastError = message;
+      tabs.update((prev) => prev.map((t) => (t.id === $activeId ? { ...t, isNew: true } : t)));
+    },
+  );
+
+  // While an app window is being dragged/resized, embedded (native) webviews
+  // become click-through so the shell keeps receiving mousemove/mouseup — see
+  // `windowInteracting` in overlayState.ts.
+  $: setInteractive(!$windowInteracting);
 
   $: activeTab = $tabs.find((t) => t.id === $activeId) ?? $tabs[0];
   $: isSecure = activeTab.url.startsWith('https://') || activeTab.isNew;
@@ -190,12 +210,18 @@
 
     // Final, unconditional safety net regardless of maximized state or
     // whether the window-store lookup above even found a match: never
-    // send bounds that extend past the actual OS window's own viewport.
-    // This is the one clamp that can't be wrong by definition — `
-    // window.innerWidth`/`innerHeight` *is* the real, current size of
+    // send bounds that extend past the actual OS window's own viewport,
+    // and never send a negative origin (a window dragged partly off-screen
+    // would otherwise push the native webview to negative coordinates).
+    // `window.innerWidth`/`innerHeight` *is* the real, current size of
     // the native window this whole app runs inside.
+    if (x < 0) { width += x; x = 0; }
+    if (y < 0) { height += y; y = 0; }
     width = Math.max(0, Math.min(width, window.innerWidth - x));
     height = Math.max(0, Math.min(height, window.innerHeight - y));
+
+    // Nothing sensible to show (not laid out yet / fully off-screen).
+    if (width < 2 || height < 2) return null;
 
     return { x, y, width, height };
   }
@@ -212,14 +238,23 @@
   // getBoundingClientRect() call itself. Skips entirely while the
   // webview is meant to be hidden (`webviewShouldBeVisible` false) —
   // no point pushing bounds for a surface nothing should be showing.
+  // `lastRect` is only updated once the backend ACKed the push. The old code
+  // stored the rect even when it had NOT been sent (webview not live yet),
+  // so once the webview finally existed, "rect === lastRect" suppressed the
+  // very first push and the page stayed at its creation placeholder
+  // forever. At most one IPC call is in flight at a time (also keeps a fast
+  // window drag from flooding the main thread).
+  let pushingBounds = false;
   function syncLoop() {
-    if (webviewShouldBeVisible) {
+    if (webviewShouldBeVisible && !pushingBounds) {
       const rect = measureRect();
       if (rect && !rectsEqual(rect, lastRect) && SystemBridge.isTauri() && hasLiveWebview($activeId)) {
-        lastRect = rect;
-        SystemBridge.invokeCommand('web_view_set_bounds', { tabId: $activeId, ...rect }).catch(() => {});
-      } else if (rect) {
-        lastRect = rect;
+        pushingBounds = true;
+        const tabId = $activeId;
+        SystemBridge.invokeCommand('web_view_set_bounds', { tabId, ...rect })
+          .then(() => { if (tabId === $activeId) lastRect = rect; })
+          .catch(() => { /* retried on the next frame */ })
+          .finally(() => { pushingBounds = false; });
       }
     }
     rafId = requestAnimationFrame(syncLoop);
@@ -319,6 +354,8 @@
   });
 
   async function navigate(url: string, tabId?: string) {
+    // `openUrl` re-measures after the content area has rendered; this rect is
+    // only a fallback for the case where the area is already on screen.
     const bounds = measureRect() ?? undefined;
     await openUrl(url, tabId, bounds);
   }
