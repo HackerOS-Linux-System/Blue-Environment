@@ -18,11 +18,11 @@ val bcKeyPassword: String? = System.getenv("BC_KEY_PASSWORD")
 val canSignRelease = listOf(ksPath, ksPassword, bcKeyAlias, bcKeyPassword).all { !it.isNullOrBlank() }
 
 android {
-    namespace = "org.legendaryos.blueconnect"
+    namespace = "org.hackeros.blueconnect"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "org.legendaryos.blueconnect"
+        applicationId = "org.hackeros.blueconnect"
         minSdk = 26
         targetSdk = 34
         versionCode = bcVersionCode
