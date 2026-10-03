@@ -4,7 +4,7 @@
     Blue Connect for Windows: WPF window + system-tray icon on top of the
     UI-free protocol core (../BlueConnect.Core).
 
-      dotnet publish BlueConnect.App -c Release -r win-x64 --self-contained `
+      dotnet publish BlueConnect.App -c Release -r win-x64 -p:SelfContained=true `
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
   -->
   <PropertyGroup>
