@@ -12,7 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import org.legendaryos.blueconnect.R
+import org.hackeros.blueconnect.R
 
 /** Notification channels and the few notifications Blue Connect posts. */
 object Notifications {
