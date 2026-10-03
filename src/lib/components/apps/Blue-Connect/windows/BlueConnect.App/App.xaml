@@ -1,0 +1,31 @@
+<Application x:Class="BlueConnect.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="BgBrush" Color="#060D1F" />
+        <SolidColorBrush x:Key="CardBrush" Color="#0F1C3F" />
+        <SolidColorBrush x:Key="CardBrush2" Color="#16254F" />
+        <SolidColorBrush x:Key="FgBrush" Color="#E2E8F0" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#94A3B8" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6" />
+
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource FgBrush}" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#24366B" />
+        </Style>
+    </Application.Resources>
+</Application>
