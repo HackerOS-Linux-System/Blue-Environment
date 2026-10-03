@@ -493,6 +493,16 @@ export function shellQuote(s: string): string {
     return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+export interface TrashEntry {
+  /** Name under trash/files — the handle for restore/delete. */
+  id: string;
+  name: string;
+  original_path: string;
+  deleted_at: string;
+  is_dir: boolean;
+  size_bytes: number;
+}
+
 export const SystemBridge = {
     // --- Environment ---
     isTauri: (): boolean => isTauri,
@@ -1152,6 +1162,13 @@ export const SystemBridge = {
     copyFile:      async (src: string, dest: string)                  => { if (isTauri) await invoke('copy_file',      { src, dest }); },
     moveFile:      async (src: string, dest: string)                  => { if (isTauri) await invoke('move_file',      { src, dest }); },
     moveToTrash:   async (paths: string[])                            => { if (isTauri) await invoke('move_to_trash', { paths }); },
+    // Blue's own Trash (~/.cache/Blue-Environment/trash/, created on demand)
+    listTrash:        async (): Promise<TrashEntry[]>                 => isTauri ? invoke<TrashEntry[]>('list_trash') : [],
+    restoreFromTrash: async (ids: string[]): Promise<string[]>        => isTauri ? invoke<string[]>('restore_from_trash', { ids }) : [],
+    deleteFromTrash:  async (ids: string[])                           => { if (isTauri) await invoke('delete_from_trash', { ids }); },
+    emptyTrash:       async (): Promise<number>                       => isTauri ? invoke<number>('empty_trash') : 0,
+    trashItemCount:   async (): Promise<number>                       => isTauri ? invoke<number>('trash_item_count') : 0,
+    getTrashPath:     async (): Promise<string>                       => isTauri ? invoke<string>('get_trash_path') : '',
     compressFiles: async (paths: string[], format: string, name?: string): Promise<string> => isTauri ? await invoke('compress_files', { paths, format, name: name ?? null }) : '',
     extractArchiveHere: async (path: string): Promise<string> => isTauri ? await invoke('extract_archive_here', { path }) : '',
     getOpenWithApps: async (mime: string, all = true): Promise<{ id: string; name: string; icon?: string; exec: string; recommended: boolean }[]> => isTauri ? await invoke('get_open_with_apps', { mime, all }) : [],
