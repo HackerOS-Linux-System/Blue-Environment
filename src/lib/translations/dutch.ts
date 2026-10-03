@@ -426,6 +426,8 @@ export const dutch: Translations = {
     'settings.power.profile.balanced.desc': 'Uitgebalanceerde prestaties en accuduur',
     'settings.power.profile.performance.name': 'Prestaties',
     'settings.power.profile.performance.desc': 'Maximale prestaties',
+    'panel.power_mode': 'Energiemodus',
+    'settings.power.no_daemon': 'Energieprofielen zijn niet beschikbaar — installeer power-profiles-daemon.',
     'settings.icons.title': 'Pictogrammen',
     'settings.icons.icon_size': 'Pictogramgrootte',
     'settings.icons.icon_size_desc': 'Geldt voor bureaublad- en bestandsbeheerpictogrammen.',
