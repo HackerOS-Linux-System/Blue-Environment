@@ -263,6 +263,8 @@ export const polish: Translations = {
     'settings.power.profile.balanced.desc': 'Zrównoważona wydajność i czas pracy na baterii',
     'settings.power.profile.performance.name': 'Wydajność',
     'settings.power.profile.performance.desc': 'Maksymalna wydajność',
+    'panel.power_mode': 'Tryb energii',
+    'settings.power.no_daemon': 'Profile zasilania są niedostępne — zainstaluj power-profiles-daemon.',
     'settings.network.title': 'Sieć',
     'settings.network.airplane_mode': 'Tryb samolotowy',
     'settings.network.on': 'Włączony',
