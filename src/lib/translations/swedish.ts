@@ -426,6 +426,8 @@ export const swedish: Translations = {
     'settings.power.profile.balanced.desc': 'Balanserad prestanda och batteritid',
     'settings.power.profile.performance.name': 'Prestanda',
     'settings.power.profile.performance.desc': 'Maximal prestanda',
+    'panel.power_mode': 'Energiläge',
+    'settings.power.no_daemon': 'Energiprofiler är inte tillgängliga — installera power-profiles-daemon.',
     'settings.icons.title': 'Ikoner',
     'settings.icons.icon_size': 'Ikonstorlek',
     'settings.icons.icon_size_desc': 'Gäller för skrivbords- och filhanterarikoner.',
