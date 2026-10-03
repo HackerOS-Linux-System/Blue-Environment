@@ -1,22 +1,11 @@
 # ![Blue Enviroment - Graphical environment for LegendaryOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/banner.png)
-# Blue Environment v0.8
+# Blue Environment v0.7
 
 Production-grade Wayland desktop environment for LegendaryOS, built on
-[Smithay](https://github.com/Smithay/smithay) (compositor) and
 [Tauri](https://tauri.app) + Svelte (desktop shell).
 
 ## Features
 
-- **Wayland compositor** (`compositor/`) — xdg-shell, layer-shell,
-  XWayland, session-lock, idle/idle-inhibit, cursor-shape,
-  fractional-scale, data-device/primary-selection, pointer-constraints
-  and relative-pointer (pointer lock for games), tablet input,
-  text-input/input-method (IME), `wlr-foreign-toplevel-management` (native
-  window list for the panel/switcher — no `wmctrl`/`xdotool` needed when
-  running under HackerOS-Comp), `wlr-output-management` (multi-monitor
-  configuration as a protocol), `wlr-screencopy` (native screenshot
-  support). Both a nested/dev backend (winit) and a bare-metal
-  DRM/KMS/libseat backend for TTY sessions.
 - **Desktop shell** (`src/` + `src-tauri/`) — panel, launcher, window
   switcher, workspaces, notification center, control center, and a suite
   of first-party apps: Mail (IMAP/SMTP), Web, Docs (with PDF/DOCX
@@ -27,9 +16,6 @@ Production-grade Wayland desktop environment for LegendaryOS, built on
 - **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
   openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
   Void as submission-ready templates — see `packaging/`).
-
-See [`ROADMAP.md`](./ROADMAP.md) for exactly what's implemented, what's
-best-effort/needs on-hardware verification, and what's still planned.
 
 ## Build Instructions
 
@@ -76,7 +62,7 @@ sudo usermod -aG seat $USER
 
 ```bash
 npm install
-npm run build:tauri
+npm run tauri build
 # This runs: npm run build  →  vite build  →  tauri build
 ```
 
@@ -111,79 +97,6 @@ npm run build:tauri
 The key insight: **`tauri build` calls `npm run build` automatically** via
 `beforeBuildCommand` in `tauri.conf.json`. You should NOT call
 `npm run build` manually before `npm run build:tauri`.
-
-## Project layout
-
-```
-blue-environment/
-├── index.html                     ← entry HTML (project root)
-├── src/                           ← TypeScript/React frontend
-│   ├── App.tsx                    ← Desktop shell
-│   ├── constants.tsx              ← App registry
-│   ├── types.ts                   ← All TypeScript types
-│   ├── vite.config.ts             ← Vite config (root = ..)
-│   ├── tsconfig.json
-│   ├── index.tsx                  ← React entry point
-│   ├── components/
-│   │   ├── Window.tsx
-│   │   ├── TopBar.tsx
-│   │   ├── StartMenu.tsx
-│   │   ├── ControlCenter.tsx
-│   │   ├── NotificationCenter.tsx
-│   │   ├── WindowSwitcher.tsx
-│   │   ├── WorkspaceSwitcher.tsx
-│   │   ├── ClipboardPanel.tsx
-│   │   ├── ToastContainer.tsx
-│   │   └── apps/
-│   │       ├── BlueAI.tsx
-│   │       ├── BlueCodeApp.tsx    ← Monaco + xterm
-│   │       ├── BlueSoftwareApp.tsx
-│   │       ├── BlueWebApp.tsx
-│   │       ├── ExplorerApp.tsx
-│   │       ├── MailApp.tsx        ← Full mail client
-│   │       ├── SettingsApp.tsx    ← Full settings
-│   │       ├── TerminalApp.tsx
-│   │       ├── SystemMonitorApp.tsx
-│   │       ├── NotepadApp.tsx
-│   │       ├── CalculatorApp.tsx
-│   │       ├── AboutApp.tsx
-│   │       └── MailApp.tsx
-│   ├── hooks/
-│   │   ├── useWindowManager.ts
-│   │   └── useKeyboardShortcuts.ts
-│   ├── utils/
-│   │   ├── systemBridge.ts        ← Tauri IPC bridge
-│   │   ├── configStore.ts         ← Reactive config (wallpaper etc.)
-│   │   └── notificationManager.ts
-│   └── contexts/
-│       └── LanguageContext.tsx
-├── src-tauri/                     ← Rust/Tauri backend
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   ├── build.rs
-│   ├── icons/icon.png
-│   └── src/
-│       ├── main.rs                ← Tauri commands
-│       ├── ai.rs                  ← AI API proxy
-│       ├── weather.rs             ← Weather widget backend (IP geolocation + Open-Meteo)
-│       ├── parental_controls.rs   ← PIN-protected app blocking, time limits
-│       ├── apps.rs                ← .desktop scanner
-│       ├── cache.rs               ← Config/cache
-│       ├── session.rs             ← Session detection
-│       └── window_tracker.rs     ← External windows (compositor IPC first, wmctrl/xdotool fallback)
-└── compositor/                    ← Smithay compositor (separate crate)
-    ├── Cargo.toml
-    └── src/
-        ├── main.rs
-        ├── state/                 ← BlueState + protocol handler impls
-        ├── input/                 ← libinput dispatch, move/resize grabs
-        ├── render/                ← winit (nested) + DRM/KMS (bare-metal) backends
-        ├── xwayland/               ← XWayland integration
-        ├── ipc/                   ← Unix socket protocol to the shell
-        └── protocols/              ← idle, session-lock, decoration, cursor-shape,
-                                       foreign-toplevel-management, output-management,
-                                       screencopy
-```
 
 ## Compositor backends (hackeros-comp / labwc / sway / wayfire)
 
