@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The real look is Compose Material 3 (see ui/BlueConnectTheme.kt); this only styles the window before Compose draws. -->
+    <style name="Theme.BlueConnect" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#060D1F</item>
+        <item name="android:statusBarColor">#060D1F</item>
+        <item name="android:navigationBarColor">#060D1F</item>
+    </style>
+</resources>
