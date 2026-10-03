@@ -1,4 +1,4 @@
-package org.hackerosos.blueconnect.core
+package org.hackeros.blueconnect.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
