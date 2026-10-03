@@ -11,7 +11,7 @@
   } from 'lucide-svelte';
   import { openFileWithDefaultApp } from '../../../utils/openFile';
   import { showContextMenu, type MenuItem } from '../../../stores/contextMenu';
-  import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
+  import { SystemBridge, shellQuote, type TrashEntry } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm, activeDialog } from '../../../stores/dialog';
   import { get } from 'svelte/store';
   import { configStore } from '../../../utils/configStore';
@@ -55,7 +55,7 @@
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
-  import { BOOKMARKS } from './types';
+  import { BOOKMARKS, TRASH_PATH } from './types';
   import FileIcon from './FileIcon.svelte';
   import RightPane from './RightPane.svelte';
 
@@ -140,6 +140,7 @@
   }
 
   async function createFile(defaultName = 'New File.txt', content = '', title = 'New File') {
+    if (inTrash) return;
     const name = await dialogPrompt({ title, placeholder: defaultName, defaultValue: defaultName, confirmLabel: 'Create' });
     if (!name?.trim()) return;
     if (name.includes('/')) { notify('error', 'A name cannot contain "/"'); return; }
@@ -150,11 +151,13 @@
 
   async function trashSelected() {
     if (selected.size === 0) return;
+    if (inTrash) return deleteTrashSelected(); // "Delete" inside the Trash = delete for good
     const items = [...selected];
     try { await SystemBridge.moveToTrash(items); notify('success', `Moved ${items.length} item(s) to Trash`); }
     catch (e) { notify('error', typeof e === 'string' ? e : 'Could not move to Trash'); }
     selected = new Set();
     loadFiles(activeTab.path);
+    refreshTrashCount();
   }
 
   async function compressSelected(format: string) {
@@ -181,6 +184,7 @@
   ];
 
   async function buildFileMenu(file: FileEntry): Promise<MenuItem[]> {
+    if (inTrash) return buildTrashMenu(file);
     const many = selected.size > 1;
     const items: MenuItem[] = [];
     const n = selected.size;
@@ -250,6 +254,15 @@
     // Only for empty space — file rows/tiles stop propagation themselves.
     e.preventDefault();
     selected = new Set();
+    if (inTrash) {
+      showContextMenu(e, [
+        { label: 'Empty Trash', icon: Trash2, danger: true, action: emptyTrashAll },
+        { separator: true },
+        { label: 'Select all', icon: CheckSquare, shortcut: 'Ctrl+A', action: () => (selected = new Set(sorted.map((f) => f.path))) },
+        { label: 'Refresh', icon: RefreshCw, shortcut: 'F5', action: () => loadFiles(TRASH_PATH) },
+      ]);
+      return;
+    }
     const cur = activeTab.path;
     const here: FileEntry = { name: cur === 'HOME' ? '~' : (cur.split('/').pop() || '/'), path: cur, is_dir: true, size: '', mime_type: 'inode/directory' };
     showContextMenu(e, [
@@ -347,8 +360,98 @@
     setTimeout(() => (notifs = notifs.filter((n) => n.id !== id)), 3500);
   }
 
+  // --- Trash (Blue's own: ~/.cache/Blue-Environment/trash/, see trash.rs) -------------------
+  // Shown as the virtual location `trash://`; every item inside is `trash://<id>`.
+  $: inTrash = activeTab?.path === TRASH_PATH;
+  let trashEntries = new Map<string, TrashEntry>();
+  let trashCount = 0;
+  const trashIdOf = (path: string) => path.slice(TRASH_PATH.length);
+
+  async function refreshTrashCount() {
+    try { trashCount = await SystemBridge.trashItemCount(); } catch { /* badge only */ }
+  }
+  onMount(refreshTrashCount);
+
+  function trashToFileEntry(t: TrashEntry): FileEntry {
+    return {
+      name: t.name, path: TRASH_PATH + t.id, is_dir: t.is_dir,
+      size: t.is_dir ? 'DIR' : `${(t.size_bytes / 1024).toFixed(1)} KB`,
+      mime_type: t.is_dir ? 'inode/directory' : 'application/octet-stream',
+      modified: t.deleted_at ? t.deleted_at.replace('T', ' ').slice(0, 16) : undefined,
+    };
+  }
+
+  async function restoreSelected() {
+    if (!inTrash || !selected.size) return;
+    const ids = [...selected].map(trashIdOf);
+    try {
+      const back = await SystemBridge.restoreFromTrash(ids);
+      notify('success', ids.length === 1 && back[0] ? `Restored to ${back[0]}` : `Restored ${ids.length} item(s)`);
+    } catch (e) { notify('error', typeof e === 'string' ? e : 'Could not restore'); }
+    selected = new Set();
+    await loadFiles(TRASH_PATH);
+  }
+
+  async function deleteTrashSelected() {
+    if (!inTrash || !selected.size) return;
+    const ok = await dialogConfirm({ title: 'Delete permanently', message: `Permanently delete ${selected.size} item(s) from the Trash? This cannot be undone.`, confirmLabel: 'Delete', danger: true });
+    if (!ok) return;
+    try { await SystemBridge.deleteFromTrash([...selected].map(trashIdOf)); notify('success', `Deleted ${selected.size} item(s)`); }
+    catch (e) { notify('error', typeof e === 'string' ? e : 'Could not delete'); }
+    selected = new Set();
+    await loadFiles(TRASH_PATH);
+  }
+
+  async function emptyTrashAll() {
+    if (trashCount === 0 && !files.length) { notify('info', 'The Trash is already empty'); return; }
+    const ok = await dialogConfirm({ title: 'Empty Trash', message: 'Permanently delete everything in the Trash? This cannot be undone.', confirmLabel: 'Empty Trash', danger: true });
+    if (!ok) return;
+    try { const n = await SystemBridge.emptyTrash(); notify('success', `Trash emptied (${n} item${n === 1 ? '' : 's'})`); }
+    catch (e) { notify('error', typeof e === 'string' ? e : 'Could not empty the Trash'); }
+    selected = new Set();
+    await loadFiles(TRASH_PATH);
+  }
+
+  /** Dropping files on the sidebar's Trash entry moves them there. */
+  async function onDropToTrash(e: DragEvent) {
+    e.preventDefault(); e.stopPropagation(); dragOver = null;
+    if (inTrash) return;
+    try {
+      const paths: string[] = JSON.parse(e.dataTransfer?.getData('text/plain') ?? '[]');
+      if (!paths.length) return;
+      await SystemBridge.moveToTrash(paths);
+      notify('success', `Moved ${paths.length} item(s) to Trash`);
+      selected = new Set();
+      loadFiles(activeTab.path);
+    } catch (err) { notify('error', typeof err === 'string' ? err : 'Could not move to Trash'); }
+  }
+
+  async function buildTrashMenu(file: FileEntry): Promise<MenuItem[]> {
+    const t = trashEntries.get(trashIdOf(file.path));
+    const n = selected.size;
+    return [
+      { label: n > 1 ? `Restore ${n} items` : 'Restore', icon: ArchiveRestore, action: restoreSelected },
+      { label: 'Delete permanently', icon: X, shortcut: 'Del', danger: true, action: deleteTrashSelected },
+      { separator: true },
+      { label: 'Show original location', icon: Info, disabled: n > 1 || !t?.original_path, action: () => notify('info', t?.original_path ?? '') },
+      { label: 'Copy original path', icon: Link2, disabled: n > 1 || !t?.original_path, action: () => copyPathToClipboard([t?.original_path ?? '']) },
+      { separator: true },
+      { label: 'Empty Trash', icon: Trash2, danger: true, action: emptyTrashAll },
+    ];
+  }
+
   async function loadFiles(path: string) {
     loading = true; selected = new Set(); previewFile = null;
+    if (path === TRASH_PATH) {
+      try {
+        const list = await SystemBridge.listTrash();
+        trashEntries = new Map(list.map((t) => [t.id, t]));
+        files = list.map(trashToFileEntry);
+        trashCount = list.length;
+      } catch (e) { files = []; notify('error', typeof e === 'string' ? e : 'Cannot open the Trash'); }
+      finally { loading = false; }
+      return;
+    }
     try {
       const entries = await SystemBridge.getFiles(path);
       files = entries;
@@ -390,6 +493,7 @@
   }
   function goUp() {
     const cur = activeTab.path;
+    if (cur === TRASH_PATH) { navigateTo('HOME'); return; }
     if (cur === 'HOME' || cur === '/') return;
     const parent = cur.includes('/') ? cur.split('/').slice(0, -1).join('/') || '/' : 'HOME';
     navigateTo(parent);
@@ -430,6 +534,7 @@
   }
 
   function handleOpen(file: FileEntry) {
+    if (inTrash) { notify('info', 'Restore this item first to open it (right-click → Restore)'); return; }
     if (file.is_dir) { navigateTo(file.path); return; }
 
     // A user-defined "open with" (Settings > Custom File Types) takes
@@ -449,6 +554,7 @@
   }
 
   async function createFolder() {
+    if (inTrash) { notify('info', 'You cannot create items in the Trash'); return; }
     const name = await dialogPrompt({ title: 'New Folder', placeholder: 'Untitled Folder', defaultValue: 'New Folder', confirmLabel: 'Create' });
     if (!name?.trim()) return;
     try { await SystemBridge.createFolder(activeTab.path, name.trim()); notify('success', `Created: ${name}`); loadFiles(activeTab.path); }
@@ -457,6 +563,7 @@
 
   async function deleteSelected() {
     if (selected.size === 0) return;
+    if (inTrash) return deleteTrashSelected();
     const ok = await dialogConfirm({ title: 'Delete items', message: `Delete ${selected.size} item(s)? This cannot be undone.`, confirmLabel: 'Delete', danger: true });
     if (!ok) return;
     let errors = 0;
@@ -466,12 +573,12 @@
     loadFiles(activeTab.path);
   }
 
-  function copySelected() { if (!selected.size) return; clipboard = { action: 'copy', files: [...selected] }; notify('info', `Copied ${selected.size} item(s)`); }
-  function cutSelected() { if (!selected.size) return; clipboard = { action: 'cut', files: [...selected] }; notify('info', `Cut ${selected.size} item(s)`); }
+  function copySelected() { if (!selected.size || inTrash) return; clipboard = { action: 'copy', files: [...selected] }; notify('info', `Copied ${selected.size} item(s)`); }
+  function cutSelected() { if (!selected.size || inTrash) return; clipboard = { action: 'cut', files: [...selected] }; notify('info', `Cut ${selected.size} item(s)`); }
 
   async function paste() { return pasteInto(activeTab.path); }
   async function pasteInto(destDir: string) {
-    if (!clipboard) return;
+    if (!clipboard || inTrash) return;
     let errors = 0;
     for (const src of clipboard.files) {
       const name = src.split('/').pop() ?? '';
@@ -485,6 +592,7 @@
   }
 
   async function startRename(file: FileEntry) {
+    if (inTrash) return;
     renaming = file.path; renameVal = file.name;
     await tick();
     renameEl?.select();
@@ -547,12 +655,14 @@
 
 
   function onDragStart(e: DragEvent, file: FileEntry) {
+    if (inTrash) { e.preventDefault(); return; }
     const paths = selected.has(file.path) ? [...selected] : [file.path];
     e.dataTransfer?.setData('text/plain', JSON.stringify(paths));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove';
   }
   async function onDrop(e: DragEvent, targetDir: FileEntry | null) {
     e.preventDefault(); dragOver = null;
+    if (inTrash) return;
     const dest = targetDir?.path ?? activeTab.path;
     try {
       const paths: string[] = JSON.parse(e.dataTransfer?.getData('text/plain') ?? '[]');
@@ -596,7 +706,7 @@
   onMount(() => window.addEventListener('keydown', handleKeyDown));
   onDestroy(() => window.removeEventListener('keydown', handleKeyDown));
 
-  $: breadcrumbs = activeTab.path.split('/').map((part, i, arr) => ({
+  $: breadcrumbs = inTrash ? [{ label: 'Trash', path: TRASH_PATH }] : activeTab.path.split('/').map((part, i, arr) => ({
     label: part === 'HOME' ? '~' : part,
     path: arr.slice(0, i + 1).join('/') || '/',
   }));
@@ -629,6 +739,13 @@
       <button on:click={() => navigateTo('/')} on:contextmenu={(e) => openBookmarkMenu(e, '/')} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:bg-white/5 hover:text-white">
         <HardDrive size={14} /> / (root)
       </button>
+      <button on:click={() => navigateTo(TRASH_PATH)}
+        on:dragover={(e) => { e.preventDefault(); dragOver = TRASH_PATH; }} on:dragleave={() => (dragOver = null)} on:drop={onDropToTrash}
+        title="Trash — drop files here to delete them safely"
+        class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {inTrash ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'} {dragOver === TRASH_PATH ? dragTgtClassRow : ''}">
+        <Trash2 size={14} /> Trash
+        {#if trashCount > 0}<span class="ml-auto text-[10px] px-1.5 rounded-full bg-white/10 text-slate-300">{trashCount}</span>{/if}
+      </button>
       {#if customBookmarks.length}
         <div class="h-px bg-white/5 my-2" />
         <div class="px-2 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
@@ -650,7 +767,7 @@
         <div on:contextmenu={(e) => openTabMenu(e, t)} on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
           class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-r border-white/5 shrink-0 group max-w-[140px] {t.id === activeTabId ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
           <Folder size={12} />
-          <span class="text-xs truncate">{t.path === 'HOME' ? '~' : t.path.split('/').pop()}</span>
+          <span class="text-xs truncate">{t.path === 'HOME' ? '~' : t.path === TRASH_PATH ? 'Trash' : t.path.split('/').pop()}</span>
           {#if tabs.length > 1}
             <button on:click|stopPropagation={() => closeTab(t.id)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-auto shrink-0"><X size={10} /></button>
           {/if}
@@ -669,7 +786,7 @@
       <button on:click={() => loadFiles(activeTab.path)} class="p-1.5 hover:bg-white/10 rounded"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
       <div class="w-px h-5 bg-white/10 mx-1" />
       <button on:click={createFolder} title="New folder (Ctrl+N)" class="p-1.5 hover:bg-white/10 rounded"><Plus size={15} /></button>
-      <button on:click={trashSelected} disabled={!selected.size} title="Move to Trash (Del) — Shift+Del deletes permanently" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
+      <button on:click={trashSelected} disabled={!selected.size} title={inTrash ? 'Delete permanently (Del)' : 'Move to Trash (Del) — Shift+Del deletes permanently'} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
       <button on:click={copySelected} disabled={!selected.size} title="Copy (Ctrl+C)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Copy size={15} /></button>
       <button on:click={cutSelected} disabled={!selected.size} title="Cut (Ctrl+X)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Scissors size={15} /></button>
       <button on:click={paste} disabled={!clipboard} title="Paste (Ctrl+V)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Clipboard size={15} class={clipboard ? 'text-blue-400' : ''} /></button>
@@ -697,12 +814,24 @@
       </div>
     {/if}
 
+    {#if inTrash}
+      <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-800/60 border-b border-white/5 text-xs text-slate-400 shrink-0">
+        <Trash2 size={13} class="shrink-0" />
+        <span class="truncate">Trash — items stay here until you restore or delete them for good.</span>
+        <div class="ml-auto flex items-center gap-1 shrink-0">
+          <button on:click={restoreSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30"><ArchiveRestore size={12} /> Restore</button>
+          <button on:click={deleteTrashSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-red-500/20 text-red-300 disabled:opacity-30"><X size={12} /> Delete</button>
+          <button on:click={emptyTrashAll} disabled={!files.length} class="flex items-center gap-1 px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/30 text-red-300 disabled:opacity-30"><Trash2 size={12} /> Empty Trash</button>
+        </div>
+      </div>
+    {/if}
+
     <div class="flex-1 flex overflow-hidden">
       <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:contextmenu={openBackgroundMenu} on:click={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
         {#if loading}
           <div class="flex items-center justify-center h-full"><Loader2 size={22} class="animate-spin text-blue-400" /></div>
         {:else if sorted.length === 0}
-          <div class="flex flex-col items-center justify-center h-full text-slate-600 gap-2"><Folder size={36} /><span class="text-sm">{searchTerm ? 'No results' : 'Empty folder'}</span></div>
+          <div class="flex flex-col items-center justify-center h-full text-slate-600 gap-2"><Folder size={36} /><span class="text-sm">{searchTerm ? 'No results' : inTrash ? 'The Trash is empty' : 'Empty folder'}</span></div>
         {:else if viewMode === 'grid'}
           <div class="grid gap-1" style="grid-template-columns:repeat(auto-fill, minmax(88px, 1fr));">
             {#each sorted as file (file.path)}
