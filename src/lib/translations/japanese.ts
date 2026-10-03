@@ -426,6 +426,8 @@ export const japanese: Translations = {
     'settings.power.profile.balanced.desc': 'パフォーマンスとバッテリー寿命のバランス',
     'settings.power.profile.performance.name': 'パフォーマンス',
     'settings.power.profile.performance.desc': '最大パフォーマンス',
+    'panel.power_mode': '電源モード',
+    'settings.power.no_daemon': '電源プロファイルを利用できません — power-profiles-daemon をインストールしてください。',
     'settings.icons.title': 'アイコン',
     'settings.icons.icon_size': 'アイコンサイズ',
     'settings.icons.icon_size_desc': 'デスクトップおよびファイルマネージャーのアイコンに適用されます。',
