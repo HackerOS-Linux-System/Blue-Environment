@@ -11,13 +11,13 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import org.legendaryos.blueconnect.core.ConnectEngine
-import org.legendaryos.blueconnect.core.ConnectListener
-import org.legendaryos.blueconnect.core.ConnectOptions
-import org.legendaryos.blueconnect.core.DeviceInfo
-import org.legendaryos.blueconnect.core.IncomingPairingRequest
-import org.legendaryos.blueconnect.core.OutgoingPairingSas
-import org.legendaryos.blueconnect.core.PairingDecision
+import org.hackeros.blueconnect.core.ConnectEngine
+import org.hackeros.blueconnect.core.ConnectListener
+import org.hackeros.blueconnect.core.ConnectOptions
+import org.hackeros.blueconnect.core.DeviceInfo
+import org.hackeros.blueconnect.core.IncomingPairingRequest
+import org.hackeros.blueconnect.core.OutgoingPairingSas
+import org.hackeros.blueconnect.core.PairingDecision
 import java.io.File
 
 /**
@@ -28,7 +28,7 @@ import java.io.File
 class ConnectService : Service() {
 
     companion object {
-        const val ACTION_STOP = "org.legendaryos.blueconnect.STOP"
+        const val ACTION_STOP = "org.hackeros.blueconnect.STOP"
         private const val TAG = "BlueConnect"
 
         fun start(context: Context) {
