@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Four-point sparkle, the Blue Environment mark (kept inside the 66dp adaptive-icon safe zone). -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 L60.5,47.5 L78,54 L60.5,60.5 L54,78 L47.5,60.5 L30,54 L47.5,47.5 Z" />
+</vector>
