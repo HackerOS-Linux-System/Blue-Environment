@@ -45,6 +45,14 @@ pub async fn installer_list_disks() -> Result<Vec<InstallerDisk>, String> {
 /// stdin, runs [`engine::run_install`], streaming `BLUE> {"pct":…}` progress
 /// lines to stdout exactly like `BlueStore::run_priv_helper` does.
 pub fn run_priv_helper() -> i32 {
+    // Survive the death of the GUI / live session mid-install: a half-written
+    // disk is far worse than a finished install. Own session + ignore the
+    // signals sent when the controlling terminal / parent goes away.
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        libc::setsid();
+    }
     let mut input = String::new();
     if std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).is_err() {
         proto_error(&InstallError::new("internal", "Could not read the install request"));
