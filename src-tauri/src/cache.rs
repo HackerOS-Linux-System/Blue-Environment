@@ -18,7 +18,7 @@ fn config_dir() -> PathBuf {
 fn apps_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or(PathBuf::from("/tmp"))
-        .join(".legendaryos/Blue-Environment/apps")
+        .join(".hackeros/Blue-Environment/apps")
 }
 
 pub fn ensure_dirs() {
