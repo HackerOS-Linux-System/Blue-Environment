@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { tick } from 'svelte';
 import type { Tab, SearchEngineId } from './types';
 import { normalizeUrl } from './types';
 import { SystemBridge } from '../../../utils/systemBridge';
@@ -43,11 +44,29 @@ const liveWebviews = new Set<string>();
 // right listeners.
 const tabUnlisten = new Map<string, (() => void)[]>();
 
+export interface WebRect { x: number; y: number; width: number; height: number }
+
+// Tabs whose embedded webview is being created right now (`web_view_create`
+// is async). A second navigation for the same tab while that's in flight
+// must wait for it instead of racing it — otherwise two creates for one
+// tab id could run, or the second navigate could hit "no webview for tab".
+const pendingCreate = new Map<string, Promise<void>>();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export function createTabs(
   onNavigate: (url: string, tabId: string) => void,
   onFavicon?: (tabId: string, favicon: string) => void,
   getSearchEngine?: () => SearchEngineId,
   getDefaultZoom?: () => number,
+  /** Current on-screen rect of the content area (null if not laid out). */
+  getBounds?: () => WebRect | null,
+  /** Whether this window's webviews may be shown right now (topmost, no overlay). */
+  getShouldBeVisible?: () => boolean,
+  /** Called after a tab's webview exists (so the caller can force a bounds push). */
+  onWebviewCreated?: (tabId: string) => void,
+  /** Called when a webview could not be created at all. */
+  onCreateError?: (message: string) => void,
 ) {
   const first = makeTab();
   if (getDefaultZoom) first.zoom = getDefaultZoom();
@@ -113,12 +132,18 @@ export function createTabs(
 
   /**
    * Navigate a tab to `rawUrl`. First navigation for a tab creates its
-   * embedded webview (needs real pixel bounds from the caller, since
-   * this module has no DOM access — BlueWebApp.svelte passes the
-   * content area's current rect); subsequent navigations in the same
-   * tab just call `web_view_navigate` on the existing one.
+   * embedded webview (needs real pixel bounds, since this module has no
+   * DOM access — BlueWebApp.svelte supplies them through `getBounds`, or
+   * the caller passes an already-measured rect); subsequent navigations in
+   * the same tab just call `web_view_navigate` on the existing one.
+   *
+   * IMPORTANT ordering: the tab is flipped to `isNew: false` FIRST and we
+   * then wait for Svelte to render the content placeholder (`tick()` + one
+   * animation frame) BEFORE measuring. The old code measured while the
+   * new-tab page was still on screen, got `null`, and created the webview
+   * at a made-up 800x600 rect at (0,0) — on top of the shell's top bar.
    */
-  async function openUrl(rawUrl: string, tabId?: string, bounds?: { x: number; y: number; width: number; height: number }) {
+  async function openUrl(rawUrl: string, tabId?: string, bounds?: WebRect) {
     const url = normalizeUrl(rawUrl, getSearchEngine?.());
     const id = tabId ?? get(activeId);
     const title = (() => { try { return new URL(url).hostname; } catch { return url; } })();
@@ -131,30 +156,80 @@ export function createTabs(
       return;
     }
 
+    // Another create for this tab is in flight — let it finish, then navigate.
+    const inFlight = pendingCreate.get(id);
+    if (inFlight) {
+      await inFlight;
+      if (liveWebviews.has(id)) {
+        try { await SystemBridge.invokeCommand('web_view_navigate', { tabId: id, url }); } catch {}
+      }
+      return;
+    }
+
     if (liveWebviews.has(id)) {
       try { await SystemBridge.invokeCommand('web_view_navigate', { tabId: id, url }); } catch {}
       fetchFaviconFor(id, url);
       return;
     }
 
-    // First navigation for this tab — need real bounds to create the
-    // webview at the right place; if the caller couldn't measure yet
-    // (content area not mounted this frame), fall back to a
-    // placeholder rect the bounds-sync rAF loop will correct on its
-    // very next frame rather than skip creation entirely.
-    const b = bounds ?? { x: 0, y: 0, width: 800, height: 600 };
-    try {
-      await SystemBridge.invokeCommand('web_view_create', {
-        windowLabel: 'main', tabId: id, url, x: b.x, y: b.y, width: b.width, height: b.height,
-      });
-      liveWebviews.add(id);
-      await attachTabListeners(id);
-      fetchFaviconFor(id, url);
-      const zoom = get(tabs).find((t) => t.id === id)?.zoom;
-      if (zoom && zoom !== 1) {
-        try { await SystemBridge.invokeCommand('web_view_set_zoom', { tabId: id, factor: zoom }); } catch {}
+    const creation = createWebview(id, url, bounds);
+    pendingCreate.set(id, creation);
+    try { await creation; } finally { pendingCreate.delete(id); }
+  }
+
+  /** Waits until the content placeholder is mounted and measurable. */
+  async function measureWhenReady(fallback?: WebRect): Promise<WebRect | null> {
+    await tick();
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const b = getBounds?.() ?? null;
+      if (b && b.width > 1 && b.height > 1) return b;
+      // Not laid out yet — wait a frame and look again.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    }
+    return fallback && fallback.width > 1 && fallback.height > 1 ? fallback : null;
+  }
+
+  async function createWebview(id: string, url: string, passedBounds?: WebRect) {
+    let lastErr = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // Always prefer a fresh measurement over the caller's (possibly stale) one.
+      const b = await measureWhenReady(passedBounds);
+      if (!b) { lastErr = 'content area not laid out'; await sleep(60); continue; }
+      // The tab may have been closed while we were waiting.
+      if (!get(tabs).some((t) => t.id === id)) return;
+      try {
+        await SystemBridge.invokeCommand('web_view_create', {
+          windowLabel: 'main', tabId: id, url, x: b.x, y: b.y, width: b.width, height: b.height,
+        });
+        // Tab closed during the (async) creation → don't leak the webview.
+        if (!get(tabs).some((t) => t.id === id)) {
+          try { await SystemBridge.invokeCommand('web_view_close', { tabId: id }); } catch {}
+          return;
+        }
+        liveWebviews.add(id);
+        await attachTabListeners(id);
+        fetchFaviconFor(id, url);
+
+        // Re-apply visibility rules immediately: a freshly created webview is
+        // visible by default, which is wrong if this tab isn't the active one
+        // or the window is currently covered / an overlay is open.
+        const shouldShow = id === get(activeId) && (getShouldBeVisible ? getShouldBeVisible() : true);
+        if (!shouldShow) {
+          try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: id, visible: false }); } catch {}
+        }
+        onWebviewCreated?.(id);
+
+        const zoom = get(tabs).find((t) => t.id === id)?.zoom;
+        if (zoom && zoom !== 1) {
+          try { await SystemBridge.invokeCommand('web_view_set_zoom', { tabId: id, factor: zoom }); } catch {}
+        }
+        return;
+      } catch (e: any) {
+        lastErr = String(e?.message ?? e);
+        await sleep(80);
       }
-    } catch {}
+    }
+    onCreateError?.(lastErr || 'failed to create the embedded webview');
   }
 
   function addTab(isPrivate = false) {
@@ -199,7 +274,10 @@ export function createTabs(
     openUrl(url, id);
   }
 
-  /** Show `id`'s webview, hide every other live one. Called on tab switch. */
+  /** Show `id`'s webview, hide every other live one. Called on tab switch.
+   * The newly shown webview is moved to the CURRENT content rect BEFORE it
+   * is shown — hidden tabs don't get bounds updates, so without this a tab
+   * would flash at wherever the window used to be (or at (0,0)). */
   async function setActiveWebview(id: string) {
     if (!SystemBridge.isTauri()) return;
     for (const otherId of liveWebviews) {
@@ -207,6 +285,10 @@ export function createTabs(
       try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: otherId, visible: false }); } catch {}
     }
     if (liveWebviews.has(id)) {
+      const b = getBounds?.();
+      if (b && b.width > 1 && b.height > 1) {
+        try { await SystemBridge.invokeCommand('web_view_set_bounds', { tabId: id, ...b }); } catch {}
+      }
       try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: id, visible: true }); } catch {}
     }
   }
@@ -221,6 +303,14 @@ export function createTabs(
     if (!SystemBridge.isTauri()) return;
     for (const id of liveWebviews) {
       try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: id, visible: false }); } catch {}
+    }
+  }
+
+  /** Click-through toggle for every live webview (window drag/resize guard). */
+  async function setInteractive(interactive: boolean) {
+    if (!SystemBridge.isTauri()) return;
+    for (const id of liveWebviews) {
+      try { await SystemBridge.invokeCommand('web_view_set_interactive', { tabId: id, interactive }); } catch {}
     }
   }
 
@@ -269,6 +359,6 @@ export function createTabs(
 
   return {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
   };
 }
