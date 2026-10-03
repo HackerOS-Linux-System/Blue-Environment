@@ -271,7 +271,7 @@ fn main() {
         get_power_profiles, set_power_profile,
         set_brightness,
         save_config, load_config, save_window_state, load_window_state,
-        exploler_app::read_file_as_data_url, exploler_app::move_to_trash, exploler_app::compress_files, exploler_app::extract_archive_here, exploler_app::get_open_with_apps, exploler_app::open_with_app, exploler_app::get_file_details, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
+        exploler_app::read_file_as_data_url, exploler_app::trash::move_to_trash, exploler_app::trash::list_trash, exploler_app::trash::restore_from_trash, exploler_app::trash::delete_from_trash, exploler_app::trash::empty_trash, exploler_app::trash::trash_item_count, exploler_app::trash::get_trash_path, exploler_app::compress_files, exploler_app::extract_archive_here, exploler_app::get_open_with_apps, exploler_app::open_with_app, exploler_app::get_file_details, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
         execute_command, pty_create, pty_write, pty_resize, pty_close, spawn_terminal, write_to_terminal,
         exploler_app::get_default_desktop_path, exploler_app::create_text_file, exploler_app::get_username, exploler_app::get_hostname, exploler_app::get_home_path,
         get_clipboard_history, add_to_clipboard_history, clear_clipboard_history,
