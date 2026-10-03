@@ -4,12 +4,12 @@ import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.legendaryos.blueconnect.core.ConnectEngine
-import org.legendaryos.blueconnect.core.DeviceInfo
-import org.legendaryos.blueconnect.core.IncomingPairingRequest
-import org.legendaryos.blueconnect.core.OutgoingPairingSas
-import org.legendaryos.blueconnect.core.PairingDecision
-import org.legendaryos.blueconnect.core.Protocol
+import org.hackeros.blueconnect.core.ConnectEngine
+import org.hackeros.blueconnect.core.DeviceInfo
+import org.hackeros.blueconnect.core.IncomingPairingRequest
+import org.hackeros.blueconnect.core.OutgoingPairingSas
+import org.hackeros.blueconnect.core.PairingDecision
+import org.hackeros.blueconnect.core.Protocol
 
 /** An incoming pairing request waiting for the person's answer on screen. */
 class PendingPairing(val request: IncomingPairingRequest, val decision: PairingDecision)
