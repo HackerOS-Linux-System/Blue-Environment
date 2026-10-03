@@ -42,10 +42,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.legendaryos.blueconnect.android.BlueConnectRuntime
-import org.legendaryos.blueconnect.android.SmsPlugin
-import org.legendaryos.blueconnect.core.ConnectException
-import org.legendaryos.blueconnect.core.DeviceInfo
+import org.hackeros.blueconnect.android.BlueConnectRuntime
+import org.hackeros.blueconnect.android.SmsPlugin
+import org.hackeros.blueconnect.core.ConnectException
+import org.hackeros.blueconnect.core.DeviceInfo
 
 private fun spaced(sas: String) = if (sas.length == 6) "${sas.take(3)} ${sas.drop(3)}" else sas
 
