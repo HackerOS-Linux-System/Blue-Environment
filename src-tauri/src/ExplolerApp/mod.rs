@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+pub mod trash;
+
 // ── FileEntry ───────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -270,49 +272,8 @@ pub fn move_file(src: String, dest: String) -> Result<(), String> {
 
 fn shq(s: &str) -> String { format!("'{}'", s.replace('\'', "'\\''")) }
 
-/// Move to the freedesktop.org Trash (so it can be restored), like KDE/GNOME.
-/// Tries `gio trash` / `trash-put` first, then a built-in implementation of
-/// the spec for the home trash (`~/.local/share/Trash`).
-#[tauri::command(async)]
-pub fn move_to_trash(paths: Vec<String>) -> Result<(), String> {
-    let mut failed: Vec<String> = Vec::new();
-    for raw in paths {
-        let p = resolve_path(&raw);
-        let ps = p.to_string_lossy().to_string();
-        let ok = Command::new("gio").args(["trash", &ps]).status().map(|s| s.success()).unwrap_or(false)
-            || Command::new("trash-put").arg(&ps).status().map(|s| s.success()).unwrap_or(false)
-            || builtin_trash(&p).is_ok();
-        if !ok { failed.push(ps); }
-    }
-    if failed.is_empty() { Ok(()) } else { Err(format!("Could not move to Trash: {}", failed.join(", "))) }
-}
-
-fn builtin_trash(p: &std::path::Path) -> Result<(), String> {
-    let base = dirs::data_dir().ok_or("no data dir")?.join("Trash");
-    let files = base.join("files");
-    let info = base.join("info");
-    fs::create_dir_all(&files).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&info).map_err(|e| e.to_string())?;
-    let name = p.file_name().ok_or("bad name")?.to_string_lossy().to_string();
-    let mut target = files.join(&name);
-    let mut n = 1;
-    while target.exists() || info.join(format!("{}.trashinfo", target.file_name().unwrap().to_string_lossy())).exists() {
-        n += 1;
-        target = files.join(format!("{}.{}", name, n));
-    }
-    let tname = target.file_name().unwrap().to_string_lossy().to_string();
-    let when = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-    let abs = fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    fs::write(
-        info.join(format!("{}.trashinfo", tname)),
-        format!("[Trash Info]\nPath={}\nDeletionDate={}\n", abs.to_string_lossy(), when),
-    ).map_err(|e| e.to_string())?;
-    if let Err(e) = move_file(p.to_string_lossy().to_string(), target.to_string_lossy().to_string()) {
-        let _ = fs::remove_file(info.join(format!("{}.trashinfo", tname)));
-        return Err(e);
-    }
-    Ok(())
-}
+// Trash (move / list / restore / delete / empty) lives in trash.rs — Blue's own
+// trash under ~/.cache/Blue-Environment/trash/.
 
 /// Create an archive next to the first item. `format`: "zip" | "tar.gz" | "tar.xz" | "tar.zst".
 /// Returns the created archive's path.
