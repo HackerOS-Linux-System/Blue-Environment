@@ -426,6 +426,8 @@ export const turkish: Translations = {
     'settings.power.profile.balanced.desc': 'Dengeli performans ve pil ömrü',
     'settings.power.profile.performance.name': 'Performans',
     'settings.power.profile.performance.desc': 'Maksimum performans',
+    'panel.power_mode': 'Güç modu',
+    'settings.power.no_daemon': 'Güç profilleri kullanılamıyor — power-profiles-daemon\'ı yükleyin.',
     'settings.icons.title': 'Simgeler',
     'settings.icons.icon_size': 'Simge Boyutu',
     'settings.icons.icon_size_desc': 'Masaüstü ve dosya yöneticisi simgeleri için geçerlidir.',
