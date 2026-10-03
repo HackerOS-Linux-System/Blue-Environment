@@ -426,6 +426,8 @@ export const italian: Translations = {
     'settings.power.profile.balanced.desc': 'Prestazioni e autonomia bilanciate',
     'settings.power.profile.performance.name': 'Prestazioni',
     'settings.power.profile.performance.desc': 'Massime prestazioni',
+    'panel.power_mode': 'Modalità di alimentazione',
+    'settings.power.no_daemon': 'I profili di alimentazione non sono disponibili — installa power-profiles-daemon.',
     'settings.icons.title': 'Icone',
     'settings.icons.icon_size': 'Dimensione icone',
     'settings.icons.icon_size_desc': 'Si applica alle icone del desktop e del file manager.',
