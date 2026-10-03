@@ -426,6 +426,8 @@ export const czech: Translations = {
     'settings.power.profile.balanced.desc': 'Vyvážený výkon a výdrž baterie',
     'settings.power.profile.performance.name': 'Výkon',
     'settings.power.profile.performance.desc': 'Maximální výkon',
+    'panel.power_mode': 'Režim napájení',
+    'settings.power.no_daemon': 'Profily napájení nejsou dostupné — nainstalujte power-profiles-daemon.',
     'settings.icons.title': 'Ikony',
     'settings.icons.icon_size': 'Velikost ikon',
     'settings.icons.icon_size_desc': 'Platí pro ikony plochy a správce souborů.',
