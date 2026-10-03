@@ -415,6 +415,7 @@
     "allow-web-view-navigate",
     "allow-web-view-reload",
     "allow-web-view-set-bounds",
+    "allow-web-view-set-interactive",
     "allow-web-view-set-visible",
     "allow-web-view-set-zoom",
     "allow-write-cache-file",
