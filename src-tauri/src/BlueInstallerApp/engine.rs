@@ -363,8 +363,17 @@ pub fn release_disk(disk: &str, progress: &Progress, first_pass: bool) -> Instal
 fn partition_disk(cfg: &InstallConfig, progress: &Progress) -> InstallResult<Vec<PlannedPartition>> {
     progress(2, "Partitioning disk…");
     let plan = if cfg.disk_mode == "manual" && !cfg.partitions.is_empty() { cfg.partitions.clone() } else { default_partition_plan() };
-    if !plan.iter().any(|p| p.role == "esp") {
+    let efi = is_efi_boot();
+    if efi && !plan.iter().any(|p| p.role == "esp") {
         return Err(InstallError::new("bad_partition_plan", "The partition plan has no EFI System Partition"));
+    }
+    // Legacy BIOS + GPT: GRUB has no room for its core image after the MBR,
+    // so it needs a tiny dedicated "BIOS boot" partition (flag bios_grub).
+    // Without it `grub-install --target=i386-pc` fails and the machine ends
+    // up with "No bootable devices found".
+    let mut plan = plan;
+    if !efi && !plan.iter().any(|p| p.role == "bios_grub") {
+        plan.insert(0, PartitionPlanEntry { id: "p-biosgrub".into(), role: "bios_grub".into(), filesystem: "none".into(), mountpoint: String::new(), size_mib: Some(2) });
     }
     if !plan.iter().any(|p| p.mountpoint == "/") {
         return Err(InstallError::new("bad_partition_plan", "The partition plan has no partition mounted at /"));
@@ -388,12 +397,22 @@ fn partition_disk(cfg: &InstallConfig, progress: &Progress) -> InstallResult<Vec
             "btrfs" => "btrfs",
             "xfs" => "xfs",
             "swap" => "linux-swap",
+            "none" => "",
             other => return Err(InstallError::new("bad_partition_plan", format!("Unknown filesystem \"{other}\""))),
         };
-        run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["mkpart", "primary", fs_type, &format!("{start_mib}MiB"), &end]))?;
+        let mut mk = Command::new("parted");
+        mk.arg("-s").arg(&cfg.disk).args(["mkpart", "primary"]);
+        if !fs_type.is_empty() {
+            mk.arg(fs_type);
+        }
+        mk.args([&format!("{start_mib}MiB"), &end]);
+        run(&mut mk)?;
         let number = (i + 1) as u32;
         if entry.role == "esp" {
             run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["set", &number.to_string(), "esp", "on"]))?;
+        }
+        if entry.role == "bios_grub" {
+            run(Command::new("parted").arg("-s").arg(&cfg.disk).args(["set", &number.to_string(), "bios_grub", "on"]))?;
         }
         planned.push(PlannedPartition { entry: entry.clone(), number, device: part_device(&cfg.disk, number) });
         start_mib = match entry.size_mib {
@@ -466,6 +485,7 @@ fn format_partitions(planned: &[PlannedPartition], progress: &Progress) -> Insta
             "btrfs" => run(Command::new("mkfs.btrfs").args(["-f", "-L"]).arg(label_for(&p.entry.role)).arg(&p.device))?,
             "xfs" => run(Command::new("mkfs.xfs").args(["-f", "-L"]).arg(label_for(&p.entry.role)).arg(&p.device))?,
             "swap" => run(Command::new("mkswap").arg(&p.device))?,
+            "none" => String::new(), // bios_grub: must stay raw
             other => return Err(InstallError::new("bad_partition_plan", format!("Unknown filesystem \"{other}\""))),
         };
     }
@@ -488,7 +508,7 @@ fn mount_target(planned: &[PlannedPartition], progress: &Progress) -> InstallRes
 
     // Mount / first, then everything else, shallowest mountpoint first, so
     // e.g. /boot/efi mounts onto an already-mounted root.
-    let mut sorted: Vec<&PlannedPartition> = planned.iter().filter(|p| p.entry.filesystem != "swap").collect();
+    let mut sorted: Vec<&PlannedPartition> = planned.iter().filter(|p| p.entry.filesystem != "swap" && p.entry.filesystem != "none").collect();
     sorted.sort_by_key(|p| if p.entry.mountpoint == "/" { 0 } else { p.entry.mountpoint.matches('/').count() });
 
     for p in &sorted {
@@ -584,7 +604,9 @@ fn bind_mount_chroot_dirs() -> InstallResult<()> {
         if is_proc {
             cmd.args(["-t", "proc", "proc", &target]);
         } else {
-            cmd.arg("--bind").arg(src).arg(&target);
+            // --rbind so /sys/firmware/efi/efivars comes along: without it
+            // grub-install inside the chroot cannot write the UEFI boot entry.
+            cmd.arg(if src == "/sys" { "--rbind" } else { "--bind" }).arg(src).arg(&target);
         }
         run(&mut cmd)?;
     }
@@ -593,9 +615,9 @@ fn bind_mount_chroot_dirs() -> InstallResult<()> {
 
 fn unmount_all(planned: &[PlannedPartition]) {
     for d in ["run", "sys", "dev/pts", "dev", "proc"] {
-        let _ = Command::new("umount").arg("-lf").arg(format!("{TARGET_ROOT}/{d}")).status();
+        let _ = Command::new("umount").arg("-R").arg("-lf").arg(format!("{TARGET_ROOT}/{d}")).status();
     }
-    let mut mps: Vec<&str> = planned.iter().filter(|p| p.entry.filesystem != "swap").map(|p| p.entry.mountpoint.as_str()).collect();
+    let mut mps: Vec<&str> = planned.iter().filter(|p| p.entry.filesystem != "swap" && p.entry.filesystem != "none").map(|p| p.entry.mountpoint.as_str()).collect();
     mps.sort_by_key(|m| std::cmp::Reverse(m.matches('/').count()));
     for mp in mps {
         let full = if mp == "/" { TARGET_ROOT.to_string() } else { format!("{TARGET_ROOT}{mp}") };
@@ -674,7 +696,13 @@ fn remove_live_account(cfg: &InstallConfig) -> InstallResult<()> {
         let _ = chroot_sh(&format!("userdel -rf {live_user} 2>/dev/null; true"));
         return Ok(());
     }
-    let _ = chroot_sh(&format!("rm -f /etc/sudoers.d/live-user; pkill -u {live_user} 2>/dev/null; userdel -rf {live_user} 2>/dev/null; groupdel {live_user} 2>/dev/null; true"));
+    // NOTE: no `pkill -u user` here. The installer GUI itself runs as the
+    // live user, and /proc is bind-mounted into this chroot, so pkill killed
+    // the whole live session (screen went black, installer restarted at
+    // "Welcome") at ~70% — before the bootloader was ever installed.
+    // `userdel -f` removes the account from the *target's* passwd/shadow
+    // files and does not touch running processes.
+    let _ = chroot_sh(&format!("rm -f /etc/sudoers.d/live-user; userdel -rf {live_user} 2>/dev/null; groupdel {live_user} 2>/dev/null; true"));
     for f in ["/usr/lib/sddm/sddm.conf.d/autologin.conf", "/etc/sddm.conf.d/autologin.conf", "/etc/sddm.conf"] {
         let full = format!("{TARGET_ROOT}{f}");
         if let Ok(content) = fs::read_to_string(&full) {
@@ -740,19 +768,41 @@ fn shell_quote(s: &str) -> String {
 }
 
 fn install_bootloader(cfg: &InstallConfig, progress: &Progress) -> InstallResult<()> {
+    progress(88, "Preparing the boot files…");
+    // The live image's initramfs is rebuilt for the installed system.
+    let _ = chroot_sh("update-initramfs -u -k all 2>&1");
+
     progress(90, "Installing the bootloader…");
+    chroot_sh("command -v grub-install >/dev/null 2>&1").map_err(|_| {
+        InstallError::new("missing_tool", "GRUB (grub-install) is missing from the system image")
+            .hint(if is_efi_boot() { "The live image must contain grub-efi-amd64 (apt install grub-efi-amd64 efibootmgr)." } else { "The live image must contain grub-pc (apt install grub-pc)." })
+    })?;
+
     if is_efi_boot() {
         let target = format!("{TARGET_ROOT}/boot/efi");
         if !Path::new(&target).exists() {
             return Err(InstallError::new("no_esp", "No EFI System Partition was mounted at /boot/efi"));
         }
-        chroot_sh("grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Blue --recheck")
-            .map_err(|e| e.hint("EFI bootloader install failed. Common cause: the ESP is too small (needs ≥ 260 MiB) or isn't FAT32."))?;
+        // Normal install: registers a "Blue" entry in the firmware (NVRAM).
+        let nvram = chroot_sh("grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Blue --recheck");
+        // Fallback install to the removable path (EFI/BOOT/BOOTX64.EFI). Many
+        // firmwares (Dell Latitudes included) ignore or lose NVRAM entries
+        // and then report "No bootable devices found".
+        let removable = chroot_sh("grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --recheck");
+        if let (Err(e), Err(_)) = (&nvram, &removable) {
+            return Err(e.clone().hint("EFI bootloader install failed. Common cause: the ESP is too small (needs ≥ 260 MiB) or isn't FAT32."));
+        }
     } else {
         chroot_sh(&format!("grub-install --target=i386-pc --recheck {}", cfg.disk))
             .map_err(|e| e.hint("BIOS/legacy bootloader install failed."))?;
     }
+
+    progress(95, "Generating the boot menu…");
     let _ = chroot_sh("update-grub 2>&1 || grub-mkconfig -o /boot/grub/grub.cfg 2>&1");
+    if !Path::new(&format!("{TARGET_ROOT}/boot/grub/grub.cfg")).exists() {
+        return Err(InstallError::new("no_grub_cfg", "GRUB did not generate /boot/grub/grub.cfg")
+            .hint("Check that a kernel and initramfs exist in /boot of the installed system."));
+    }
     Ok(())
 }
 
