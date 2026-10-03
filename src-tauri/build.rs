@@ -363,6 +363,7 @@ fn main() {
         "web_view_navigate",
         "web_view_reload",
         "web_view_set_bounds",
+        "web_view_set_interactive",
         "web_view_set_visible",
         "web_view_set_zoom",
         "write_cache_file",
