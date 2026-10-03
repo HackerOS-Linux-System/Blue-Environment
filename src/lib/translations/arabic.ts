@@ -426,6 +426,8 @@ export const arabic: Translations = {
     'settings.power.profile.balanced.desc': 'أداء وعمر بطارية متوازنان',
     'settings.power.profile.performance.name': 'الأداء',
     'settings.power.profile.performance.desc': 'أقصى أداء',
+    'panel.power_mode': 'وضع الطاقة',
+    'settings.power.no_daemon': 'ملفات الطاقة غير متاحة — ثبّت power-profiles-daemon.',
     'settings.icons.title': 'الأيقونات',
     'settings.icons.icon_size': 'حجم الأيقونة',
     'settings.icons.icon_size_desc': 'ينطبق على أيقونات سطح المكتب ومدير الملفات.',
