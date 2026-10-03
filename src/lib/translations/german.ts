@@ -451,6 +451,8 @@ export const german: Translations = {
     'settings.power.profile.balanced.desc': 'Ausgewogene Leistung und Akkulaufzeit',
     'settings.power.profile.performance.name': 'Höchstleistung',
     'settings.power.profile.performance.desc': 'Maximale Leistung',
+    'panel.power_mode': 'Energiemodus',
+    'settings.power.no_daemon': 'Energieprofile sind nicht verfügbar — installiere power-profiles-daemon.',
     'settings.icons.title': 'Symbole',
     'settings.icons.icon_size': 'Symbolgröße',
     'settings.icons.icon_size_desc': 'Gilt für Desktop- und Dateimanager-Symbole.',
