@@ -311,9 +311,10 @@ fn resolve_icon_for_pid(pid: u32) -> String {
     resolve_icon_by_name(&exe_name)
 }
 
-/// Shared icon lookup: checks a bundled LegendaryOS/Blue-Environment app
+/// Shared icon lookup: checks a bundled HackerOS/Blue-Environment app
 /// icon first (an app ships its own `icon.png` under
-/// `~/.legendaryos/Blue-Environment/apps/<name>/`, which should always
+/// `~/.hackeros/Blue-Environment/apps/<name>/` — migrated from the old
+/// `~/.legendaryos/...` location by `legacy_migration.rs`, which should always
 /// win over a generic theme lookup), then falls back to the shared
 /// FreeDesktop icon theme resolver.
 ///
@@ -334,7 +335,7 @@ fn resolve_icon_by_name(name: &str) -> String {
 
     if let Some(home) = dirs::home_dir() {
         let app_dir = home
-            .join(".legendaryos/Blue-Environment/apps")
+            .join(".hackeros/Blue-Environment/apps")
             .join(name);
         for ext in &["icon.png", "icon.svg", "icon.jpg"] {
             let icon = app_dir.join(ext);
