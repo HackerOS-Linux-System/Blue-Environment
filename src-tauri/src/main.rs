@@ -78,12 +78,13 @@ mod blue_virt;
 mod BlueStore;
 mod privileged;
 mod themes;
+mod legacy_migration;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
 use blue_web_app::{
     web_open_native, web_fetch_site_info,
     web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
-    web_view_set_visible, web_view_close, WebViewRegistry,
+    web_view_set_visible, web_view_close, WebViewRegistry, web_view_set_interactive,
     web_view_set_zoom, web_view_find, web_view_clear_find,
     web_downloads_list, web_download_remove, web_download_reveal, DownloadRegistry,
     web_set_blocklist, BlockList, web_report_meta,
@@ -186,6 +187,11 @@ fn main() {
     // the whole process; binding it to `_guard` (not `_`) keeps it alive
     // until `main` returns instead of dropping it immediately.
     let _log_guard = logging::init();
+
+    // legendaryos → hackeros: move existing user data BEFORE anything creates the
+    // new directories (`ensure_dirs` below, and Tauri's webview data dir under the
+    // new app identifier). See legacy_migration.rs.
+    legacy_migration::run();
 
     cache::ensure_dirs();
 
@@ -325,7 +331,7 @@ fn main() {
         camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video,
         web_open_native, web_fetch_site_info,
         web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
-        web_view_set_visible, web_view_close,
+        web_view_set_visible, web_view_close, web_view_set_interactive,
         web_view_set_zoom, web_view_find, web_view_clear_find,
         web_downloads_list, web_download_remove, web_download_reveal,
         web_set_blocklist, web_report_meta,
@@ -451,6 +457,11 @@ fn main() {
         // BlueWebApp/capability_selftest.rs's module doc for exactly
         // what this does and doesn't prove.
         blue_web_app::capability_selftest::run(&app.handle());
+
+        // Linux: przebuduj hierarchię GTK głównego okna (GtkBox → GtkOverlay),
+        // żeby webview kart Blue Web mogły leżeć NAD powłoką w oknie aplikacji
+        // zamiast pod nią. Patrz BlueWebApp/linux_embed.rs.
+        blue_web_app::init(&app.handle());
 
         // ── DevTools, gated behind a `--dev` CLI flag ───────────────────
         // Was unconditional (opened on every launch, including a
