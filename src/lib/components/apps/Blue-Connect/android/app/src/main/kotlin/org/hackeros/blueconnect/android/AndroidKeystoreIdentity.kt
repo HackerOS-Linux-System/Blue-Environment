@@ -2,8 +2,8 @@ package org.hackeros.blueconnect.android
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import org.legendaryos.blueconnect.core.Sas
-import org.legendaryos.blueconnect.core.TlsIdentity
+import org.hackeros.blueconnect.core.Sas
+import org.hackeros.blueconnect.core.TlsIdentity
 import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.security.KeyStore
