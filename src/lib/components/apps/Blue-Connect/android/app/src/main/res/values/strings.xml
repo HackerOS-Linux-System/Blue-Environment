@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Blue Connect</string>
+    <string name="channel_service">Blue Connect service</string>
+    <string name="channel_pairing">Pairing requests</string>
+    <string name="channel_ping">Pings</string>
+    <string name="notif_service_title">Blue Connect is running</string>
+    <string name="notif_service_text">Ready to pair with your Blue Environment devices</string>
+</resources>
