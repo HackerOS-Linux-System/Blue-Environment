@@ -182,7 +182,9 @@ jobs:
         run: swift test
 
       - name: Build universal .app and zip
-        run: scripts/build-app.sh "${{ steps.ver.outputs.plist }}"
+        # `bash` explicitly: the exec bit is lost when the repo is zipped / uploaded
+        # through a web UI, and "Permission denied" killed this step before.
+        run: bash scripts/build-app.sh "${{ steps.ver.outputs.plist }}"
 
       - uses: actions/upload-artifact@v4
         with:
