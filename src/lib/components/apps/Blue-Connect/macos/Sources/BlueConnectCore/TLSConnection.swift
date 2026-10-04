@@ -93,7 +93,7 @@ public final class TLSConnection {
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let resumed = Locked(false)
-            func finish(_ result: Result<Void, Error>) {
+            @Sendable func finish(_ result: Result<Void, Error>) {
                 if resumed.get() { return }
                 resumed.set(true)
                 cont.resume(with: result)
