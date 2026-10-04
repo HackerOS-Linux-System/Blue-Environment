@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../../../../stores/language';
   // Blue Connect — LAN device discovery + pairing, KDE-Connect-style.
   // See src-tauri/src/BlueConnect/mod.rs's module doc for exactly what
   // "real" means here: genuine UDP broadcast discovery on KDE Connect's
@@ -13,7 +14,6 @@
   import { SystemBridge } from '../../../../utils/systemBridge';
   import LoadingSpinner from '../../../LoadingSpinner.svelte';
   import type { DiscoveredDevice, DeviceType } from './types';
-  import { DEVICE_TYPE_LABELS } from './types';
 
   export let windowId: string;
 
@@ -147,40 +147,40 @@
   <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between">
     <div>
       <h1 class="font-medium">Blue Connect</h1>
-      <p class="text-[11px] text-slate-500">Discover and pair devices on your local network</p>
+      <p class="text-[11px] text-slate-500">{$t('blueconnect.subtitle')}</p>
     </div>
     <div class="flex items-center gap-2">
       <button
         on:click={toggleListening}
         disabled={listeningForPairing}
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {listeningForPairing ? 'bg-emerald-600/30 text-emerald-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}"
-        title="Listen for an incoming pairing request from another device"
+        title={$t('blueconnect.listen_tip')}
       >
-        {#if listeningForPairing}<Loader2 class="w-3.5 h-3.5 animate-spin" /> Listening…{:else}<Radio class="w-3.5 h-3.5" /> Listen{/if}
+        {#if listeningForPairing}<Loader2 class="w-3.5 h-3.5 animate-spin" /> {$t('blueconnect.listening')}{:else}<Radio class="w-3.5 h-3.5" /> {$t('blueconnect.listen')}{/if}
       </button>
       <button
         on:click={runDiscovery}
         disabled={discovering}
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors"
       >
-        {#if discovering}<Loader2 class="w-3.5 h-3.5 animate-spin" /> Discovering…{:else}<RefreshCw class="w-3.5 h-3.5" /> Discover devices{/if}
+        {#if discovering}<Loader2 class="w-3.5 h-3.5 animate-spin" /> {$t('blueconnect.discovering')}{:else}<RefreshCw class="w-3.5 h-3.5" /> {$t('blueconnect.discover')}{/if}
       </button>
     </div>
   </div>
 
   <div class="px-4 py-2 border-b border-white/5 flex items-start gap-1.5 text-[11px] text-slate-500">
     <Info class="w-3 h-3 shrink-0 mt-0.5" />
-    Pairing here uses a plain, unencrypted handshake — it can see real KDE Connect/GSConnect devices during discovery, but only pairs safely with another Blue Connect instance. See mod.rs for why.
+    {$t('blueconnect.security_note')}
   </div>
 
   <div class="flex-1 overflow-y-auto p-4">
     {#if discovering && devices.length === 0}
-      <LoadingSpinner label="Broadcasting on the local network…" />
+      <LoadingSpinner label={$t('blueconnect.broadcasting')} />
     {:else if devices.length === 0}
       <div class="flex flex-col items-center gap-2 py-16 text-center text-slate-500">
         <Radio class="w-8 h-8 opacity-30" />
-        <p class="text-sm">No devices found yet.</p>
-        <p class="text-xs max-w-xs">Click "Discover devices" to broadcast on your local network, or "Listen" to wait for another device to pair with you.</p>
+        <p class="text-sm">{$t('blueconnect.none_found')}</p>
+        <p class="text-xs max-w-xs">{$t('blueconnect.empty_hint')}</p>
       </div>
     {:else}
       <div class="grid grid-cols-2 gap-3">
@@ -192,13 +192,13 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <span class="font-medium truncate">{device.name}</span>
-                {#if device.paired}<span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-600/20 text-emerald-400 shrink-0">Paired</span>{/if}
+                {#if device.paired}<span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-600/20 text-emerald-400 shrink-0">{$t('blueconnect.paired')}</span>{/if}
               </div>
-              <p class="text-[11px] text-slate-500 mt-0.5">{DEVICE_TYPE_LABELS[device.deviceType]} · {device.address}</p>
+              <p class="text-[11px] text-slate-500 mt-0.5">{$t(`blueconnect.device.${device.deviceType}`)} · {device.address}</p>
               <div class="mt-2">
                 {#if device.paired}
                   <button on:click={() => forget(device)} class="flex items-center gap-1 text-xs text-red-400 hover:text-red-300">
-                    <Unlink class="w-3 h-3" /> Unpair
+                    <Unlink class="w-3 h-3" /> {$t('blueconnect.unpair')}
                   </button>
                 {:else}
                   <button
@@ -206,7 +206,7 @@
                     disabled={pairingDeviceId === device.id}
                     class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
                   >
-                    {#if pairingDeviceId === device.id}<Loader2 class="w-3 h-3 animate-spin" /> Pairing…{:else}<Link2 class="w-3 h-3" /> Pair{/if}
+                    {#if pairingDeviceId === device.id}<Loader2 class="w-3 h-3 animate-spin" /> {$t('blueconnect.pairing')}{:else}<Link2 class="w-3 h-3" /> {$t('blueconnect.pair')}{/if}
                   </button>
                 {/if}
               </div>
@@ -223,14 +223,14 @@
         <div class="flex items-center gap-2">
           <ShieldCheck class="w-5 h-5 text-emerald-400 shrink-0" />
           <h3 class="font-medium text-sm">
-            {sasDialog.role === 'incoming' ? `Pairing request from ${sasDialog.deviceName}` : `Pairing with ${sasDialog.deviceName}`}
+            {sasDialog.role === 'incoming' ? $t('blueconnect.sas_incoming_title', { name: sasDialog.deviceName }) : $t('blueconnect.sas_outgoing_title', { name: sasDialog.deviceName })}
           </h3>
         </div>
         <p class="text-[11px] text-slate-400 leading-relaxed">
           {#if sasDialog.role === 'incoming'}
-            Compare this code with the one shown on {sasDialog.deviceName}. If they match, it's genuinely that device — if they don't, something on the network is impersonating it.
+            {$t('blueconnect.sas_incoming_desc', { name: sasDialog.deviceName })}
           {:else}
-            Ask {sasDialog.deviceName} to show its pairing code and compare it with the one below. Waiting for it to accept…
+            {$t('blueconnect.sas_outgoing_desc', { name: sasDialog.deviceName })}
           {/if}
         </p>
         <div class="text-center py-3 bg-slate-800/60 rounded-lg">
@@ -242,18 +242,18 @@
               on:click={() => respondToIncoming(false)}
               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             >
-              <X class="w-3.5 h-3.5" /> Reject
+              <X class="w-3.5 h-3.5" /> {$t('blueconnect.reject')}
             </button>
             <button
               on:click={() => respondToIncoming(true)}
               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
             >
-              <ShieldCheck class="w-3.5 h-3.5" /> Codes match — Accept
+              <ShieldCheck class="w-3.5 h-3.5" /> {$t('blueconnect.accept')}
             </button>
           </div>
         {:else}
           <div class="flex items-center justify-center gap-2 text-xs text-slate-500">
-            <Loader2 class="w-3.5 h-3.5 animate-spin" /> Waiting for confirmation…
+            <Loader2 class="w-3.5 h-3.5 animate-spin" /> {$t('blueconnect.waiting')}
           </div>
         {/if}
       </div>
