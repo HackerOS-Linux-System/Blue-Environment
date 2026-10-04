@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../../../stores/language';
   import { Globe, X, ChevronRight, FolderOpen, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-svelte';
   import type { BookmarkItem, HistoryEntry, DownloadItem } from './types';
   import { createEventDispatcher } from 'svelte';
@@ -13,17 +14,17 @@
     removeDownload: string; revealDownload: string;
   }>();
 
-  $: empty = panel === 'bookmarks' ? 'No bookmarks yet' : panel === 'history' ? 'No history' : 'No downloads yet';
+  $: empty = panel === 'bookmarks' ? $t('blueweb.empty_bookmarks') : panel === 'history' ? $t('blueweb.empty_history') : $t('blueweb.empty_downloads');
   $: itemCount = panel === 'bookmarks' ? bookmarks.length : panel === 'history' ? history.length : downloads.length;
 </script>
 
 {#if panel !== 'none'}
   <div class="absolute right-0 top-0 bottom-0 w-72 bg-slate-900 border-l border-white/5 flex flex-col z-10">
     <div class="flex items-center justify-between px-4 py-3 border-b border-white/5 shrink-0">
-      <span class="font-medium text-sm capitalize">{panel}</span>
+      <span class="font-medium text-sm">{$t(`blueweb.panel.${panel}`)}</span>
       <div class="flex items-center gap-2">
         {#if panel === 'history' && history.length > 0}
-          <button on:click={() => dispatch('clearHistory')} class="text-xs text-red-400 hover:text-red-300">Clear</button>
+          <button on:click={() => dispatch('clearHistory')} class="text-xs text-red-400 hover:text-red-300">{$t('blueweb.clear')}</button>
         {/if}
         <button on:click={() => dispatch('close')}><X size={14} class="text-slate-400" /></button>
       </div>
@@ -61,11 +62,11 @@
             {:else}<AlertCircle size={14} class="text-red-400 shrink-0" />{/if}
             <div class="flex-1 min-w-0">
               <div class="text-sm text-white truncate">{d.filename}</div>
-              <div class="text-[10px] text-slate-500 truncate capitalize">{d.state}</div>
+              <div class="text-[10px] text-slate-500 truncate">{$t(`blueweb.state.${d.state}`)}</div>
             </div>
             {#if d.state !== 'downloading'}
-              <button on:click={() => dispatch('revealDownload', d.id)} title="Show in folder" class="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400"><FolderOpen size={13} /></button>
-              <button on:click={() => dispatch('removeDownload', d.id)} title="Remove from list" class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400"><Trash2 size={13} /></button>
+              <button on:click={() => dispatch('revealDownload', d.id)} title={$t('blueweb.show_in_folder')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400"><FolderOpen size={13} /></button>
+              <button on:click={() => dispatch('removeDownload', d.id)} title={$t('blueweb.remove_from_list')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400"><Trash2 size={13} /></button>
             {/if}
           </div>
         {/each}
