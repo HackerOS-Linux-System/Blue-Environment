@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t as tr } from '../../../stores/language';
   // ── Real embedded browsing ────────────────────────────────────────────
   // Previously every URL opened in a brand-new, separate OS window and
   // this component just showed a "switch to it via the taskbar" message
@@ -50,7 +51,7 @@
   import { blockingOverlayOpen, windowInteracting } from '../../../stores/overlayState';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
-  import { ZOOM_LEVELS } from './types';
+  import { ZOOM_LEVELS, SEARCH_ENGINES } from './types';
   import type { DownloadItem } from './types';
   import AddressBar from './AddressBar.svelte';
   import SidePanel from './SidePanel.svelte';
@@ -73,6 +74,7 @@
 
   let panel: Panel = 'none';
   let lastError: string | null = null;
+  $: engineName = (SEARCH_ENGINES.find((e) => e.id === $settings.searchEngine) ?? SEARCH_ENGINES[0]).name;
   let contentEl: HTMLDivElement;
   let lastRect: { x: number; y: number; width: number; height: number } | null = null;
   let rafId: number | null = null;
@@ -387,12 +389,12 @@
         {#if t.isPrivate}<EyeOff size={11} class="shrink-0 text-indigo-400" />
         {:else if t.favicon}<img src={t.favicon} alt="" class="w-3 h-3 shrink-0 rounded-sm" on:error={() => (t.favicon = undefined)} />
         {:else}<Globe size={12} class="shrink-0 opacity-60" />{/if}
-        <span class="text-xs truncate flex-1">{t.title || (t.isPrivate ? 'New private tab' : 'New Tab')}</span>
+        <span class="text-xs truncate flex-1">{t.title || (t.isPrivate ? $tr('blueweb.new_private_tab') : $tr('blueweb.new_tab'))}</span>
         <button on:click={(e) => closeTab(t.id, e)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 shrink-0 ml-1"><X size={10} /></button>
       </div>
     {/each}
-    <button on:click={() => addTab()} title="New tab (Ctrl+T)" class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={14} /></button>
-    <button on:click={() => addTab(true)} title="New private tab (Ctrl+Shift+N)" class="p-2 text-slate-500 hover:text-indigo-300 shrink-0"><EyeOff size={12} /></button>
+    <button on:click={() => addTab()} title="{$tr('blueweb.new_tab')} (Ctrl+T)" class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={14} /></button>
+    <button on:click={() => addTab(true)} title="{$tr('blueweb.new_private_tab')} (Ctrl+Shift+N)" class="p-2 text-slate-500 hover:text-indigo-300 shrink-0"><EyeOff size={12} /></button>
   </div>
 
   <AddressBar
@@ -418,9 +420,9 @@
       <Search size={13} class="text-slate-400 shrink-0" />
       <input bind:this={findInputEl} bind:value={findQuery} on:keydown={handleFindKeydown}
         on:input={() => find(findQuery)}
-        placeholder="Find in page…" class="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none" />
-      <button on:click={() => find(findQuery, true)} title="Previous match" class="p-1 rounded hover:bg-white/10"><ArrowUp size={13} /></button>
-      <button on:click={() => find(findQuery, false)} title="Next match" class="p-1 rounded hover:bg-white/10"><ArrowDown size={13} /></button>
+        placeholder={$tr('blueweb.find_placeholder')} class="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none" />
+      <button on:click={() => find(findQuery, true)} title={$tr('blueweb.find_prev')} class="p-1 rounded hover:bg-white/10"><ArrowUp size={13} /></button>
+      <button on:click={() => find(findQuery, false)} title={$tr('blueweb.find_next')} class="p-1 rounded hover:bg-white/10"><ArrowDown size={13} /></button>
       <button on:click={closeFindBar} class="p-1 rounded hover:bg-white/10"><X size={13} /></button>
     </div>
   {/if}
@@ -431,7 +433,7 @@
         onAddBlocked={webSettings.addBlockedDomain} onRemoveBlocked={webSettings.removeBlockedDomain}
         on:close={() => (settingsOpen = false)} />
     {:else if activeTab.isNew}
-      <NewTabPage error={lastError} on:navigate={(e) => navigate(e.detail)} />
+      <NewTabPage error={lastError} engineName={engineName} on:navigate={(e) => navigate(e.detail)} />
     {:else}
       <!-- The real page renders in a native embedded webview positioned
            exactly over this div (see the module doc) — this div itself
@@ -448,7 +450,7 @@
             <div>
               <p class="text-white font-semibold mb-1">{activeTab.title}</p>
               <p class="text-slate-400 text-xs mb-4 font-mono break-all max-w-sm">{activeTab.url}</p>
-              <p class="text-slate-500 text-sm max-w-sm mx-auto">Embedded browsing needs the Tauri desktop app — this preview environment opens links in a new browser tab instead.</p>
+              <p class="text-slate-500 text-sm max-w-sm mx-auto">{$tr('blueweb.no_embedded')}</p>
             </div>
           </div>
         {/if}
@@ -461,7 +463,7 @@
              page used to be would silently do nothing, which is more
              confusing than a clear "backgrounded" placeholder. -->
         <div class="absolute inset-0 flex items-center justify-center bg-slate-900/70 pointer-events-none">
-          <span class="text-xs text-slate-500">Backgrounded</span>
+          <span class="text-xs text-slate-500">{$tr('blueweb.backgrounded')}</span>
         </div>
       {/if}
     {/if}
@@ -477,11 +479,11 @@
 
   {#if !activeTab.isNew}
     <div class="flex items-center justify-end gap-1 px-2 h-6 bg-slate-950/70 border-t border-white/5 shrink-0 text-slate-400">
-      <button on:click={() => adjustZoom(-1)} title="Zoom out (Ctrl+-)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomOut size={12} /></button>
-      <button on:click={() => setZoom(1)} title="Reset zoom (Ctrl+0)" class="text-[10px] w-9 text-center hover:text-white">{zoomPct}%</button>
-      <button on:click={() => adjustZoom(1)} title="Zoom in (Ctrl+=)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomIn size={12} /></button>
+      <button on:click={() => adjustZoom(-1)} title="{$tr('blueweb.zoom_out')} (Ctrl+-)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomOut size={12} /></button>
+      <button on:click={() => setZoom(1)} title="{$tr('blueweb.zoom_reset')} (Ctrl+0)" class="text-[10px] w-9 text-center hover:text-white">{zoomPct}%</button>
+      <button on:click={() => adjustZoom(1)} title="{$tr('blueweb.zoom_in')} (Ctrl+=)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomIn size={12} /></button>
       {#if downloads.some((d) => d.state === 'downloading')}
-        <span class="flex items-center gap-1 ml-2 text-[10px] text-blue-300"><Download size={11} class="animate-bounce" /> Downloading…</span>
+        <span class="flex items-center gap-1 ml-2 text-[10px] text-blue-300"><Download size={11} class="animate-bounce" /> {$tr('blueweb.downloading')}</span>
       {/if}
     </div>
   {/if}
