@@ -12,7 +12,7 @@
   import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
   import { ICON_COMPONENTS } from '../utils/fileTypeAssociations';
-  import { t } from '../stores/language';
+  import { t, translate } from '../stores/language';
   import { createEventDispatcher } from 'svelte';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
@@ -92,9 +92,9 @@
       { separator: true },
       { label: 'Notifications', action: () => dispatch('toggleNotifications') },
       { label: 'Control Center', action: () => dispatch('toggleControlCenter') },
-      { label: 'Clipboard history', action: () => dispatch('toggleClipboard') },
+      { label: translate('topbar.clipboard_history'), action: () => dispatch('toggleClipboard') },
       { separator: true },
-      ...Array.from({ length: workspaceCount }, (_, w) => ({ label: `Workspace ${w + 1}`, checked: w === currentWorkspace, action: () => dispatch('switchWorkspace', w) } as MenuItem)),
+      ...Array.from({ length: workspaceCount }, (_, w) => ({ label: `${translate('topbar.workspace')} ${w + 1}`, checked: w === currentWorkspace, action: () => dispatch('switchWorkspace', w) } as MenuItem)),
     ]);
   }
 
@@ -437,7 +437,7 @@
       on:contextmenu={startButtonMenu}
       on:click={handleStartClick}
       class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
-      title="Start (double-click for full screen)"
+      title={$t('topbar.start_tooltip')}
     >
       <div class="relative">
         {#if StartButtonIconComponent}
@@ -456,7 +456,7 @@
       on:click={() => dispatch('startClick')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('startClick'))(); } }}
     >
       <Search size={12} />
-      <span>Search apps...</span>
+      <span>{$t('topbar.search')}</span>
     </div>
   </div>
 
@@ -533,14 +533,14 @@
             </div>
             <div class="text-3xl font-light text-white mb-3 tabular-nums">{weather.temp}</div>
             <div class="grid grid-cols-2 gap-2 text-xs">
-              <div class="flex items-center gap-1.5 text-slate-400"><Gauge size={12} /> Feels like <span class="ml-auto text-slate-200">{weather.feelsLike}</span></div>
-              <div class="flex items-center gap-1.5 text-slate-400"><Wind size={12} /> Wind <span class="ml-auto text-slate-200">{weather.windKph ?? '—'} km/h</span></div>
-              <div class="flex items-center gap-1.5 text-slate-400"><Droplets size={12} /> Humidity <span class="ml-auto text-slate-200">{weather.humidity ?? '—'}%</span></div>
+              <div class="flex items-center gap-1.5 text-slate-400"><Gauge size={12} /> {$t('topbar.feels_like')} <span class="ml-auto text-slate-200">{weather.feelsLike}</span></div>
+              <div class="flex items-center gap-1.5 text-slate-400"><Wind size={12} /> {$t('topbar.wind')} <span class="ml-auto text-slate-200">{weather.windKph ?? '—'} km/h</span></div>
+              <div class="flex items-center gap-1.5 text-slate-400"><Droplets size={12} /> {$t('topbar.humidity')} <span class="ml-auto text-slate-200">{weather.humidity ?? '—'}%</span></div>
               <div class="flex items-center gap-1.5 text-slate-400">H/L <span class="ml-auto text-slate-200">{weather.high} / {weather.low}</span></div>
             </div>
             <button on:click={() => { dispatch('openApp', AppId.SETTINGS); showWeatherPopover = false; }}
               class="mt-3 w-full text-center text-[11px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              Weather settings
+              {$t('topbar.weather_settings')}
             </button>
           </div>
         {/if}
@@ -553,7 +553,7 @@
           on:click={togglePowerPopover}
           disabled={powerProfiles.length === 0}
           class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors {powerProfiles.length ? 'hover:bg-white/5 cursor-pointer' : 'cursor-default'} {showPowerPopover ? 'bg-white/10' : ''}"
-          title="{battery?.present ? `Battery: ${Math.round(battery.percentage)}% — ${battery.status}` : ''}{battery?.present && activePowerProfile ? ' · ' : ''}{activePowerProfile ? `${$t('panel.power_mode')}: ${powerName(activePowerProfile)}` : ''}"
+          title="{battery?.present ? `${$t('topbar.battery')}: ${Math.round(battery.percentage)}% — ${battery.status}` : ''}{battery?.present && activePowerProfile ? ' · ' : ''}{activePowerProfile ? `${$t('panel.power_mode')}: ${powerName(activePowerProfile)}` : ''}"
           aria-haspopup="menu" aria-expanded={showPowerPopover}
         >
           {#if battery?.present}
@@ -593,7 +593,7 @@
     <div class="relative" on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
       <button on:click={() => dispatch('toggleClipboard')}
         class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
-        title="Clipboard history">
+        title={$t('topbar.clipboard_history')}>
         <Clipboard size={15} class="group-hover:text-white" />
         {#if hasClipboardContent}
           <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full" />
@@ -602,14 +602,14 @@
 
       {#if showClipboardPreview && clipboardHoverPreviewEnabled}
         <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50">
-          <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Latest clipboard item</div>
+          <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{$t('topbar.clipboard_latest')}</div>
           {#if latestClipboardItem}
             <div class="text-xs text-slate-200 break-words line-clamp-4 bg-slate-800/60 rounded-lg p-2 mb-2">{latestClipboardItem.content}</div>
             <button on:click={copyLatestClipboardItem} class="w-full flex items-center justify-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              <Copy size={11} /> Copy again
+              <Copy size={11} /> {$t('topbar.copy_again')}
             </button>
           {:else}
-            <div class="text-xs text-slate-500 py-2 text-center">Clipboard is empty</div>
+            <div class="text-xs text-slate-500 py-2 text-center">{$t('topbar.clipboard_empty')}</div>
           {/if}
         </div>
       {/if}
@@ -636,16 +636,16 @@
           <div class="h-px bg-white/10 my-2" />
           <div class="flex items-center gap-2 text-slate-300 mb-1">
             <ArrowDown size={12} class="text-green-400 shrink-0" />
-            <span class="flex-1">Download</span>
+            <span class="flex-1">{$t('topbar.download')}</span>
             <span class="tabular-nums text-slate-200">{fmtBps(netRxBps)}</span>
           </div>
           <div class="flex items-center gap-2 text-slate-300">
             <ArrowUp size={12} class="text-orange-400 shrink-0" />
-            <span class="flex-1">Upload</span>
+            <span class="flex-1">{$t('topbar.upload')}</span>
             <span class="tabular-nums text-slate-200">{fmtBps(netTxBps)}</span>
           </div>
           {#if !netConnected}
-            <div class="text-[10px] text-slate-500 mt-2">No active connection detected</div>
+            <div class="text-[10px] text-slate-500 mt-2">{$t('topbar.no_connection')}</div>
           {/if}
         </div>
       {/if}
