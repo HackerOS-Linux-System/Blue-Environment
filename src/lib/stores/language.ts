@@ -34,16 +34,16 @@ export const SUPPORTED_LANGUAGES: LanguageMeta[] = [
   { code: 'en', name: 'English', nativeName: 'English', flag: 'EN' },
   { code: 'pl', name: 'Polish', nativeName: 'Polski', flag: 'PL' },
   { code: 'de', name: 'German', nativeName: 'Deutsch', flag: 'DE' },
-  { code: 'fr', name: 'French', nativeName: 'Francais', flag: 'FR' },
-  { code: 'es', name: 'Spanish', nativeName: 'Espanol', flag: 'ES' },
-  { code: 'ru', name: 'Russian', nativeName: 'Russkiy', flag: 'RU' },
-  { code: 'uk', name: 'Ukrainian', nativeName: 'Ukrayinska', flag: 'UA' },
-  { code: 'cs', name: 'Czech', nativeName: 'Cestina', flag: 'CS' },
+  { code: 'fr', name: 'French', nativeName: 'Français', flag: 'FR' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español', flag: 'ES' },
+  { code: 'ru', name: 'Russian', nativeName: 'Русский', flag: 'RU' },
+  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська', flag: 'UA' },
+  { code: 'cs', name: 'Czech', nativeName: 'Čeština', flag: 'CS' },
   { code: 'it', name: 'Italian', nativeName: 'Italiano', flag: 'IT' },
-  { code: 'pt', name: 'Portuguese', nativeName: 'Portugues', flag: 'PT' },
+  { code: 'pt', name: 'Portuguese', nativeName: 'Português', flag: 'PT' },
   { code: 'nl', name: 'Dutch', nativeName: 'Nederlands', flag: 'NL' },
   { code: 'sv', name: 'Swedish', nativeName: 'Svenska', flag: 'SE' },
-  { code: 'tr', name: 'Turkish', nativeName: 'Turkce', flag: 'TR' },
+  { code: 'tr', name: 'Turkish', nativeName: 'Türkçe', flag: 'TR' },
   { code: 'ja', name: 'Japanese', nativeName: '日本語', flag: 'JP' },
   { code: 'zh', name: 'Chinese (Simplified)', nativeName: '简体中文', flag: 'CN' },
   { code: 'ar', name: 'Arabic', nativeName: 'العربية', flag: 'SA', rtl: true },
@@ -76,15 +76,40 @@ function detectLocale(): Language {
 
 export const language = writable<Language>('en');
 
-/** Reactive translator: `$t('topbar.start')`. Falls back to English, then the key itself. */
+/**
+ * Replaces `{name}` placeholders. Only runs when params are given, so existing
+ * strings that happen to contain braces are never touched.
+ */
+function interpolate(text: string, params?: Record<string, string | number>): string {
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (whole, name) => (name in params ? String(params[name]) : whole));
+}
+
+/**
+ * Reactive translator: `$t('topbar.start')` or, with placeholders,
+ * `$t('blueweb.search_placeholder', { engine: 'DuckDuckGo' })`.
+ * Falls back to English, then the key itself.
+ */
 export const t = derived(language, ($language) => {
-  return (key: string): string => LANGUAGE_MAP[$language]?.[key] ?? LANGUAGE_MAP.en?.[key] ?? key;
+  return (key: string, params?: Record<string, string | number>): string =>
+    interpolate(LANGUAGE_MAP[$language]?.[key] ?? LANGUAGE_MAP.en?.[key] ?? key, params);
 });
 
 /** Non-reactive one-off lookup, e.g. inside event handlers or .ts files. */
-export function translate(key: string): string {
-  return LANGUAGE_MAP[get(language)]?.[key] ?? LANGUAGE_MAP.en?.[key] ?? key;
+export function translate(key: string, params?: Record<string, string | number>): string {
+  return interpolate(LANGUAGE_MAP[get(language)]?.[key] ?? LANGUAGE_MAP.en?.[key] ?? key, params);
 }
+
+/** True for right-to-left languages (currently Arabic). */
+export const isRtl = derived(language, ($language) => !!SUPPORTED_LANGUAGES.find((l) => l.code === $language)?.rtl);
+
+// Keep <html lang> in sync with the UI language (spell-check, hyphenation, CJK
+// font selection and screen readers all key off it). `dir` is intentionally NOT
+// flipped globally: the desktop shell is absolutely positioned and mirroring it
+// needs a dedicated pass — consumers that want RTL can use `$isRtl`.
+language.subscribe((code) => {
+  if (typeof document !== 'undefined') document.documentElement.lang = code;
+});
 
 export function setLanguage(lang: Language) {
   language.set(lang);
