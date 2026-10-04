@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../stores/language';
   import { APPS } from '../constants';
   import { AppId } from '../types';
   import { SystemBridge } from '../utils/systemBridge';
@@ -59,6 +60,16 @@
   export let shellThemeId: string | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ openApp: { appId: string; isExternal?: boolean; exec?: string }; close: void; toggleFullScreen: void }>();
+
+  /** Translated label for a category key ('Recent', 'Internet', …).
+   *  `tr` is passed in (rather than read from `$t` inside) so Svelte sees the
+   *  dependency in the template and re-renders when the language changes. */
+  function catLabel(key: string, tr: (k: string) => string): string {
+    if (key === 'Recent') return tr('startmenu.recent');
+    const k = `startmenu.cat.${key.toLowerCase()}`;
+    const out = tr(k);
+    return out === k ? (CATEGORY_ORDER.find((c) => c.key === key)?.label ?? key) : out;
+  }
 
   const CATEGORY_ORDER = [
     { key: 'Recent', label: 'Recent', icon: Clock, keys: ['Recent'] },
@@ -335,7 +346,7 @@
       <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
         <LayoutGrid size={18} />
-        <span>All Apps</span>
+        <span>{$t('startmenu.all_apps')}</span>
         <span class="ml-auto text-xs opacity-50">{allApps.length}</span>
       </button>
       <div class="h-px bg-white/5 my-1.5" />
@@ -343,7 +354,7 @@
         <button on:click={() => (activeCategory = cat.key)}
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === cat.key ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <svelte:component this={cat.icon} size={18} />
-          <span class="truncate">{cat.label}</span>
+          <span class="truncate">{catLabel(cat.key, $t)}</span>
           <span class="ml-auto text-xs opacity-50">{groupedApps[cat.key]?.length || 0}</span>
         </button>
       {/each}
@@ -352,7 +363,7 @@
         <button on:click={() => (activeCategory = 'External')}
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === 'External' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <ExternalLink size={18} />
-          <span class="truncate">Installed apps</span>
+          <span class="truncate">{$t('startmenu.installed_apps')}</span>
           <span class="ml-auto text-xs opacity-50">{externalAppCount}</span>
         </button>
       {/if}
@@ -361,23 +372,23 @@
       <div class="px-8 pt-10 pb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-xl">
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input type="text" autofocus placeholder="Search apps..."
+          <input type="text" autofocus placeholder={$t('topbar.search')}
             class="w-full bg-slate-800 border border-white/10 rounded-2xl py-3 pl-12 pr-4 text-white text-lg focus:outline-none focus:border-blue-500/60 transition-colors"
             bind:value={searchInput} />
         </div>
-        <button on:click={() => dispatch('close')} title="Close"
+        <button on:click={() => dispatch('close')} title={$t('startmenu.close')}
           class="p-3 rounded-2xl bg-slate-800/60 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0">
           <X size={18} />
         </button>
       </div>
       <div class="flex-1 overflow-y-auto px-8 pb-8" bind:this={gridEl} on:scroll={onGridScroll}>
         {#if loading}
-          <div class="flex items-center gap-2 text-slate-500 text-sm"><Loader2 size={16} class="animate-spin" /> Loading…</div>
+          <div class="flex items-center gap-2 text-slate-500 text-sm"><Loader2 size={16} class="animate-spin" /> {$t('startmenu.loading')}</div>
         {:else}
           {#if !searchTerm}
             <div class="flex items-baseline gap-2 mb-5">
               <h3 class="text-xl font-semibold text-white">
-                {activeCategory === 'All' ? 'All Apps' : activeCategory === 'External' ? 'Installed apps' : CATEGORY_ORDER.find((c) => c.key === activeCategory)?.label}
+                {activeCategory === 'All' ? $t('startmenu.all_apps') : activeCategory === 'External' ? $t('startmenu.installed_apps') : catLabel(activeCategory, $t)}
               </h3>
               <span class="text-sm text-slate-500">{currentTiles.length}</span>
             </div>
@@ -396,7 +407,7 @@
                   style="content-visibility:auto; contain-intrinsic-size:auto 112px;"
                   class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border border-transparent hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-colors group text-center">
                   {#if external}
-                    <span class="absolute top-2 right-2 w-4 h-4 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-slate-500 group-hover:text-blue-400 transition-colors" title="Installed system app">
+                    <span class="absolute top-2 right-2 w-4 h-4 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-slate-500 group-hover:text-blue-400 transition-colors" title={$t('startmenu.installed_system_app')}>
                       <ExternalLink size={9} />
                     </span>
                   {/if}
@@ -426,7 +437,7 @@
         </div>
         <div>
           <div class="text-sm font-bold text-white leading-none">{SystemBridge.getUsername()}</div>
-          <div class="text-[10px] text-blue-300 mt-0.5">Blue Environment</div>
+          <div class="text-[10px] text-blue-300 mt-0.5">{$t('app.name')}</div>
         </div>
       </div>
       <div class="flex gap-1">
@@ -453,7 +464,7 @@
     <div class="px-3 pt-3">
       <div class="relative">
         <Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input type="text" placeholder="Search apps..."
+        <input type="text" placeholder={$t('topbar.search')}
           class="w-full bg-slate-800 border border-white/10 rounded-xl py-2 pl-8 pr-3 text-sm text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
           bind:value={searchInput} />
       </div>
@@ -461,10 +472,10 @@
 
     <div class="flex-1 overflow-y-auto p-2 space-y-0.5 max-h-72 mt-2">
       {#if loading}
-        <div class="flex items-center gap-2 px-3 py-2 text-slate-500 text-xs"><Loader2 size={12} class="animate-spin" /> Loading…</div>
+        <div class="flex items-center gap-2 px-3 py-2 text-slate-500 text-xs"><Loader2 size={12} class="animate-spin" /> {$t('startmenu.loading')}</div>
       {:else}
         {#if !searchTerm && recentApps.length > 0}
-          <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Clock size={10} /> Recent</div>
+          <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Clock size={10} /> {$t('startmenu.recent')}</div>
           {#each recentApps.slice(0, 3) as id (id)}
             {@const app = allApps.find((a) => a.id === id)}
             {#if app}
@@ -504,7 +515,7 @@
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">Search the web for "{searchTerm}"</div>
-              <div class="text-[10px] text-slate-500">No matching apps — open in Blue Web instead</div>
+              <div class="text-[10px] text-slate-500">{$t('startmenu.no_match')}</div>
             </div>
           </button>
         {/if}
@@ -513,7 +524,7 @@
 
     <div class="mt-auto p-3 border-t border-white/5 bg-slate-950/50 rounded-b-2xl flex items-center justify-between relative">
       <button on:click={() => dispatch('toggleFullScreen')} class="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1">
-        All apps <ChevronRight size={12} />
+        {$t('startmenu.all_apps')} <ChevronRight size={12} />
       </button>
       <button on:click={() => (showPowerMenu = !showPowerMenu)} class="p-2 rounded-full bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white transition-all">
         <Power size={15} />
@@ -528,7 +539,7 @@
           {/each}
           <div class="h-px bg-white/10 my-1" />
           <button on:click={() => SystemBridge.powerAction('logout')} class="flex items-center gap-3 p-2 hover:bg-white/10 rounded-lg transition-colors text-left text-sm text-slate-200">
-            <LogOut size={16} /> Log Out
+            <LogOut size={16} /> {$t('startmenu.logout')}
           </button>
         </div>
       {/if}
