@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../../../stores/language';
   import { onMount } from 'svelte';
   import { Globe, Info } from 'lucide-svelte';
   import { SPEED_DIALS } from './types';
@@ -6,6 +7,8 @@
   import { createEventDispatcher } from 'svelte';
 
   export let error: string | null = null;
+  /** Display name of the selected search engine (placeholder text). */
+  export let engineName = 'DuckDuckGo';
 
   const dispatch = createEventDispatcher<{ navigate: string }>();
   let inputEl: HTMLInputElement;
@@ -24,12 +27,12 @@
       <Globe size={32} class="text-white" />
     </div>
     <h1 class="text-xl font-bold text-white mb-1">Blue Web</h1>
-    <p class="text-slate-400 text-sm">Sites open in native windows for full compatibility</p>
+    <p class="text-slate-400 text-sm">{$t('blueweb.subtitle')}</p>
   </div>
 
   <div class="w-full max-w-xl">
     <input bind:this={inputEl} bind:value={input} on:keydown={handleKeyDown}
-      placeholder="Search DuckDuckGo or enter URL…"
+      placeholder={$t('blueweb.search_placeholder', { engine: engineName })}
       class="w-full bg-slate-800 border border-white/10 rounded-2xl px-5 py-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50" />
   </div>
 
@@ -50,6 +53,6 @@
 
   <div class="flex items-center gap-2 text-xs text-slate-600">
     <Globe size={11} />
-    {SystemBridge.isTauri() ? 'Sites open in native webview windows — full web compatibility' : 'Dev mode — sites open in new browser tabs'}
+    {SystemBridge.isTauri() ? $t('blueweb.status_native') : $t('blueweb.status_dev')}
   </div>
 </div>
