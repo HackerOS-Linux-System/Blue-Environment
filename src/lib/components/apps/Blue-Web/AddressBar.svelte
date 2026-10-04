@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../../../stores/language';
   import { ArrowLeft, ArrowRight, RefreshCw, Home, Search, Lock, Unlock, Star, StarOff, Bookmark, History, Download, X, ListPlus, Settings } from 'lucide-svelte';
   import { createEventDispatcher, afterUpdate } from 'svelte';
 
@@ -39,11 +40,11 @@
     {:else if isSecure}<Lock size={13} class="text-green-400 shrink-0" />
     {:else}<Unlock size={13} class="text-amber-400 shrink-0" />{/if}
     <input bind:this={inputEl} bind:value={input} on:focus={(e) => e.currentTarget.select()} on:keydown={handleKeyDown}
-      placeholder="Search or enter URL…" class="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none min-w-0" />
+      placeholder={$t('blueweb.address_placeholder')} class="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none min-w-0" />
     {#if input}<button on:click={() => { input = ''; inputEl?.focus(); }}><X size={12} class="text-slate-500 hover:text-white" /></button>{/if}
   </div>
   {#if !isNew}
-    <button on:click={() => dispatch('find')} title="Find in page (Ctrl+F)" class="p-1.5 rounded-lg hover:bg-white/10">
+    <button on:click={() => dispatch('find')} title="{$t('blueweb.find_in_page')} (Ctrl+F)" class="p-1.5 rounded-lg hover:bg-white/10">
       <Search size={14} />
     </button>
   {/if}
@@ -59,7 +60,7 @@
     {/if}
   </button>
   {#if !isNew}
-    <button on:click={() => dispatch('saveToTasks')} title="Save to Blue Tasks" class="p-1.5 rounded-lg hover:bg-white/10"><ListPlus size={15} /></button>
+    <button on:click={() => dispatch('saveToTasks')} title={$t('blueweb.save_to_tasks')} class="p-1.5 rounded-lg hover:bg-white/10"><ListPlus size={15} /></button>
   {/if}
-  <button on:click={() => dispatch('openSettings')} title="Blue Web Settings" class="p-1.5 rounded-lg hover:bg-white/10"><Settings size={15} /></button>
+  <button on:click={() => dispatch('openSettings')} title={$t('blueweb.settings')} class="p-1.5 rounded-lg hover:bg-white/10"><Settings size={15} /></button>
 </div>
