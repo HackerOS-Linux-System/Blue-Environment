@@ -153,6 +153,12 @@
     <keybind key="XF86AudioRaiseVolume"><action name="Execute" command="pactl set-sink-volume @DEFAULT_SINK@ +5%"/></keybind>
     <keybind key="XF86AudioLowerVolume"><action name="Execute" command="pactl set-sink-volume @DEFAULT_SINK@ -5%"/></keybind>
     <keybind key="XF86AudioMute"><action name="Execute" command="pactl set-sink-mute @DEFAULT_SINK@ toggle"/></keybind>
+    <!-- Media keys: playerctl drives whichever MPRIS player is active (Blue Music registers one); if playerctl is not installed, talk to Blue Music directly -->
+    <keybind key="XF86AudioPlay"><action name="Execute" command="sh -c 'playerctl play-pause 2&gt;/dev/null || dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.blue_music /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause'"/></keybind>
+    <keybind key="XF86AudioPause"><action name="Execute" command="sh -c 'playerctl pause 2&gt;/dev/null || dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.blue_music /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Pause'"/></keybind>
+    <keybind key="XF86AudioStop"><action name="Execute" command="sh -c 'playerctl stop 2&gt;/dev/null || dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.blue_music /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Stop'"/></keybind>
+    <keybind key="XF86AudioNext"><action name="Execute" command="sh -c 'playerctl next 2&gt;/dev/null || dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.blue_music /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next'"/></keybind>
+    <keybind key="XF86AudioPrev"><action name="Execute" command="sh -c 'playerctl previous 2&gt;/dev/null || dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.blue_music /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous'"/></keybind>
     <keybind key="XF86MonBrightnessUp"><action name="Execute" command="brightnessctl set +5%"/></keybind>
     <keybind key="XF86MonBrightnessDown"><action name="Execute" command="brightnessctl set 5%-"/></keybind>
   </keyboard>
