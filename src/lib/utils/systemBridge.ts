@@ -149,6 +149,9 @@ export interface UserConfig {
     /** Desktop/file-manager icon size in pixels — see the Icons settings
      * section (formerly "Personalization"). */
     iconSize?: number;
+    /** Selected icon theme directory name ('' = automatic). Re-applied at startup by
+     * main.rs (`set_icon_theme`); set from Settings or Blue Software → Icons. */
+    iconTheme?: string;
     /** X cursor theme name, applied via `set_cursor_theme` (writes
      * `~/.icons/default/index.theme`) — system-wide, not just Blue
      * Environment's own UI. */
