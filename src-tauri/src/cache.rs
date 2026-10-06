@@ -67,7 +67,7 @@ pub fn ensure_dirs() {
 /// coincidence, which is likely why this went unnoticed — most of the
 /// UI still looked "mostly right" after a restart.
 #[derive(Serialize, Deserialize, Default, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct UserConfig {
     pub wallpaper: String,
     pub theme: String,
@@ -97,6 +97,14 @@ pub struct UserConfig {
     /// comment) — empty string means "use the default Command icon".
     #[serde(default)]
     pub start_button_icon: String,
+    /// Every other key the frontend keeps in its `UserConfig` (pinnedApps, shellThemeId,
+    /// iconTheme, cursorTheme, iconSize, accounts, blueGames, …). This struct only models
+    /// the handful of fields Rust itself reads; without this catch-all `save_config`
+    /// deserialised into the struct and wrote it back, silently DROPPING all the others —
+    /// so they vanished on the next restart (the frontend trusts `settings.json` over its
+    /// localStorage mirror once the file is non-empty). `flatten` round-trips them verbatim.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 pub fn save_user_config(config: &UserConfig) {
@@ -411,5 +419,31 @@ mod tests {
         let parsed: UserConfig = serde_json::from_str(payload).expect("old configs without the new fields must still parse");
         assert_eq!(parsed.start_button_label_mode, "");
         assert_eq!(parsed.start_button_icon, "");
+    }
+
+    #[test]
+    fn unknown_frontend_keys_survive_a_save_load_round_trip() {
+        let payload = r#"{"wallpaper":"w","themeName":"t","panelEnabled":true,
+            "iconTheme":"Papirus","cursorTheme":"Breeze","iconSize":64,
+            "pinnedApps":["a","b"],"accounts":{"x":{"y":1}},"shellThemeId":"azure"}"#;
+        let parsed: UserConfig = serde_json::from_str(payload).unwrap();
+        assert_eq!(parsed.theme_name, "t");
+        let again: serde_json::Value = serde_json::from_str(&serde_json::to_string(&parsed).unwrap()).unwrap();
+        assert_eq!(again["iconTheme"], "Papirus");
+        assert_eq!(again["cursorTheme"], "Breeze");
+        assert_eq!(again["iconSize"], 64);
+        assert_eq!(again["pinnedApps"][1], "b");
+        assert_eq!(again["accounts"]["x"]["y"], 1);
+        assert_eq!(again["shellThemeId"], "azure");
+        assert_eq!(again["themeName"], "t", "known fields must still be written under their camelCase name");
+    }
+
+    #[test]
+    fn a_partial_payload_no_longer_blanks_the_whole_config() {
+        // Previously ANY missing non-#[serde(default)] field made the whole parse fail,
+        // and `save_config` then wrote an all-default struct over the user's settings.
+        let parsed: UserConfig = serde_json::from_str(r#"{"theme":"dark","iconTheme":"X"}"#).unwrap();
+        assert_eq!(parsed.theme, "dark");
+        assert_eq!(parsed.extra.get("iconTheme").and_then(|v| v.as_str()), Some("X"));
     }
 }
