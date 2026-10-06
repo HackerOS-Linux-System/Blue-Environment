@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../stores/language';
+  import { ICON_THEME_APPLIED } from '../utils/iconThemes';
   import { APPS } from '../constants';
   import { AppId } from '../types';
   import { SystemBridge } from '../utils/systemBridge';
@@ -10,7 +11,7 @@
   } from 'lucide-svelte';
   import * as Icons from 'lucide-svelte';
   import AppIconGlyph from './AppIconGlyph.svelte';
-  import { createEventDispatcher, tick } from 'svelte';
+  import { createEventDispatcher, tick, onMount } from 'svelte';
   import { openInBlueWeb } from '../utils/openInBlueWeb';
   import { normalizeUrl } from './apps/Blue-Web/types';
   import { configStore } from '../utils/configStore';
@@ -325,6 +326,13 @@
     SystemBridge.recordAppLaunch(app.id);
     dispatch('close');
   }
+
+  // A different icon theme was applied/installed: icon paths baked into the app list are stale.
+  onMount(() => {
+    const onTheme = () => { loadedAt = 0; handleRefresh(); };
+    window.addEventListener(ICON_THEME_APPLIED, onTheme);
+    return () => window.removeEventListener(ICON_THEME_APPLIED, onTheme);
+  });
 
   async function handleRefresh() {
     loading = true;
