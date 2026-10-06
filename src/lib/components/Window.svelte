@@ -6,6 +6,7 @@
   import { resolveActiveShellTheme, DEFAULT_SHELL_THEME_ID, type WindowControlsOrder } from '../data/builtinThemes';
   import { configStore } from '../utils/configStore';
   import { windowInteracting } from '../stores/overlayState';
+  import { closePopups } from '../utils/popups';
 
   export let win: WindowState;
   export let isActive: boolean;
@@ -188,7 +189,7 @@
       {isDragging ? 'cursor-grabbing select-none' : ''}
       {win.isPiP ? 'ring-2 ring-blue-500/50 shadow-blue-500/30' : ''}"
     style="{style} border-radius: {win.isPiP ? 'var(--shell-radius, 1rem)' : win.isMaximized ? '0px' : 'var(--shell-radius, 0.75rem)'};"
-    on:mousedown={() => dispatch('focus', win.id)}
+    on:mousedown={() => { closePopups(); dispatch('focus', win.id); }}
   >
     <div
       class="h-9 flex items-center justify-between px-3 select-none shrink-0 theme-bg-secondary theme-border border-b {win.isMaximized ? '' : 'cursor-default'}"
