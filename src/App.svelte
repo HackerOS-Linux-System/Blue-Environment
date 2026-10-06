@@ -13,6 +13,9 @@
   } from './lib/stores/windowManager';
   import { initKeyboardShortcuts } from './lib/stores/keyboardShortcuts';
   import { shellOverlayOpen, blockingOverlayOpen } from './lib/stores/overlayState';
+  import { CLOSE_POPUPS_EVENT } from './lib/utils/popups';
+  import { startCalendarReminders } from './lib/components/apps/Blue-Calendar-App/calendarReminders';
+  import { closeContextMenu } from './lib/stores/contextMenu';
   import { hasCompletedWelcome } from './lib/components/apps/Blue-Welcome-App/welcome';
   import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
   import OnscreenKeyboard from './lib/components/OnscreenKeyboard.svelte';
@@ -180,10 +183,37 @@
     isNotificationsOpen || showPowerMenu || switcherVisible
   );
 
+  // ── Auto-dismiss of transient popups ────────────────────────────────────
+  // Clicking an app, Alt+Tab, focusing a native window… must hide the Start
+  // dropdown / Control Center (Wi-Fi) / notifications / clipboard / power menu.
+  // The FULL-SCREEN app drawer is a mode, not a popup — it stays until closed.
+  function closePopupsNow() {
+    if (!isStartMenuFullScreen) isStartMenuOpen = false;
+    isControlCenterOpen = false;
+    isNotificationsOpen = false;
+    isClipboardOpen = false;
+    showPowerMenu = false;
+    closeContextMenu();
+  }
+  // Remember when a popup last opened: a focus/blur wobble that arrives in the same
+  // instant (the compositor raising the shell for Super) must not close it again.
+  let anyPopupOpen = false;
+  let popupOpenedAt = 0;
+  $: {
+    const open = isStartMenuOpen || isControlCenterOpen || isNotificationsOpen || isClipboardOpen || showPowerMenu;
+    if (open && !anyPopupOpen) popupOpenedAt = Date.now();
+    anyPopupOpen = open;
+  }
+  // Alt+Tab switcher appearing = the user is leaving whatever popup was open.
+  $: if (switcherVisible) closePopupsNow();
+
   let cleanupKeyboard: () => void;
 
   // Kill the webview's native right-click menu (Back/Forward/Reload/Inspect)
   // everywhere and replace it with shell menus — see globalContextMenu.ts.
+  // Calendar reminders fire from the shell itself, so they work with the Calendar window closed.
+  onMount(() => startCalendarReminders());
+
   onMount(() => installGlobalContextMenu({
     minimize: (id) => minimizeWindow(id),
     maximize: (id) => maximizeWindow(id),
@@ -289,6 +319,16 @@
       });
     };
     window.addEventListener('blue:close-panels', closePanels);
+    window.addEventListener(CLOSE_POPUPS_EVENT, closePopupsNow);
+    // Focus moved to another app (native window, or a Blue Web page — those are separate
+    // native surfaces that never send DOM events to the shell).
+    const onWindowBlur = () => { if (Date.now() - popupOpenedAt > 400) closePopupsNow(); };
+    window.addEventListener('blur', onWindowBlur);
+    // Another window became the active one (click, Alt+Tab commit, taskbar, newly opened app).
+    let lastActive = get(activeWindowId);
+    const unsubActive = activeWindowId.subscribe((id) => {
+      if (id !== lastActive) { lastActive = id; if (id && Date.now() - popupOpenedAt > 150) closePopupsNow(); }
+    });
     window.addEventListener('blue:toggle-clipboard', toggleClip);
     window.addEventListener('blue:open-terminal', openTerm);
     // These three were dispatched by keyboardShortcuts.ts (Print, Super+L,
@@ -342,6 +382,9 @@
       unsubOverlayPeek();
       unsubConfig();
       window.removeEventListener('blue:close-panels', closePanels);
+      window.removeEventListener(CLOSE_POPUPS_EVENT, closePopupsNow);
+      window.removeEventListener('blur', onWindowBlur);
+      unsubActive();
       window.removeEventListener('blue:toggle-clipboard', toggleClip);
       window.removeEventListener('blue:open-terminal', openTerm);
       window.removeEventListener('blue:show-desktop', showDesktop);
@@ -446,7 +489,7 @@
     aria-hidden="true"
   ></div>
 
-  <Desktop {desktopPath} on:closeMenus={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; }} />
+  <Desktop {desktopPath} on:closeMenus={closePopupsNow} />
 
   <TopBar
     openWindows={openWindowSummaries}
