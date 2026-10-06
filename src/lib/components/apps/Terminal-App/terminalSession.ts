@@ -2,6 +2,8 @@ import { writable, get } from 'svelte/store';
 import { THEMES, type ThemeName, type Tab } from './themes';
 import { isTauriEnv, tauriInvoke, tauriListen } from './tauriBridge';
 import { loadXterm, getXtermClasses } from './xtermLoader';
+import { SystemBridge } from '../../../utils/systemBridge';
+import { classifyKey, sanitizePaste } from './terminalClipboard';
 
 /**
  * createTerminalSession() — Svelte replacement for the React
@@ -102,6 +104,59 @@ export function createTerminalSession() {
     });
   }
 
+  // ── Clipboard ──────────────────────────────────────────────────────────
+  // Goes through SystemBridge (Tauri clipboard plugin → wl-copy/xclip fallback), NOT
+  // `navigator.clipboard`, which the WebKitGTK webview refuses for non-secure origins.
+  async function writeClipboard(text: string) {
+    if (!text) return;
+    try { await SystemBridge.copyText(text); }
+    catch { try { await navigator.clipboard.writeText(text); } catch { /* nothing else to try */ } }
+  }
+  async function readClipboard(): Promise<string> {
+    try { const t = await SystemBridge.readText(); if (t) return t; } catch { /* fall through */ }
+    try { return await navigator.clipboard.readText(); } catch { return ''; }
+  }
+
+  function setupClipboard(term: any, container: HTMLElement) {
+    // Emulates X11's PRIMARY selection inside the terminal: whatever was selected last
+    // is what a middle-click pastes (the system clipboard is left alone).
+    let lastSelection = '';
+    term.onSelectionChange?.(() => { const s = term.getSelection?.() ?? ''; if (s) lastSelection = s; });
+
+    term.attachCustomKeyEventHandler?.((e: KeyboardEvent) => {
+      const action = classifyKey(e, !!term.hasSelection?.());
+      if (!action) return true;
+      e.preventDefault();               // also stops the webview's own (blocked) paste
+      if (action === 'paste') {
+        readClipboard().then((text) => { const t = sanitizePaste(text); if (t) term.paste(t); });
+      } else {
+        writeClipboard(term.getSelection?.() ?? '');
+        if (action === 'copy-clear') term.clearSelection?.();
+      }
+      return false;                     // never forward these keys to the shell
+    });
+
+    // Middle-click paste (skipped while a full-screen app has mouse reporting on — vim, htop…).
+    const onMiddle = (e: MouseEvent) => {
+      if (e.button !== 1) return;
+      const tracking = term.modes?.mouseTrackingMode ?? 'none';
+      if (tracking !== 'none' && !e.shiftKey) return;
+      e.preventDefault();
+      if (e.type !== 'mouseup') return;
+      const pasteIt = (text: string) => { const t = sanitizePaste(text); if (t) term.paste(t); };
+      if (lastSelection) pasteIt(lastSelection); else readClipboard().then(pasteIt);
+    };
+    container.addEventListener('mousedown', onMiddle);
+    container.addEventListener('mouseup', onMiddle);
+    // Bare 'paste' events (context-menu paste from the OS, some IMEs) go through the same path.
+    container.addEventListener('paste', (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (!text) return;
+      e.preventDefault(); e.stopPropagation();
+      const t = sanitizePaste(text); if (t) term.paste(t);
+    }, true);
+  }
+
   function initTerminal(id: string, container: HTMLDivElement | null) {
     const { Terminal, FitAddon, WebLinksAddon } = getXtermClasses();
     if (!container || !get(loaded) || !Terminal || termRefs.get(id)?.term) return;
@@ -120,6 +175,7 @@ export function createTerminalSession() {
     term.open(container);
     fitAddon?.fit();
     termRefs.set(id, { term, fitAddon, container });
+    setupClipboard(term, container);
 
     if (isTauriEnv()) {
       tauriInvoke('pty_create', { id, cols: term.cols, rows: term.rows }).catch((e: any) => {
@@ -168,11 +224,13 @@ export function createTerminalSession() {
    * menus need these helpers (copy the selection, paste via xterm so bracketed-paste works). */
   function termFor(id: string) { return termRefs.get(id)?.term; }
   const getSelection = (id: string): string => termFor(id)?.getSelection?.() ?? '';
-  const pasteText = (id: string, text: string) => termFor(id)?.paste?.(text);
+  const pasteText = (id: string, text: string) => termFor(id)?.paste?.(sanitizePaste(text));
+  const copySelection = (id: string) => writeClipboard(termFor(id)?.getSelection?.() ?? '');
+  const pasteFromClipboard = async (id: string) => { const t = await readClipboard(); if (t) pasteText(id, t); };
   const selectAll = (id: string) => termFor(id)?.selectAll?.();
   const clearTerm = (id: string) => termFor(id)?.clear?.();
 
-  return { tabs, activeTab, themeName, fontSize, loaded, newTab, closeTab, initTerminal, dispose, getSelection, pasteText, selectAll, clearTerm };
+  return { tabs, activeTab, themeName, fontSize, loaded, newTab, closeTab, initTerminal, dispose, getSelection, pasteText, copySelection, pasteFromClipboard, selectAll, clearTerm };
 }
 
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
