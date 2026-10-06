@@ -592,6 +592,19 @@ pub fn web_view_set_visible(registry: tauri::State<WebViewRegistry>, tab_id: Str
     if visible { webview.show().map_err(|e| e.to_string()) } else { webview.hide().map_err(|e| e.to_string()) }
 }
 
+/// Session-history navigation for a tab's webview (`delta` = -1 back, +1 forward).
+/// Used by embedders that don't keep their own history list (the icon store).
+#[tauri::command(async)]
+pub fn web_view_history_go(registry: tauri::State<WebViewRegistry>, tab_id: String, delta: i32) -> Result<(), String> {
+    let webview = {
+        let reg = registry.0.lock().unwrap();
+        let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+        webview.clone()
+    };
+    let delta = delta.clamp(-1, 1);
+    webview.eval(&format!("history.go({delta})")).map_err(|e| e.to_string())
+}
+
 #[tauri::command(async)]
 pub fn web_view_close(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
     if let Some(webview) = registry.0.lock().unwrap().remove(&tab_id) {
