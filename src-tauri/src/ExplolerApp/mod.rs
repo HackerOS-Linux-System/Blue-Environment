@@ -255,8 +255,14 @@ pub fn copy_file(src: String, dest: String) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn move_file(src: String, dest: String) -> Result<(), String> {
     let s = resolve_path(&src);
-    let d = resolve_path(&dest);
+    let mut d = resolve_path(&dest);
     if s == d { return Ok(()); }
+    // Never move a folder into itself / one of its own sub-folders.
+    if s.is_dir() && d.starts_with(&s) { return Err("Cannot move a folder into itself".to_string()); }
+    // `fs::rename` silently REPLACES an existing file at the destination — that
+    // lost data when dropping icons onto a folder that already held a file of
+    // the same name. Pick a free name instead ("a (1).txt"), like `copy_file`.
+    if d.exists() { d = unique_dest(&d); }
     match fs::rename(&s, &d) {
         Ok(()) => Ok(()),
         // `rename` can't cross filesystems (e.g. Home → USB stick) — copy, then remove.
