@@ -321,7 +321,13 @@
     ]);
   }
 
-  let tabs: Tab[] = [{ id: 'tab-1', path: 'HOME', history: ['HOME'], historyIndex: 0 }];
+  /** Passed by `openApp(..., { initialPath })` — e.g. double-clicking a folder on the desktop. */
+  export let initialPath: string | undefined = undefined;
+  /** Provided by the window host; unused here but declared so the host's prop doesn't warn. */
+  export let windowId: string = '';
+  $: void windowId;
+  const startPath = initialPath && initialPath.trim() ? initialPath : 'HOME';
+  let tabs: Tab[] = [{ id: 'tab-1', path: startPath, history: [startPath], historyIndex: 0 }];
   let activeTabId = 'tab-1';
   let dualPane = false;
   let rightPath = 'HOME';
@@ -476,6 +482,15 @@
 
   onMount(() => loadFiles(activeTab.path));
   onMount(() => { ensureFileTypeAssociationsLoaded(); });
+  // Another part of the shell (e.g. a drag from the desktop) changed files — refresh if it touched this folder.
+  onMount(() => {
+    const onChanged = (e: Event) => {
+      const p = (e as CustomEvent<{ path?: string }>).detail?.path;
+      if (!p || p === activeTab.path || activeTab.path === 'HOME') loadFiles(activeTab.path);
+    };
+    window.addEventListener('blue-fs-changed', onChanged);
+    return () => window.removeEventListener('blue-fs-changed', onChanged);
+  });
 
   function goBack() {
     const t = activeTab;
@@ -712,7 +727,7 @@
   }));
 </script>
 
-<div class="flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
+<div data-drop-dir={inTrash ? undefined : activeTab.path} class="flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
   <div class="fixed top-16 right-4 z-50 flex flex-col gap-2 pointer-events-none">
     {#each notifs as n (n.id)}
       <div class="flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg text-sm {n.type === 'success' ? 'bg-green-600/90' : n.type === 'error' ? 'bg-red-600/90' : 'bg-slate-700/90'}">
@@ -838,7 +853,7 @@
               {@const isSel = selected.has(file.path)}
               {@const isDragTgt = dragOver === file.path && file.is_dir}
               {@const isCut = clipboard?.action === 'cut' && clipboard.files.includes(file.path)}
-              <div draggable="true"
+              <div draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
                 on:dragstart={(e) => onDragStart(e, file)}
                 on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                 on:drop={(e) => file.is_dir && onDrop(e, file)}
@@ -882,7 +897,7 @@
                 {@const isSel = selected.has(file.path)}
                 {@const isDragTgt = dragOver === file.path && file.is_dir}
                 {@const isCut = clipboard?.action === 'cut' && clipboard.files.includes(file.path)}
-                <tr draggable="true"
+                <tr draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
                   on:dragstart={(e) => onDragStart(e, file)}
                   on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                   on:drop={(e) => file.is_dir && onDrop(e, file)}
