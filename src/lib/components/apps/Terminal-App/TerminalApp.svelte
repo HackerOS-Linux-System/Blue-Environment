@@ -17,8 +17,8 @@
   function termMenu(e: MouseEvent, tabId: string) {
     const sel = session.getSelection(tabId);
     showContextMenu(e, [
-      { label: 'Copy', icon: Copy, shortcut: 'Ctrl+Shift+C', disabled: !sel, action: () => navigator.clipboard.writeText(sel).catch(() => {}) },
-      { label: 'Paste', icon: ClipboardPaste, shortcut: 'Ctrl+Shift+V', action: async () => { try { session.pasteText(tabId, await navigator.clipboard.readText()); } catch { /* clipboard denied */ } } },
+      { label: 'Copy', icon: Copy, shortcut: 'Ctrl+Shift+C', disabled: !sel, action: () => session.copySelection(tabId) },
+      { label: 'Paste', icon: ClipboardPaste, shortcut: 'Ctrl+Shift+V', action: () => session.pasteFromClipboard(tabId) },
       { separator: true },
       { label: 'Select all', icon: TextSelect, action: () => session.selectAll(tabId) },
       { label: 'Clear', icon: Eraser, action: () => session.clearTerm(tabId) },
