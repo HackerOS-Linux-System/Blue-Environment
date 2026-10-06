@@ -44,6 +44,9 @@ describe('translation key usage', () => {
       'blueweb.state.': ['downloading', 'done', 'error', 'cancelled'],
       'blueconnect.device.': ['phone', 'tablet', 'desktop', 'laptop', 'tv', 'unknown'],
       'startmenu.cat.': ['internet', 'multimedia', 'graphics', 'office', 'development', 'games', 'system', 'other'],
+      'cal.view.': ['month', 'week', 'day'],
+      'music.repeat_': ['off', 'all', 'one'],
+      'cal.unit.': ['daily', 'weekly', 'monthly', 'yearly'],
     };
     const missing = Object.entries(families).flatMap(([prefix, names]) => names.map((n) => prefix + n)).filter((k) => !(k in english));
     expect(missing).toEqual([]);
