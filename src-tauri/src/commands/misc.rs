@@ -12,7 +12,12 @@ pub fn list_icon_themes() -> Vec<String> {
 
 #[tauri::command(async)]
 pub fn set_icon_theme(theme: Option<String>) {
-    crate::icon_resolver::set_icon_theme(theme);
+    // Treat "" like "automatic" (the frontend stores '' for that choice).
+    crate::icon_resolver::set_icon_theme(theme.filter(|t| !t.trim().is_empty()));
+    // App icons are resolved once and cached for an hour; without this the old theme's
+    // paths kept being served until the cache expired.
+    crate::cache::invalidate_app_cache();
+    crate::apps::clear_memory_cache();
 }
 
 /// Lists installed X cursor themes by scanning for a `cursors/` subdir
@@ -102,8 +107,10 @@ pub fn clipboard_copy(text: String) -> Result<(), String> {
         }
     };
     let mut child = cmd.stdin(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())?;
-    if let Some(stdin) = child.stdin.as_mut() {
+    if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        // `stdin` is dropped here → EOF. Without this wl-copy/xclip wait for more input
+        // forever and `child.wait()` below never returned (the command hung).
     }
     child.wait().map_err(|e| e.to_string())?;
     Ok(())
