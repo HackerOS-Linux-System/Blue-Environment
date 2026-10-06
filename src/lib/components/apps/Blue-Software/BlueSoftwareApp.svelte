@@ -7,17 +7,26 @@
   import PackageRow from './PackageRow.svelte';
   import InstallLogTerminal from './InstallLogTerminal.svelte';
   import CommunityStore from './CommunityStore.svelte';
+  import IconStore from './IconStore.svelte';
+  import { t } from '../../../stores/language';
   import { showContextMenu } from '../../../stores/contextMenu';
   import type { PackageKind } from '../../../utils/blueStore';
 
   // Top-level sections: the system package manager (apt/dnf/pacman/flatpak/…)
   // plus the three community stores fed by the JSON indexes.
-  type Section = 'system' | PackageKind;
+  type Section = 'system' | PackageKind | 'icons';
   let section: Section = 'system';
-  const sections: { id: Section; label: string }[] = [
+  // `labelKey` → translated; the older sections keep their plain labels.
+  const sections: { id: Section; label?: string; labelKey?: string }[] = [
     { id: 'system', label: 'System' }, { id: 'app', label: 'Community Apps' },
     { id: 'plugin', label: 'Plugins' }, { id: 'theme', label: 'Themes' },
+    { id: 'icons', labelKey: 'software.section.icons' },
   ];
+  /** Blue Software gets its window id from the host; the icon store needs it to hide its native page. */
+  export let windowId: string = '';
+  // The store page is created lazily on first visit, then kept alive (just hidden) when switching sections.
+  let iconsOpened = false;
+  $: if (section === 'icons') iconsOpened = true;
 
   const { packages, loading, refreshing, error, activeAction, installLog, loadPackages, performAction, closeLog } = createPackages();
 
@@ -80,7 +89,7 @@
 
     <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit">
       {#each sections as sec (sec.id)}
-        <button on:click={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.label}</button>
+        <button on:click={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
       {/each}
     </div>
 
@@ -111,7 +120,12 @@
     {/if}
   </div>
 
-  {#if section !== 'system'}
+  {#if iconsOpened}
+    <div class="flex-1 min-h-0" class:hidden={section !== 'icons'}><IconStore {windowId} visible={section === 'icons'} /></div>
+  {/if}
+  {#if section === 'icons'}
+    <!-- rendered by IconStore above -->
+  {:else if section !== 'system'}
     <div class="flex-1 min-h-0"><CommunityStore kind={section} /></div>
   {:else}
   <div class="flex-1 overflow-y-auto p-4">
