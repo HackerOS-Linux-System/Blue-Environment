@@ -31,7 +31,7 @@ pub fn list_installed_icon_themes() -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(root) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && path.join("index.theme").exists() {
+            if path.is_dir() && path.join("index.theme").exists() && crate::icon_store::is_icon_theme_dir(&path) {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if !themes.iter().any(|t: &String| t == name) {
                         themes.push(name.to_string());
