@@ -3,16 +3,17 @@
   import { AppId } from '../types';
   import { APPS } from '../constants';
   import {
-    Search, Wifi, Bell, Command, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
+    Search, Wifi, Bell, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
     Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
     Battery, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, BatteryWarning,
-    Zap, Check,
+    Zap, Check, Command,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
   import { ICON_COMPONENTS } from '../utils/fileTypeAssociations';
   import { t, translate } from '../stores/language';
+  import { CLOSE_POPUPS_EVENT } from '../utils/popups';
   import { createEventDispatcher } from 'svelte';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
@@ -261,6 +262,14 @@
 
   let clipboardHoverPreviewEnabled = true;
   let showClipboardPreview = false;
+  /** Click-away for every TopBar popover, even when the click lands inside an app window. */
+  function closeOwnPopovers() {
+    showWeatherPopover = false; showPowerPopover = false; showClipboardPreview = false; showClockPopover = false;
+  }
+  onMount(() => {
+    window.addEventListener(CLOSE_POPUPS_EVENT, closeOwnPopovers);
+    return () => window.removeEventListener(CLOSE_POPUPS_EVENT, closeOwnPopovers);
+  });
   let latestClipboardItem: { id: string; content: string; timestamp: number } | null = null;
   let clipboardHoverTimer: ReturnType<typeof setTimeout>;
 
