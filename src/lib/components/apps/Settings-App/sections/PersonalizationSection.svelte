@@ -6,6 +6,7 @@
   import { dialogPrompt } from '../../../../stores/dialog';
   import { t as translate } from '../../../../stores/language';
   import { configStore } from '../../../../utils/configStore';
+  import { iconThemes as iconThemeApi, ICON_THEMES_CHANGED, ICON_THEME_APPLIED } from '../../../../utils/iconThemes';
 
   let iconThemes: string[] = [];
   let selectedIconTheme = '';
@@ -19,11 +20,24 @@
     const cfg = await configStore.init();
     iconSize = cfg.iconSize ?? 48;
     cursorTheme = cfg.cursorTheme ?? '';
+    selectedIconTheme = cfg.iconTheme ?? '';
+  });
+
+  // Themes installed / applied elsewhere (Blue Software → Icons) show up here without reopening Settings.
+  onMount(() => {
+    const refresh = async () => {
+      iconThemes = await SystemBridge.invokeCommand<string[]>('list_icon_themes').catch(() => []);
+      selectedIconTheme = configStore.get().iconTheme ?? '';
+    };
+    window.addEventListener(ICON_THEMES_CHANGED, refresh);
+    window.addEventListener(ICON_THEME_APPLIED, refresh);
+    return () => { window.removeEventListener(ICON_THEMES_CHANGED, refresh); window.removeEventListener(ICON_THEME_APPLIED, refresh); };
   });
 
   async function applyIconTheme(theme: string) {
     selectedIconTheme = theme;
-    await SystemBridge.invokeCommand('set_icon_theme', { theme: theme || null }).catch(() => {});
+    // Persists too (the backend setter alone is in-memory only → reset on every restart).
+    await iconThemeApi.apply(theme || null).catch(() => {});
   }
 
   async function applyIconSize(size: number) {
