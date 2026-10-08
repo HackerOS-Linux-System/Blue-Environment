@@ -200,7 +200,7 @@ export function createMessagesStore() {
     if (!SystemBridge.isTauri()) return;
     try {
       const mod = await import('@tauri-apps/api/event');
-      await mod.listen('blue-messages://xmpp-incoming', (e: any) => {
+      const onIncoming = (e: any) => {
         const { conversationId, message } = e.payload ?? {};
         if (!conversationId || !message) return;
         conversations.update((list) =>
@@ -213,7 +213,10 @@ export function createMessagesStore() {
         if (get(activeId) === conversationId) {
           thread.update((msgs) => [...msgs, message]);
         }
-      });
+      };
+      // Oba kanały mają trwałe połączenie w tle i wypychają wiadomości na żywo.
+      await mod.listen('blue-messages://xmpp-incoming', onIncoming);
+      await mod.listen('blue-messages://matrix-incoming', onIncoming);
     } catch {
       /* not running under Tauri, or the event API isn't available — the
          manual refresh-on-open path still works either way */
