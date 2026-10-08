@@ -137,6 +137,16 @@ export interface UserConfig {
     clipboardHoverPreviewEnabled?: boolean;
     /** Show a network speed + timezone popover when hovering the clock. */
     networkHoverInfoEnabled?: boolean;
+    /** Pełne dostosowanie paska — patrz utils/topBarConfig.ts. */
+    topBar?: Partial<import('./topBarConfig').TopBarConfig>;
+    /** Aktywne narożniki ekranu — patrz utils/hotCorners.ts. */
+    hotCorners?: Partial<import('./hotCorners').HotCornersConfig>;
+    /** Czas (ms) na drugie dotknięcie Win, by otworzyć pełnoekranowe menu. */
+    superDoubleTapMs?: number;
+    /** Powiadomienia o podłączeniu urządzeń (domyślnie włączone). */
+    deviceNotifications?: boolean;
+    /** Okno postępu kopiowania/przenoszenia (domyślnie włączone). */
+    showTransferProgress?: boolean;
     /** App IDs pinned to the center of the panel. */
     pinnedApps?: string[];
     /** Which app opens when you double-click a text file in Explorer. */
