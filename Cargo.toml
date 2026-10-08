@@ -5,14 +5,6 @@ members = [
     "auth",
 ]
 
-# ── Dependency overrides ────────────────────────────────────────────────────
-# cookie 0.18.1 calls time::Parsable::parse() with ONE argument.
-# time 0.3.37+ changed that signature to TWO arguments, breaking cookie.
-# Pin time to the last version with the old 1-arg API so cargo resolver
-# doesn't pull in the incompatible version via tauri's dependency chain.
-[workspace.dependencies]
-time = "=0.3.36"
-
 [profile.release]
 opt-level = 3
 lto       = "thin"
