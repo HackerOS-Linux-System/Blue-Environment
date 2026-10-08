@@ -2,7 +2,7 @@ import {
   Terminal, Bot, FolderOpen, Settings, Info, Box, Globe, Calculator, Activity,
   FileText, FileCode, Package, Mail, Camera, Image, Video, Archive, ScanLine, Languages, HardDrive, Gamepad2,
   CalendarDays,
-  ListChecks,
+  ListChecks, Clapperboard,
   Bell,
   Sparkles,
   Smile,
@@ -27,6 +27,9 @@ import TerminalAppLazy from './components/apps/Terminal-App/TerminalAppLazy.svel
 import BlueCalendarAppLazy from './components/apps/Blue-Calendar-App/BlueCalendarAppLazy.svelte';
 import BlueMusicApp from './components/apps/Blue-Music-App/BlueMusicApp.svelte';
 import BlueTasksAppLazy from './components/apps/Blue-Tasks-App/BlueTasksAppLazy.svelte';
+import BlueContainersAppLazy from './components/apps/Blue-Containers-App/BlueContainersAppLazy.svelte';
+import BlueStudioAppLazy from './components/apps/Blue-Studio-App/BlueStudioAppLazy.svelte';
+import BlueEngineAppLazy from './components/apps/Blue-Engine-App/BlueEngineAppLazy.svelte';
 import BlueNotificationsAppLazy from './components/apps/Blue-Notifications-App/BlueNotificationsAppLazy.svelte';
 import BlueWelcomeAppLazy from './components/apps/Blue-Welcome-App/BlueWelcomeAppLazy.svelte';
 import BlueEmojiAppLazy from './components/apps/Blue-Emoji-App/BlueEmojiAppLazy.svelte';
@@ -96,6 +99,9 @@ export const APPS: Record<AppId, AppDefinition> = {
   [AppId.BLUE_VIDEOS]: { id: AppId.BLUE_VIDEOS, title: 'Blue Video', icon: Video, component: BlueVideoApp, defaultWidth: 900, defaultHeight: 640 },
   [AppId.BLUE_CALENDAR]: { id: AppId.BLUE_CALENDAR, title: 'Blue Calendar', icon: CalendarDays, component: BlueCalendarAppLazy, defaultWidth: 900, defaultHeight: 640 },
   [AppId.BLUE_TASKS]: { id: AppId.BLUE_TASKS, title: 'Blue Tasks', icon: ListChecks, component: BlueTasksAppLazy, defaultWidth: 760, defaultHeight: 600 },
+  [AppId.BLUE_CONTAINERS]: { id: AppId.BLUE_CONTAINERS, title: 'Blue Containers', icon: Box, component: BlueContainersAppLazy, defaultWidth: 860, defaultHeight: 600 },
+  [AppId.BLUE_STUDIO]: { id: AppId.BLUE_STUDIO, title: 'Blue Studio', icon: Clapperboard, component: BlueStudioAppLazy, defaultWidth: 1100, defaultHeight: 720 },
+  [AppId.BLUE_ENGINE]: { id: AppId.BLUE_ENGINE, title: 'Blue Engine', icon: Gamepad2, component: BlueEngineAppLazy, defaultWidth: 1240, defaultHeight: 780 },
   [AppId.BLUE_NOTIFICATIONS]: { id: AppId.BLUE_NOTIFICATIONS, title: 'Blue Notifications', icon: Bell, component: BlueNotificationsAppLazy, defaultWidth: 620, defaultHeight: 560 },
   [AppId.BLUE_WELCOME]: { id: AppId.BLUE_WELCOME, title: 'Blue Welcome', icon: Sparkles, component: BlueWelcomeAppLazy, defaultWidth: 640, defaultHeight: 560 },
   [AppId.BLUE_EMOJI]: { id: AppId.BLUE_EMOJI, title: 'Blue Emoji', icon: Smile, component: BlueEmojiAppLazy, defaultWidth: 380, defaultHeight: 520 },
