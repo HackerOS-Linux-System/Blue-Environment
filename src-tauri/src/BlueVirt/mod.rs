@@ -1,5 +1,6 @@
 pub mod qemu_args;
 
+pub mod libvirt;
 use qemu_args::{build_qemu_args, build_qemu_img_create_args, OsType, VmConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
