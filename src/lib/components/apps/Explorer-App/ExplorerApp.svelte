@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { transferWithDialog, createWithDialog, renameWithDialog, describeSummary, type TransferSummary } from '../../../utils/fileTransfer';
   import { onMount, onDestroy, tick } from 'svelte';
   import {
     Folder, HardDrive, ArrowLeft, ArrowRight, RefreshCw,
@@ -144,8 +145,7 @@
     const name = await dialogPrompt({ title, placeholder: defaultName, defaultValue: defaultName, confirmLabel: 'Create' });
     if (!name?.trim()) return;
     if (name.includes('/')) { notify('error', 'A name cannot contain "/"'); return; }
-    if (files.some((f) => f.name === name.trim())) { notify('error', `"${name.trim()}" already exists`); return; }
-    try { await SystemBridge.createTextFile(activeTab.path, name.trim(), content); notify('success', `Created: ${name.trim()}`); await loadFiles(activeTab.path); }
+    try { const made = await createWithDialog(activeTab.path, name.trim(), 'file', content); if (made) { notify('success', `Created: ${made.split('/').pop()}`); await loadFiles(activeTab.path); } }
     catch { notify('error', 'Failed to create file'); }
   }
 
@@ -572,7 +572,7 @@
     if (inTrash) { notify('info', 'You cannot create items in the Trash'); return; }
     const name = await dialogPrompt({ title: 'New Folder', placeholder: 'Untitled Folder', defaultValue: 'New Folder', confirmLabel: 'Create' });
     if (!name?.trim()) return;
-    try { await SystemBridge.createFolder(activeTab.path, name.trim()); notify('success', `Created: ${name}`); loadFiles(activeTab.path); }
+    try { const made = await createWithDialog(activeTab.path, name.trim(), 'folder'); if (made) { notify('success', `Created: ${made.split('/').pop()}`); loadFiles(activeTab.path); } }
     catch { notify('error', 'Failed to create folder'); }
   }
 
@@ -594,14 +594,12 @@
   async function paste() { return pasteInto(activeTab.path); }
   async function pasteInto(destDir: string) {
     if (!clipboard || inTrash) return;
-    let errors = 0;
-    for (const src of clipboard.files) {
-      const name = src.split('/').pop() ?? '';
-      const dst = `${destDir}/${name}`;
-      try { if (clipboard.action === 'copy') await SystemBridge.copyFile(src, dst); else await SystemBridge.moveFile(src, dst); }
-      catch { errors++; }
-    }
-    notify(errors ? 'error' : 'success', errors ? `${errors} item(s) failed` : `Pasted ${clipboard.files.length} item(s)`);
+    const mode = clipboard.action === 'copy' ? 'copy' : 'move';
+    let r: TransferSummary | null;
+    try { r = await transferWithDialog([...clipboard.files], destDir, mode); }
+    catch (err) { r = { done: 0, skipped: 0, errors: [String(err)] }; }
+    if (!r) return;                         // anulowano — schowek zostaje
+    { const d = describeSummary(r, mode); notify(d.type, d.message); }
     if (clipboard.action === 'cut') clipboard = null;
     loadFiles(activeTab.path);
   }
@@ -617,7 +615,7 @@
     const file = files.find((f) => f.path === renaming);
     if (!file || renameVal === file.name) { renaming = null; return; }
     const newPath = renaming.slice(0, renaming.lastIndexOf('/') + 1) + renameVal.trim();
-    try { await SystemBridge.moveFile(renaming, newPath); notify('success', `Renamed to: ${renameVal}`); loadFiles(activeTab.path); }
+    try { const done = await renameWithDialog(renaming, renameVal.trim(), file.is_dir ?? false); if (done) { notify('success', `Renamed to: ${done.split('/').pop()}`); loadFiles(activeTab.path); } }
     catch { notify('error', 'Rename failed'); }
     finally { renaming = null; }
   }
@@ -681,13 +679,10 @@
     const dest = targetDir?.path ?? activeTab.path;
     try {
       const paths: string[] = JSON.parse(e.dataTransfer?.getData('text/plain') ?? '[]');
-      const isCopy = e.ctrlKey;
-      for (const src of paths) {
-        const name = src.split('/').pop() ?? '';
-        const dst = `${dest}/${name}`;
-        if (isCopy) await SystemBridge.copyFile(src, dst); else await SystemBridge.moveFile(src, dst);
-      }
-      notify('success', `${e.ctrlKey ? 'Copied' : 'Moved'} ${paths.length} item(s)`);
+      const mode = e.ctrlKey ? 'copy' : 'move';
+      const r = await transferWithDialog(paths, dest, mode);
+      if (!r) return;                       // anulowano w dialogu konfliktów
+      { const d = describeSummary(r, mode); notify(d.type, d.message); }
       loadFiles(activeTab.path);
     } catch { notify('error', 'Drop failed'); }
   }
