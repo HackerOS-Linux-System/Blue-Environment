@@ -63,6 +63,17 @@
             <div>
               <div class="font-semibold text-white text-sm">{notif.title}</div>
               <div class="text-xs text-slate-300 mt-1">{notif.message}</div>
+              {#if notif.actions?.length}
+                <div class="flex gap-2 mt-2">
+                  {#each notif.actions as act}
+                    <button
+                      on:click={() => { window.dispatchEvent(new CustomEvent('blue:notification-action', { detail: { id: notif.id, action: act.action } })); notificationManager.markAsRead(notif.id); }}
+                      class="px-3 py-1 text-xs rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white transition-colors">
+                      {act.label}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
               <div class="text-[10px] text-slate-500 mt-2">{formatTime(notif.timestamp)}</div>
             </div>
             {#if !notif.read}
