@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+pub mod office;
 use std::path::Path;
 use std::process::Command;
 use tracing::info;
@@ -44,7 +45,7 @@ fn sh(cmd: &str) -> Result<String, String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-fn expand_path(path: &str) -> String {
+pub(crate) fn expand_path(path: &str) -> String {
     if path.starts_with("~/") {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         path.replacen('~', &home, 1)
@@ -65,6 +66,11 @@ fn shell_escape(s: &str) -> String {
 #[tauri::command(async)]
 pub fn docs_read_file(path: String) -> Result<String, String> {
     let expanded = expand_path(&path);
+    let ext = std::path::Path::new(&expanded).extension().and_then(|e| e.to_str()).unwrap_or("");
+    if office::is_spreadsheet_ext(ext) {
+        // xlsx/xls/ods → tabele HTML (calamine)
+        return office::read_sheets(&expanded).map(|s| office::sheets_to_html(&s));
+    }
     std::fs::read_to_string(&expanded)
         .map_err(|e| format!("Failed to read '{}': {}", path, e))
 }
@@ -482,7 +488,16 @@ pub fn docs_list_autosaved() -> Vec<DocMeta> {
 pub fn docs_read_docx(path: String) -> Result<String, String> {
     let expanded = expand_path(&path);
 
-    // Try pandoc (best conversion quality)
+    // 1) Natywnie (docx-rs) — bez zewnętrznych narzędzi.
+    if let Ok(bytes) = std::fs::read(&expanded) {
+        if let Ok(html) = office::docx_to_html(&bytes) {
+            if !html.trim().is_empty() {
+                return Ok(html);
+            }
+        }
+    }
+
+    // 2) Zapasowo: pandoc (inne układy dokumentu)
     let pandoc = sh(&format!(
         "pandoc -f docx -t html --wrap=none {} 2>/dev/null",
         shell_escape(&expanded)
@@ -539,6 +554,14 @@ except Exception as e:
 #[tauri::command(async)]
 pub fn docs_write_docx(html_content: String, output_path: String) -> DocResult {
     let expanded = expand_path(&output_path);
+
+    // Bez pandoc zapisujemy natywnie (docx-rs): nagłówki, akapity, pogrubienie, kursywa.
+    if !command_exists_in_path("pandoc") {
+        return match office::html_to_docx_bytes(&html_content).and_then(|b| std::fs::write(&expanded, b).map_err(|e| e.to_string())) {
+            Ok(()) => DocResult::ok_path(expanded),
+            Err(e) => DocResult::err(format!("DOCX export failed: {}", e)),
+        };
+    }
 
     // Write HTML to temp file then convert with pandoc
     let tmp = format!("/tmp/blue-docs-export-{}.html", std::process::id());
@@ -636,4 +659,9 @@ pub fn docs_read_pdf(path: String) -> Result<String, String> {
 #[tauri::command(async)]
 pub fn docs_export_docx(html: String, path: String) -> DocResult {
     docs_write_docx(html, path)
+}
+
+
+fn command_exists_in_path(bin: &str) -> bool {
+    crate::backend::find_in_path(bin).is_some()
 }
