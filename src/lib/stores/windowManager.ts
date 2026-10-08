@@ -435,12 +435,41 @@ export function toggleWindowFromTaskbar(id: string) {
   }
 }
 
-export function switchWorkspace(index: number) {
-  const total = get(workspaceCount);
-  const next = ((index % total) + total) % total;
+/** Zastosowuje zmianę pulpitu tylko w stanie powłoki (okna Blue wewnątrz webview). */
+function applyWorkspaceLocally(next: number) {
   currentWorkspace.set(next);
   windows.update((w) => w.map((win) => ({ ...win, isMinimized: win.workspace !== next ? true : win.isMinimized })));
   activeWindowId.set(null);
+}
+
+/**
+ * Przełączenie pulpitu. Na natywnym backendzie (labwc/sway) przełącza PRAWDZIWY
+ * pulpit kompozytora (natywne okna znikają/pojawiają się razem z nim), a stan
+ * powłoki jest tylko jego odbiciem. Gdy kompozytor odmówi (np. brak `wtype`),
+ * zostaje dotychczasowe zachowanie — samo chowanie okien Blue.
+ */
+export function switchWorkspace(index: number) {
+  const total = get(workspaceCount);
+  const next = ((index % total) + total) % total;
+  applyWorkspaceLocally(next);
+  isNativeBackend().then((native) => {
+    if (native) CompositorBridge.switchWorkspace(next)?.catch?.(() => {});
+  });
+}
+
+/**
+ * Kompozytor sam zmienił pulpit (skrót Win+Tab / Win+N w labwc) i powiadomił
+ * powłokę: `target` to "next" | "prev" | numer 1-based. Nie wysyłamy nic z
+ * powrotem do kompozytora.
+ */
+export function syncWorkspaceFromCompositor(target: string) {
+  const total = get(workspaceCount);
+  const cur = get(currentWorkspace);
+  let next = cur;
+  if (target === 'next') next = (cur + 1) % total;
+  else if (target === 'prev') next = (cur - 1 + total) % total;
+  else if (/^\d+$/.test(target)) next = Math.min(total - 1, Math.max(0, parseInt(target, 10) - 1));
+  applyWorkspaceLocally(next);
 }
 
 export function moveWindowToWorkspace(windowId: string, workspace: number) {
