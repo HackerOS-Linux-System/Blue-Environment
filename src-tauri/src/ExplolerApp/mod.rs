@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 pub mod trash;
+pub mod transfer;
 
 // ── FileEntry ───────────────────────────────────────────────────────────────
 
