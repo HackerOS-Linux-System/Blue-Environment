@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { transferWithDialog, createWithDialog, renameWithDialog, describeSummary, type TransferSummary } from '../utils/fileTransfer';
   import { openFileWithDefaultApp } from '../utils/openFile';
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { FolderPlus, FilePlus, ClipboardPaste, RefreshCw, Image as ImageIcon, LayoutGrid } from 'lucide-svelte';
@@ -176,19 +177,16 @@
     drag = drag; // notify Svelte
   }
 
-  async function moveInto(destDir: string, names: string[], copy: boolean): Promise<number> {
-    let existing = new Set<string>();
-    try { existing = new Set(((await SystemBridge.getFiles(destDir)) as FileEntry[]).map((f) => f.name)); } catch { /* treat as empty */ }
-    let ok = 0;
-    for (const name of names) {
-      const src = files.find((f) => f.name === name)?.path ?? `${desktopPath}/${name}`;
-      const finalName = uniqueName(name, existing);   // never overwrite
-      try {
-        if (copy) await SystemBridge.copyFile(src, `${destDir}/${finalName}`); else await SystemBridge.moveFile(src, `${destDir}/${finalName}`);
-        existing.add(finalName); ok++;
-      } catch { /* counted by caller */ }
-    }
-    return ok;
+  /** Kopiuje/przenosi do `destDir` z dialogiem konfliktów. `null` = anulowano. */
+  async function moveInto(destDir: string, names: string[], copy: boolean): Promise<TransferSummary | null> {
+    const sources = names.map((name) => files.find((f) => f.name === name)?.path ?? `${desktopPath}/${name}`);
+    try { return await transferWithDialog(sources, destDir, copy ? 'copy' : 'move'); }
+    catch (err) { return { done: 0, skipped: 0, errors: [String(err)] }; }
+  }
+  function reportTransfer(r: TransferSummary | null, copy: boolean) {
+    if (!r) return;
+    const d = describeSummary(r, copy ? 'copy' : 'move');
+    notify(d.type === 'info' ? 'info' : d.type, d.message);
   }
 
   async function onDragEnd(e: MouseEvent) {
@@ -204,16 +202,14 @@
     // 1) dropped on a folder icon of the desktop → move into it
     const folderFile = folder ? files.find((f) => f.name === folder) : null;
     if (folderFile) {
-      const n = await moveInto(folderFile.path, d.names, e.ctrlKey);
-      notify(n === d.names.length ? 'success' : 'error', n === d.names.length ? `${e.ctrlKey ? 'Skopiowano' : 'Przeniesiono'} ${n} element(y) do „${folderFile.name}”` : `${d.names.length - n} element(y) nie powiodło się`);
+      reportTransfer(await moveInto(folderFile.path, d.names, e.ctrlKey), e.ctrlKey);
       selected = new Set(); await loadFiles(); return;
     }
     // 2) dropped on another app's folder / file pane (e.g. an open Files window)
     const dirEl = target?.closest?.('[data-drop-dir]') as HTMLElement | null;
     if (dirEl && !containerEl.contains(target)) {
       const dest = dirEl.dataset.dropDir!;
-      const n = await moveInto(dest, d.names, e.ctrlKey);
-      notify(n === d.names.length ? 'success' : 'error', n === d.names.length ? `${e.ctrlKey ? 'Skopiowano' : 'Przeniesiono'} ${n} element(y)` : `${d.names.length - n} element(y) nie powiodło się`);
+      reportTransfer(await moveInto(dest, d.names, e.ctrlKey), e.ctrlKey);
       selected = new Set(); await loadFiles();
       window.dispatchEvent(new CustomEvent('blue-fs-changed', { detail: { path: dest } }));
       return;
@@ -239,18 +235,15 @@
     if (!incoming.length) return;
     const crect = containerEl.getBoundingClientRect();
     const dropCell = cellAt(e.clientX - crect.left, e.clientY - crect.top, cols, rows);
-    let existing = new Set(files.map((f) => f.name));
-    const placed: string[] = [];
+    const before = new Set(files.map((f) => f.name));
     let errors = 0;
-    for (const src of incoming) {
-      const name = src.split('/').pop() ?? '';
-      const finalName = uniqueName(name, existing);
-      try {
-        if (e.ctrlKey) await SystemBridge.copyFile(src, `${desktopPath}/${finalName}`); else await SystemBridge.moveFile(src, `${desktopPath}/${finalName}`);
-        existing.add(finalName); placed.push(finalName);
-      } catch { errors++; }
-    }
+    try {
+      const r = await transferWithDialog(incoming, desktopPath, e.ctrlKey ? 'copy' : 'move');
+      if (!r) return;                       // anulowano w dialogu konfliktów
+      errors = r.errors.length;
+    } catch { errors = incoming.length; }
     await loadFiles();
+    const placed = files.map((f) => f.name).filter((n) => !before.has(n));   // nowo doszłe (także „(2)” po Zachowaj oba)
     if (placed.length) {
       // put the newcomers where they were dropped (nearest free cells)
       const base = placeAll(files.map((f) => f.name), saved, cols, rows);
@@ -328,7 +321,7 @@
     closeMenu();
     const name = await dialogPrompt({ title: 'Nowy folder', placeholder: 'Nowy folder', defaultValue: 'Nowy folder', confirmLabel: 'Utwórz' });
     if (!name?.trim()) return;
-    try { await SystemBridge.createFolder(desktopPath, name.trim()); notify('success', `Utworzono: ${name}`); loadFiles(); }
+    try { const made = await createWithDialog(desktopPath, name.trim(), 'folder'); if (made) { notify('success', `Utworzono: ${made.split('/').pop()}`); loadFiles(); } }
     catch { notify('error', 'Nie udało się utworzyć folderu'); }
   }
 
@@ -336,7 +329,7 @@
     closeMenu();
     const name = await dialogPrompt({ title: 'Nowy plik tekstowy', placeholder: 'nowy_plik.txt', defaultValue: 'nowy_plik.txt', confirmLabel: 'Utwórz' });
     if (!name?.trim()) return;
-    try { await SystemBridge.createTextFile(desktopPath, name.trim(), ''); notify('success', `Utworzono: ${name}`); loadFiles(); }
+    try { const made = await createWithDialog(desktopPath, name.trim(), 'file', ''); if (made) { notify('success', `Utworzono: ${made.split('/').pop()}`); loadFiles(); } }
     catch { notify('error', 'Nie udało się utworzyć pliku'); }
   }
 
@@ -346,14 +339,12 @@
   async function paste() {
     closeMenu();
     if (!clipboard) return;
-    let errors = 0;
-    for (const src of clipboard.files) {
-      const name = src.split('/').pop() ?? '';
-      const dst = `${desktopPath}/${name}`;
-      try { if (clipboard.action === 'copy') await SystemBridge.copyFile(src, dst); else await SystemBridge.moveFile(src, dst); }
-      catch { errors++; }
-    }
-    notify(errors ? 'error' : 'success', errors ? `${errors} element(y) nie powiodło się` : `Wklejono ${clipboard.files.length} element(y)`);
+    const mode = clipboard.action === 'copy' ? 'copy' : 'move';
+    let r: TransferSummary | null;
+    try { r = await transferWithDialog([...clipboard.files], desktopPath, mode); }
+    catch (err) { r = { done: 0, skipped: 0, errors: [String(err)] }; }
+    if (!r) return;                         // anulowano — schowek zostaje nietknięty
+    { const d = describeSummary(r, mode); notify(d.type === 'info' ? 'info' : d.type, d.message); }
     if (clipboard.action === 'cut') clipboard = null;
     loadFiles();
   }
@@ -383,9 +374,12 @@
     if (!file || renameVal === file.name) { renaming = null; return; }
     const newPath = renaming.slice(0, renaming.lastIndexOf('/') + 1) + renameVal.trim();
     try {
-      await SystemBridge.moveFile(renaming, newPath);
-      saved = renameKey(layout, file.name, renameVal.trim()); persistLayout();
-      notify('success', `Zmieniono nazwę na: ${renameVal}`); loadFiles();
+      const done = await renameWithDialog(renaming, renameVal.trim(), file.is_dir ?? false);
+      if (done) {
+        const finalName = done.split('/').pop() ?? renameVal.trim();
+        saved = renameKey(layout, file.name, finalName); persistLayout();
+        notify('success', `Zmieniono nazwę na: ${finalName}`); loadFiles();
+      }
     }
     catch { notify('error', 'Nie udało się zmienić nazwy'); }
     finally { renaming = null; }
