@@ -507,7 +507,7 @@ pub fn is_native() -> bool {
 /// itself set right before exec-ing into them (see [`exec_native`] — both
 /// run their startup client through `sh -c`, so `getppid()` would only
 /// give us that intermediate shell, not the compositor).
-fn compositor_pid() -> Option<i32> {
+pub(crate) fn compositor_pid() -> Option<i32> {
     std::env::var("LABWC_PID")
         .ok()
         .or_else(|| std::env::var(ENV_COMPOSITOR_PID).ok())
@@ -802,6 +802,7 @@ pub fn native_command(cmd_type: &str, payload: &serde_json::Value) -> Result<(),
         }
         "reload_config" => reload_compositor(),
         "set_workspace_count" => set_workspace_count(payload),
+        "switch_workspace" => switch_workspace(payload),
         "lock_screen" => {
             let _ = Command::new("sh")
                 .arg("-c")
@@ -876,6 +877,31 @@ fn run_swaymsg(args: &[&str]) -> Result<(), String> {
     let bin = find_in_path("swaymsg").ok_or("swaymsg not found (it ships with sway)")?;
     let status = Command::new(bin).args(args).status().map_err(|e| e.to_string())?;
     status.success().then_some(()).ok_or_else(|| format!("swaymsg {} failed", args.join(" ")))
+}
+
+/// Prawdziwe przełączenie pulpitu w kompozytorze (index liczony od 0).
+/// * sway: `swaymsg workspace number N`
+/// * labwc: nie ma IPC do akcji, więc wstrzykujemy ukryty skrót
+///   Win+Alt+Shift+F<N> (zdefiniowany w rc.xml jako `GoToDesktop`) przez
+///   `wtype` (protokół virtual-keyboard) — wymaga zainstalowanego `wtype`.
+fn switch_workspace(payload: &serde_json::Value) -> Result<(), String> {
+    let index = payload.get("index").and_then(|v| v.as_u64()).ok_or("missing index")? as usize;
+    if index >= 12 {
+        return Err("at most 12 workspaces can be addressed".into());
+    }
+    match active() {
+        BackendKind::Sway => run_swaymsg(&["workspace", "number", &(index + 1).to_string()]),
+        BackendKind::Labwc => {
+            let wtype = find_in_path("wtype").ok_or("wtype not found (install it for real workspace switching)")?;
+            let key = format!("F{}", index + 1);
+            let status = Command::new(wtype)
+                .args(["-M", "logo", "-M", "alt", "-M", "shift", "-k", &key, "-m", "shift", "-m", "alt", "-m", "logo"])
+                .status()
+                .map_err(|e| e.to_string())?;
+            status.success().then_some(()).ok_or_else(|| "wtype failed".to_string())
+        }
+        _ => Err("this backend cannot switch workspaces from the shell".into()),
+    }
 }
 
 fn set_workspace_count(payload: &serde_json::Value) -> Result<(), String> {
