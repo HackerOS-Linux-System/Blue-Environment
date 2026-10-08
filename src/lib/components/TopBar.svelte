@@ -17,6 +17,7 @@
   import { createEventDispatcher } from 'svelte';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
+  import { normalizeTopBar, formatBarClock, BLUR_CLASS, type TopBarConfig } from '../utils/topBarConfig';
 
   export let openWindows: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
   export let currentWorkspace = 0;
@@ -345,6 +346,10 @@
 
   let pinnedApps: AppId[] = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS];
   let panelOpacity = 0.95;
+  // Pełne dostosowanie paska (Ustawienia → Panel → Pasek) — patrz utils/topBarConfig.ts.
+  let bar: TopBarConfig = normalizeTopBar(undefined);
+  let barHidden = false;
+  let barHoverTimer: ReturnType<typeof setTimeout>;
   let panelHeight = 48;
   // Settings > Panel > "App Launcher" — see systemBridge.ts's
   // UserConfig.startButtonLabelMode/startButtonIcon doc comments.
@@ -384,6 +389,8 @@
       const pinned = cfg.pinnedApps as AppId[] | undefined;
       if (pinned && Array.isArray(pinned) && pinned.length > 0) pinnedApps = pinned;
       if (typeof cfg.panelOpacity === 'number') panelOpacity = cfg.panelOpacity;
+      bar = normalizeTopBar((cfg as any).topBar);
+      barHidden = bar.autoHide;
       if (typeof cfg.panelSize === 'number' && cfg.panelSize > 0) panelHeight = cfg.panelSize;
       startButtonLabelMode = cfg.startButtonLabelMode === 'icon-only' ? 'icon-only' : 'icon-and-label';
       startButtonIcon = cfg.startButtonIcon ?? '';
@@ -433,15 +440,22 @@
 </script>
 
 {#if enabled}
+{#if bar.autoHide && barHidden}
+  <div class="absolute left-0 right-0 z-50 h-1.5 {position === 'top' ? 'top-0' : 'bottom-0'}"
+    on:mouseenter={() => { clearTimeout(barHoverTimer); barHidden = false; }} role="presentation" />
+{/if}
 <div
-  class="absolute left-0 right-0 backdrop-blur-sm flex items-center justify-between px-3 select-none {position === 'top' ? 'top-0 border-b' : 'bottom-0 border-t'} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
+  class="absolute flex items-center justify-between px-3 select-none transition-transform duration-200 {BLUR_CLASS[bar.blur]} {bar.floating ? '' : 'left-0 right-0'} {position === 'top' ? 'top-0' : 'bottom-0'} {bar.showBorder ? (bar.floating ? 'border' : (position === 'top' ? 'border-b' : 'border-t')) : ''} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
   on:contextmenu={panelMenu} role="presentation"
-  style="height:{panelHeight}px; z-index:50; {shellThemeId === 'hydra'
+  on:mouseleave={() => { if (bar.autoHide) { clearTimeout(barHoverTimer); barHoverTimer = setTimeout(() => (barHidden = true), 600); } }}
+  on:mouseenter={() => { clearTimeout(barHoverTimer); }}
+  style="height:{panelHeight}px; z-index:50; {bar.floating ? `left:${bar.floatingMargin}px; right:${bar.floatingMargin}px; ${position === 'top' ? 'top' : 'bottom'}:${bar.floatingMargin}px; border-radius:${bar.cornerRadius}px;` : ''} {bar.autoHide && barHidden ? `transform:translateY(${position === 'top' ? '-' : ''}110%);` : ''} {shellThemeId === 'hydra'
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
     : `background-color:rgba(15, 23, 42, var(--panel-opacity, ${panelOpacity}));`}"
 >
   <!-- Left: Start + search -->
   <div class="flex items-center gap-3 w-1/3">
+    {#if bar.showStartButton}
     <button
       on:contextmenu={startButtonMenu}
       on:click={handleStartClick}
@@ -457,20 +471,25 @@
         <div class="absolute -top-1 -right-1 w-1.5 h-1.5 theme-accent-gradient rounded-full" />
       </div>
       {#if startButtonLabelMode !== 'icon-only'}
-        <span class="font-bold text-sm tracking-tight hidden sm:block">Blue</span>
+        <span class="font-bold text-sm tracking-tight hidden sm:block">{bar.startLabel || 'Blue'}</span>
       {/if}
     </button>
+    {/if}
+    {#if bar.showSearch}
     <div
-      class="hidden md:flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 rounded-full px-3 py-1 text-xs text-slate-400 cursor-text transition-colors w-44"
+      style="width:{bar.searchWidth}px"
+      class="hidden md:flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 rounded-full px-3 py-1 text-xs text-slate-400 cursor-text transition-colors"
       on:click={() => dispatch('startClick')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('startClick'))(); } }}
     >
       <Search size={12} />
       <span>{$t('topbar.search')}</span>
     </div>
+    {/if}
   </div>
 
   <!-- Center: pinned apps -->
   <div class="flex items-center justify-center w-1/3">
+    {#if bar.showPinned}
     <div class="flex items-center gap-1 bg-slate-800/60 border border-white/5 rounded-2xl px-2 py-1 shadow-lg">
       {#each pinnedApps as appId (appId)}
         {@const app = APPS[appId]}
@@ -489,20 +508,22 @@
             title={app.title}
           >
             {#if typeof app.icon !== 'string'}
-              <svelte:component this={app.icon} size={20}
+              <svelte:component this={app.icon} size={bar.pinnedIconSize}
                 class="transition-colors duration-200 {isOpen ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-200'}" />
             {/if}
             {#if isOpen}
-              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {isActive ? 'w-3.5 bg-blue-400' : 'w-1 bg-slate-500'}" />
+              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {isActive ? 'w-3.5 bg-blue-400' : 'w-1 bg-slate-500'} {bar.accentIndicators ? '' : 'hidden'}" />
             {/if}
           </button>
         {/if}
       {/each}
     </div>
+    {/if}
   </div>
 
   <!-- Right -->
   <div class="flex items-center justify-end gap-2 w-1/3">
+    {#if bar.showWorkspaces}
     <div class="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full hover:bg-white/5 transition-colors">
       {#each Array.from({ length: workspaceCount }, (_, i) => i) as i (i)}
         {@const hasWins = openWindows.some((w) => w.workspace === i && !w.isMinimized)}
@@ -510,6 +531,7 @@
           class="transition-all duration-200 rounded-full {i === currentWorkspace ? 'w-4 h-2 bg-blue-400' : `w-2 h-2 ${hasWins ? 'bg-slate-400' : 'bg-slate-600'} hover:bg-slate-300`}" />
       {/each}
     </div>
+    {/if}
 
     {#if imeActive}
       <div class="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full bg-blue-500/20 text-blue-300"
@@ -518,7 +540,7 @@
       </div>
     {/if}
 
-    {#if weather}
+    {#if weather && bar.showWeather}
       {@const wi = weatherIconFor(weather.code)}
       <div class="hidden lg:block relative">
         <button
@@ -556,7 +578,7 @@
       </div>
     {/if}
 
-    {#if battery?.present || powerProfiles.length > 0}
+    {#if bar.showBattery && (battery?.present || powerProfiles.length > 0)}
       <div class="relative">
         <button
           on:click={togglePowerPopover}
@@ -599,6 +621,7 @@
       </div>
     {/if}
 
+    {#if bar.showClipboard}
     <div class="relative" on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
       <button on:click={() => dispatch('toggleClipboard')}
         class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
@@ -623,14 +646,17 @@
         </div>
       {/if}
     </div>
+    {/if}
 
     <div class="relative" on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
       <button on:click={() => dispatch('toggleControlCenter')}
         class="panel-icon-btn flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
-        <Wifi size={13} class="text-slate-300" />
-        <span class="text-xs font-medium text-slate-200 tabular-nums">
-          {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        {#if bar.showNetworkIcon}<Wifi size={13} class="text-slate-300" />{/if}
+        {#if bar.showClock}
+          <span class="text-xs font-medium text-slate-200 tabular-nums">{formatBarClock(time, bar)}</span>
+        {:else if !bar.showNetworkIcon}
+          <Command size={13} class="text-slate-300" />
+        {/if}
       </button>
 
       {#if showClockPopover && networkHoverInfoEnabled}
@@ -660,10 +686,12 @@
       {/if}
     </div>
 
+    {#if bar.showNotifications}
     <button on:click={() => dispatch('toggleNotifications')} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
       <Bell size={15} class="text-slate-300 group-hover:text-white" />
       <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 border border-slate-900 rounded-full" />
     </button>
+    {/if}
   </div>
 </div>
 {/if}
