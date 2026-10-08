@@ -2,6 +2,7 @@ import { writable, get, derived } from 'svelte/store';
 import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 import type { OpenFile, Diagnostic } from './types';
 import { getLang, LSP_LANGS } from './languageMap';
+import { createLspBridge } from './lspBridge';
 
 function out(r: any): string { return typeof r === 'string' ? r : (r?.stdout ?? '') + (r?.stderr ?? ''); }
 
@@ -22,11 +23,31 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
   let currentRoot = '';
   rootPathStore.subscribe((v) => (currentRoot = v));
 
-  async function startLsp(language: string) {
-    if (get(lspStatus)[language]) return;
-    if (!LSP_LANGS.includes(language)) return;
-    const res = await SystemBridge.startLanguageServer(language, currentRoot);
-    if (res.success) lspStatus.update((prev) => ({ ...prev, [language]: true }));
+  // Klient LSP (hover, uzupełnianie, definicje, diagnostyki) — backend: lsp_client.rs.
+  const lsp = createLspBridge({
+    getMonaco: () => monacoApi,
+    getRoot: () => currentRoot,
+    getActivePath: () => get(openFiles)[get(activeIdx)]?.path,
+    onDiagnostics: (path, problems) => diagnostics.update((prev) => [...prev.filter((d) => d.file !== path), ...problems]),
+    openLocation: (path, line) => { openFileAtLine(path, line); },
+  });
+
+  async function startLsp(language: string, openedPath?: string) {
+    if (!get(lspStatus)[language]) {
+      if (!LSP_LANGS.includes(language)) return;
+      const res = await SystemBridge.startLanguageServer(language, currentRoot);
+      if (!res.success) return;
+      lspStatus.update((prev) => ({ ...prev, [language]: true }));
+    }
+    // Handshake LSP i zgłoszenie już otwartych plików tego języka.
+    const firstTime = !lsp.isActive(language);
+    if (await lsp.initialize(language)) {
+      // Pierwszy raz: zgłoś wszystkie otwarte pliki języka; potem tylko nowo otwarty
+      // (podwójne didOpen tego samego dokumentu to błąd protokołu).
+      get(openFiles)
+        .filter((f) => f.language === language && (firstTime || f.path === openedPath))
+        .forEach((f) => lsp.didOpen(language, f.path, f.content));
+    }
   }
 
   async function openFile(path: string) {
@@ -40,10 +61,12 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
       activeIdx.set(next.length - 1);
       return next;
     });
-    startLsp(language);
+    startLsp(language, path);
   }
 
   function closeFile(idx: number) {
+    const closing = get(openFiles)[idx];
+    if (closing) lsp.didClose(closing.language, closing.path);
     openFiles.update((prev) => (prev.length <= 1 ? [] : prev.filter((_, i) => i !== idx)));
     activeIdx.update((i) => Math.max(0, i === idx ? i - 1 : i > idx ? i - 1 : i));
   }
@@ -51,6 +74,7 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
   async function runLint(idx: number) {
     const file = get(openFiles)[idx];
     if (!file) return;
+    if (lsp.isActive(file.language)) return;   // diagnostyki dostarcza serwer LSP
     const newDiags: Diagnostic[] = [];
 
     // Security note: `currentRoot`/`file.path` come from whatever
@@ -115,6 +139,8 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
     if (value === undefined) return;
     const idx = get(activeIdx);
     openFiles.update((prev) => prev.map((f, i) => (i === idx ? { ...f, content: value, modified: true } : f)));
+    const cur = get(openFiles)[idx];
+    if (cur) lsp.didChange(cur.language, cur.path, value);
   }
 
   editorTheme.subscribe(($theme) => monacoApi?.editor.setTheme($theme));
