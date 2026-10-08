@@ -2,8 +2,6 @@ pub mod matrix;
 pub mod sms;
 mod secretstore;
 pub mod storage;
-mod xml_stream;
-mod scram;
 pub mod xmpp;
 
 use serde::{Deserialize, Serialize};
