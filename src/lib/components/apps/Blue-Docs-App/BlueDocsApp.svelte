@@ -36,7 +36,8 @@
   async function handleOpen() {
     const path = await SystemBridge.pickFile(
       [
-        { name: 'Documents', extensions: ['html', 'htm', 'md', 'txt', 'csv', 'json', 'docx', 'pdf', 'odt', 'rtf'] },
+        { name: 'Documents', extensions: ['html', 'htm', 'md', 'txt', 'csv', 'json', 'docx', 'pdf', 'odt', 'rtf', 'xlsx', 'xlsm', 'xls', 'ods'] },
+        { name: 'Spreadsheets', extensions: ['xlsx', 'xlsm', 'xlsb', 'xls', 'ods', 'csv'] },
         { name: 'Word Documents', extensions: ['docx', 'doc'] },
         { name: 'PDF Files', extensions: ['pdf'] },
         { name: 'All Files', extensions: ['*'] },
