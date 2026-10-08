@@ -8,7 +8,8 @@ local VERSION_FILE = "/usr/share/Blue-Environment/.version"
 -- od ścieżki binarki (sama powłoka Blue). Goły "blue-environment" pasowałby
 -- też do kompozytora (labwc -s '/usr/share/.../blue-environment --labwc-child'),
 -- więc "blue refresh" ubijał całą sesję graficzną.
-local SHELL_PATTERN = "^/usr/share/Blue-Environment/blue-environment( |$)"
+-- Obejmuje też binarkę ze staged/ (aktualizacje powłoki w tle).
+local SHELL_PATTERN = "^(/usr/share/Blue-Environment/blue-environment|[^ ]*/Blue-Environment/staged/[^ ]*)( |$)"
 local REMOTE_VERSION_URL = "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/version.hacker"
 local RELEASE_BASE = "https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download"
 
@@ -115,6 +116,45 @@ local function get_local_version()
     return "0.0"
 end
 
+
+-- Porównanie wersji "x.y[.z]" (brakujące segmenty = 0). Zwraca -1, 0 albo 1.
+local function version_cmp(a, b)
+    local function parts(v)
+        local t = {}
+        for n in tostring(v):gsub("^v", ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
+        return t
+    end
+    local pa, pb = parts(a), parts(b)
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x < y and -1 or 1 end
+    end
+    return 0
+end
+
+-- Binarka do uruchomienia: jeśli powłoka pobrała w tle nowszą wersję
+-- (~/.local/share/Blue-Environment/staged/current — symlink podmieniany
+-- atomowo), startujemy nią; inaczej binarka systemowa z /usr/share.
+local function resolve_bin()
+    local home = os.getenv("HOME")
+    local data = os.getenv("XDG_DATA_HOME")
+    if not data or data == "" then data = home and (home .. "/.local/share") or nil end
+    if data then
+        local dir = data .. "/Blue-Environment/staged"
+        local link = dir .. "/current"
+        local vf = io.open(dir .. "/current.version", "r")
+        if vf then
+            local staged_ver = trim(vf:read("*a") or "")
+            vf:close()
+            if file_exists(link) and os.execute("test -x " .. shell_quote(link)) == true
+                and version_cmp(staged_ver, get_local_version()) > 0 then
+                return link
+            end
+        end
+    end
+    return BLUE_BIN
+end
+
 local function get_remote_version()
     print("Pobieram informacje o najnowszej wersji...")
     
@@ -200,7 +240,7 @@ end
 -- Uruchamia powłokę w tle, odłączoną od terminala (setsid + nohup), żeby
 -- przeżyła zamknięcie okna terminala. Zwraca true, gdy udało się wystartować.
 local function spawn_detached(args)
-    local cmd = "setsid -f nohup " .. shell_quote(BLUE_BIN) .. (args ~= "" and (" " .. args) or "") ..
+    local cmd = "setsid -f nohup " .. shell_quote(resolve_bin()) .. (args ~= "" and (" " .. args) or "") ..
         " >/dev/null 2>&1 </dev/null"
     local ok = exec_status(os.execute(cmd))
     return ok
@@ -240,7 +280,7 @@ local function do_start(opt)
         io.stdout:flush()
         -- "exec" w podpowłoce: binarka zastępuje sh, więc nie zostaje
         -- zbędny proces pośredni; Lua czeka na jej zakończenie.
-        local ok, code = exec_status(os.execute("exec " .. shell_quote(BLUE_BIN)))
+        local ok, code = exec_status(os.execute("exec " .. shell_quote(resolve_bin())))
         os.exit(ok and 0 or code)
     end
 
