@@ -1,6 +1,24 @@
+use matrix_sdk::{
+    authentication::matrix::MatrixSession as SdkSession,
+    config::SyncSettings,
+    room::MessagesOptions,
+    ruma::{
+        events::{
+            room::message::{OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        },
+        OwnedRoomId, RoomId, UserId,
+    },
+    store::RoomLoadSettings,
+    Client, Room, SessionMeta, SessionTokens,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tokio::sync::Mutex as AsyncMutex;
 
 fn session_path() -> PathBuf {
     super::messages_dir().join("matrix_session.json")
@@ -8,7 +26,7 @@ fn session_path() -> PathBuf {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MatrixSession {
-    pub homeserver: String, // e.g. "https://matrix.org", no trailing slash
+    pub homeserver: String, // np. "https://matrix.org"
     pub user_id: String,
     pub access_token: String,
     pub device_id: String,
@@ -20,6 +38,13 @@ pub struct MatrixRoom {
     pub name: String,
 }
 
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct MatrixIncomingEvent {
+    conversation_id: String,
+    message: super::Message,
+}
+
 fn read_session() -> Option<MatrixSession> {
     fs::read_to_string(session_path()).ok().and_then(|s| serde_json::from_str(&s).ok())
 }
@@ -28,13 +53,68 @@ fn write_session(session: &MatrixSession) -> Result<(), String> {
     fs::write(session_path(), serde_json::to_string_pretty(session).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
+pub fn get_session() -> Option<MatrixSession> {
+    read_session()
+}
+
+// ── klient współdzielony ─────────────────────────────────────────────
+static CLIENT: AsyncMutex<Option<Client>> = AsyncMutex::const_new(None);
+static SYNC_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn normalize_homeserver(hs: &str) -> Result<String, String> {
+    let h = hs.trim().trim_end_matches('/');
+    if h.is_empty() {
+        return Err("Podaj adres serwera Matrix".into());
+    }
+    let with_scheme = if h.contains("://") { h.to_string() } else { format!("https://{h}") };
+    if !(with_scheme.starts_with("https://") || with_scheme.starts_with("http://")) {
+        return Err("Adres serwera musi zaczynać się od https://".into());
+    }
+    Ok(with_scheme)
+}
+
+async fn build_client(homeserver: &str) -> Result<Client, String> {
+    Client::builder()
+        .homeserver_url(homeserver)
+        .build()
+        .await
+        .map_err(|e| format!("Nie można połączyć z serwerem Matrix: {e}"))
+}
+
+/// Klient odtworzony z zapisanej sesji (tokenu) — cache'owany na czas procesu.
+async fn client() -> Result<Client, String> {
+    let mut guard = CLIENT.lock().await;
+    if let Some(c) = guard.as_ref() {
+        return Ok(c.clone());
+    }
+    let s = read_session().ok_or("Not logged in to Matrix")?;
+    let c = build_client(&s.homeserver).await?;
+    let session = SdkSession {
+        meta: SessionMeta {
+            user_id: UserId::parse(&s.user_id).map_err(|e| format!("Zły user_id: {e}"))?,
+            device_id: s.device_id.clone().into(),
+        },
+        tokens: SessionTokens { access_token: s.access_token.clone(), refresh_token: None },
+    };
+    c.matrix_auth()
+        .restore_session(session, RoomLoadSettings::default())
+        .await
+        .map_err(|e| format!("Nie można odtworzyć sesji Matrix: {e}"))?;
+    *guard = Some(c.clone());
+    Ok(c)
+}
+
 #[tauri::command(async)]
 pub fn matrix_has_session() -> bool {
     read_session().is_some()
 }
 
-#[tauri::command(async)]
-pub fn matrix_logout() -> Result<(), String> {
+#[tauri::command]
+pub async fn matrix_logout() -> Result<(), String> {
+    SYNC_GENERATION.fetch_add(1, Ordering::SeqCst); // zatrzymuje sync w tle
+    if let Some(c) = CLIENT.lock().await.take() {
+        let _ = c.logout().await; // unieważnia token na serwerze (best-effort)
+    }
     let path = session_path();
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;
@@ -42,235 +122,221 @@ pub fn matrix_logout() -> Result<(), String> {
     Ok(())
 }
 
-/// `POST /_matrix/client/v3/login` with `m.login.password` — the
-/// simplest of the several login flows the spec defines (SSO and
-/// token-based login exist too; password is the one every homeserver
-/// implementation supports without extra setup, so it's the one this
-/// starts with).
+/// Logowanie hasłem (`m.login.password`) przez `matrix-sdk`.
 #[tauri::command]
-pub async fn matrix_login(homeserver: String, username: String, password: String) -> Result<MatrixSession, String> {
-    let homeserver = homeserver.trim_end_matches('/').to_string();
-    let client = reqwest::Client::new();
-    let body = serde_json::json!({
-        "type": "m.login.password",
-        "identifier": { "type": "m.id.user", "user": username },
-        "password": password,
-        "initial_device_display_name": "Blue Messages",
-    });
-
-    let resp = client
-        .post(format!("{homeserver}/_matrix/client/v3/login"))
-        .json(&body)
-        .send()
+pub async fn matrix_login(app: AppHandle, homeserver: String, username: String, password: String) -> Result<MatrixSession, String> {
+    let hs = normalize_homeserver(&homeserver)?;
+    let c = build_client(&hs).await?;
+    let resp = c
+        .matrix_auth()
+        .login_username(username.trim(), &password)
+        .initial_device_display_name("Blue Messages")
         .await
-        .map_err(|e| format!("Could not reach homeserver: {e}"))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("Login failed ({status}): {text}"));
-    }
-
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Logowanie Matrix nie powiodło się: {e}"))?;
     let session = MatrixSession {
-        homeserver,
-        user_id: json.get("user_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        access_token: json.get("access_token").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        device_id: json.get("device_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        homeserver: hs,
+        user_id: resp.user_id.to_string(),
+        access_token: resp.access_token,
+        device_id: resp.device_id.to_string(),
     };
-    if session.access_token.is_empty() {
-        return Err("Homeserver response had no access_token".to_string());
-    }
     write_session(&session)?;
+    *CLIENT.lock().await = Some(c);
+    start_background_sync(app);
     Ok(session)
 }
 
-/// `GET /_matrix/client/v3/joined_rooms`, then one
-/// `GET /rooms/{id}/state/m.room.name` per room for a display name
-/// (falls back to the raw room id if the room has no name state event
-/// set, e.g. an un-named direct-message room).
+// ── synchronizacja w tle (odbiór na żywo) ────────────────────────────
+
+/// Treść tekstowa zdarzenia wiadomości (`None` dla nie-tekstowych).
+fn text_of(ev: &OriginalSyncRoomMessageEvent) -> String {
+    ev.content.body().to_string()
+}
+
+fn ms_to_rfc3339(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms).map(|d| d.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+}
+
+/// Dopisuje wiadomość do rozmowy powiązanej z pokojem (jeśli taka istnieje).
+/// Zwraca zapisaną wiadomość, gdy była nowa.
+fn store_incoming(room_id: &str, event_id: &str, sender: &str, own_id: &str, body: String, ts_ms: i64) -> Option<(String, super::Message)> {
+    let mut conversations = super::read_conversations();
+    let convo_id = conversations
+        .iter()
+        .find(|c| c.channel == super::Channel::Matrix && c.participant == room_id)
+        .map(|c| c.id.clone())?;
+    if super::storage::message_ids_for(&convo_id).contains(&event_id.to_string()) {
+        return None;
+    }
+    let outgoing = sender == own_id;
+    let message = super::Message {
+        id: event_id.to_string(),
+        conversation_id: convo_id.clone(),
+        body,
+        direction: if outgoing { super::MessageDirection::Outgoing } else { super::MessageDirection::Incoming },
+        sent_at: ms_to_rfc3339(ts_ms),
+        read: outgoing,
+    };
+    super::storage::add_many(std::slice::from_ref(&message)).ok()?;
+    if let Some(c) = conversations.iter_mut().find(|c| c.id == convo_id) {
+        c.last_message_preview = message.body.clone();
+        c.last_message_at = message.sent_at.clone();
+        if !outgoing {
+            c.unread_count += 1;
+        }
+        let _ = super::write_conversations(&conversations);
+    }
+    Some((convo_id, message))
+}
+
+/// Startuje `sync` w tle (idempotentnie — poprzednia pętla wygasa).
+pub fn start_background_sync(app: AppHandle) {
+    if read_session().is_none() {
+        return;
+    }
+    let generation = SYNC_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        let Ok(c) = client().await else { return };
+        let own = c.user_id().map(|u| u.to_string()).unwrap_or_default();
+        let app2 = app.clone();
+        c.add_event_handler(move |ev: OriginalSyncRoomMessageEvent, room: Room| {
+            let app = app2.clone();
+            let own = own.clone();
+            async move {
+                let ts: i64 = ev.origin_server_ts.0.into();
+                if let Some((cid, msg)) = store_incoming(room.room_id().as_str(), ev.event_id.as_str(), ev.sender.as_str(), &own, text_of(&ev), ts) {
+                    if msg.direction == super::MessageDirection::Incoming {
+                        let _ = app.emit("blue-messages://matrix-incoming", MatrixIncomingEvent { conversation_id: cid, message: msg });
+                    }
+                }
+            }
+        });
+        // `Client::sync` to wbudowana pętla długiego odpytywania (zarządza tokenem
+        // `since`); wychodzi tylko błędem, więc ponawiamy z backoffem. Równolegle
+        // czuwamy nad generacją, żeby wylogowanie/nowy login zatrzymały pętlę.
+        let settings = SyncSettings::default().timeout(Duration::from_secs(30));
+        let mut backoff = Duration::from_secs(2);
+        loop {
+            if SYNC_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let watch = async {
+                while SYNC_GENERATION.load(Ordering::SeqCst) == generation {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            };
+            tokio::select! {
+                r = c.sync(settings.clone()) => {
+                    if let Err(e) = r {
+                        tracing::warn!("Matrix sync: {e}; ponawiam za {backoff:?}");
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(Duration::from_secs(300));
+                    }
+                }
+                _ = watch => return,
+            }
+        }
+    });
+}
+
+// ── komendy ──────────────────────────────────────────────────────────
+
+/// Lista pokoi, do których należy konto.
 #[tauri::command]
-pub async fn matrix_list_rooms() -> Result<Vec<MatrixRoom>, String> {
-    let session = read_session().ok_or("Not logged in to Matrix")?;
-    let client = reqwest::Client::new();
-
-    let resp = client
-        .get(format!("{}/_matrix/client/v3/joined_rooms", session.homeserver))
-        .bearer_auth(&session.access_token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("Failed to list rooms: {}", resp.status()));
+pub async fn matrix_list_rooms(app: AppHandle) -> Result<Vec<MatrixRoom>, String> {
+    let c = client().await?;
+    if c.joined_rooms().is_empty() {
+        // Zanim zadziała sync w tle, wczytaj stan jednorazowo.
+        c.sync_once(SyncSettings::default().timeout(Duration::from_secs(0)))
+            .await
+            .map_err(|e| format!("Synchronizacja nie powiodła się: {e}"))?;
     }
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let room_ids: Vec<String> = json
-        .get("joined_rooms")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-
+    start_background_sync(app);
     let mut rooms = Vec::new();
-    for room_id in room_ids {
-        let name = fetch_room_name(&client, &session, &room_id).await.unwrap_or_else(|| room_id.clone());
-        rooms.push(MatrixRoom { room_id, name });
+    for r in c.joined_rooms() {
+        let name = r.display_name().await.map(|n| n.to_string()).unwrap_or_else(|_| r.room_id().to_string());
+        rooms.push(MatrixRoom { room_id: r.room_id().to_string(), name });
     }
+    rooms.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(rooms)
 }
 
-async fn fetch_room_name(client: &reqwest::Client, session: &MatrixSession, room_id: &str) -> Option<String> {
-    let resp = client
-        .get(format!(
-            "{}/_matrix/client/v3/rooms/{}/state/m.room.name",
-            session.homeserver,
-            urlencoding_room_id(room_id)
-        ))
-        .bearer_auth(&session.access_token)
-        .send()
-        .await
-        .ok()?;
-    if !resp.status().is_success() {
-        return None; // no name state event set — not an error, just unnamed
-    }
-    let json: serde_json::Value = resp.json().await.ok()?;
-    json.get("name").and_then(|v| v.as_str()).map(String::from)
-}
-
-// Matrix room ids (`!opaque:server`) contain characters (`!`, `:`)
-// that need percent-encoding in a URL path segment — hand-rolled here
-// rather than pulling in the `urlencoding` crate a second time (it's
-// already a dependency elsewhere in this crate, but importing it into
-// this module for two characters isn't worth the extra `use`).
-fn urlencoding_room_id(room_id: &str) -> String {
-    room_id.replace('!', "%21").replace(':', "%3A")
-}
-
-/// Adds `room_id` as a local [`super::Conversation`] with
-/// `channel: Matrix` and `participant: room_id` — the join between
-/// "a Matrix room" and "a Blue Messages conversation" is exactly that
-/// one field, deliberately: no separate Matrix-specific conversation
-/// table, so every other command in `mod.rs`
-/// (`messages_delete_conversation`, `messages_set_pinned`, ...) already
-/// works on an imported Matrix conversation for free.
+/// Rozmowa Blue Messages z `participant` = id pokoju Matrix.
 #[tauri::command]
 pub async fn matrix_import_room(room_id: String, name: String) -> Result<super::Conversation, String> {
-    let convo = super::create_conversation_internal(name, room_id, super::Channel::Matrix)?;
-    Ok(convo)
+    RoomId::parse(&room_id).map_err(|e| format!("Nieprawidłowe id pokoju: {e}"))?;
+    super::create_conversation_internal(name, room_id, super::Channel::Matrix)
 }
 
-/// Pulls the most recent messages for a Matrix-backed conversation via
-/// `GET /rooms/{id}/messages?dir=b&limit=30` and merges any not
-/// already in local storage — see module doc's "What's not" section
-/// for why this is pull-based rather than a live stream.
+async fn room_for(c: &Client, room_id: &str) -> Result<Room, String> {
+    let id: OwnedRoomId = RoomId::parse(room_id).map_err(|e| format!("Nieprawidłowe id pokoju: {e}"))?;
+    if c.get_room(&id).is_none() {
+        let _ = c.sync_once(SyncSettings::default().timeout(Duration::from_secs(0))).await;
+    }
+    c.get_room(&id).ok_or_else(|| "Nie znaleziono pokoju (czy konto nadal w nim jest?)".to_string())
+}
+
+/// Dociąga ostatnie wiadomości pokoju (`/messages`, 30 sztuk) i scala z magazynem.
 #[tauri::command]
 pub async fn matrix_refresh_thread(conversation_id: String) -> Result<Vec<super::Message>, String> {
-    let session = read_session().ok_or("Not logged in to Matrix")?;
     let conversations = super::read_conversations();
-    let convo = conversations
-        .iter()
-        .find(|c| c.id == conversation_id)
-        .ok_or("Conversation not found")?;
+    let convo = conversations.iter().find(|c| c.id == conversation_id).ok_or("Conversation not found")?;
     if convo.channel != super::Channel::Matrix {
         return Err("Not a Matrix conversation".to_string());
     }
     let room_id = convo.participant.clone();
+    let c = client().await?;
+    let own = c.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let room = room_for(&c, &room_id).await?;
 
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(format!(
-            "{}/_matrix/client/v3/rooms/{}/messages",
-            session.homeserver,
-            urlencoding_room_id(&room_id)
-        ))
-        .query(&[("dir", "b"), ("limit", "30")])
-        .bearer_auth(&session.access_token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("Failed to fetch messages: {}", resp.status()));
+    let mut opts = MessagesOptions::backward();
+    opts.limit = 30u32.into();
+    let page = room.messages(opts).await.map_err(|e| format!("Nie udało się pobrać wiadomości: {e}"))?;
+
+    // `chunk` idzie od najnowszych — odwracamy, żeby zapisywać chronologicznie.
+    for ev in page.chunk.iter().rev() {
+        let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(m)))) = ev.raw().deserialize() else {
+            continue; // członkostwa, reakcje, zdarzenia stanu — tylko wiadomości
+        };
+        let ts: i64 = m.origin_server_ts.0.into();
+        let _ = store_incoming(&room_id, m.event_id.as_str(), m.sender.as_str(), &own, m.content.body().to_string(), ts);
     }
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let events = json.get("chunk").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-
-    let existing_ids = super::storage::message_ids_for(&conversation_id);
-    let mut new_messages = Vec::new();
-
-    for event in events.iter().rev() {
-        let Some(event_type) = event.get("type").and_then(|v| v.as_str()) else { continue };
-        if event_type != "m.room.message" {
-            continue; // skip membership/state/reaction events — text messages only for now
-        }
-        let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        if event_id.is_empty() || existing_ids.contains(&event_id) {
-            continue;
-        }
-        let body = event
-            .get("content")
-            .and_then(|c| c.get("body"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let sender = event.get("sender").and_then(|v| v.as_str()).unwrap_or_default();
-        let origin_ms = event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
-        let sent_at = chrono::DateTime::from_timestamp_millis(origin_ms)
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-
-        new_messages.push(super::Message {
-            id: event_id,
-            conversation_id: conversation_id.clone(),
-            body,
-            direction: if sender == session.user_id { super::MessageDirection::Outgoing } else { super::MessageDirection::Incoming },
-            sent_at,
-            read: false,
-        });
-    }
-
-    super::storage::add_many(&new_messages)?;
-
-    // Refresh the conversation's denormalized preview too — matches
-    // `messages_send`'s own convention of keeping it in sync on
-    // anything that adds a message, not just local sends.
-    if let Some(newest) = new_messages.last() {
-        let mut conversations = conversations;
-        if let Some(c) = conversations.iter_mut().find(|c| c.id == conversation_id) {
-            c.last_message_preview = newest.body.clone();
-            c.last_message_at = newest.sent_at.clone();
-        }
-        let _ = super::write_conversations(&conversations);
-    }
-
     Ok(super::storage::thread(&conversation_id))
 }
 
-/// `PUT /rooms/{id}/send/m.room.message/{txnId}` — the txn id just
-/// needs to be unique per-sender for idempotency (the spec's own
-/// retry-safety mechanism: resending the same txn id is a no-op),
-/// current-timestamp-plus-random is enough here, no persistent
-/// counter needed.
-pub async fn send_to_room(session: &MatrixSession, room_id: &str, body: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let txn_id = format!("bluemsg-{}-{}", chrono::Utc::now().timestamp_millis(), body.len());
-    let resp = client
-        .put(format!(
-            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
-            session.homeserver,
-            urlencoding_room_id(room_id),
-            txn_id
-        ))
-        .bearer_auth(&session.access_token)
-        .json(&serde_json::json!({ "msgtype": "m.text", "body": body }))
-        .send()
+/// Wysyła tekst do pokoju; zwraca id zdarzenia.
+pub async fn send_to_room(_session: &MatrixSession, room_id: &str, body: &str) -> Result<String, String> {
+    let c = client().await?;
+    let room = room_for(&c, room_id).await?;
+    let resp = room
+        .send(RoomMessageEventContent::text_plain(body))
         .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("Failed to send: {}", resp.status()));
-    }
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(json.get("event_id").and_then(|v| v.as_str()).unwrap_or_default().to_string())
+        .map_err(|e| format!("Nie udało się wysłać: {e}"))?;
+    Ok(resp.event_id.to_string())
 }
 
-pub fn get_session() -> Option<MatrixSession> {
-    read_session()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn homeserver_is_normalized() {
+        assert_eq!(normalize_homeserver("matrix.org").unwrap(), "https://matrix.org");
+        assert_eq!(normalize_homeserver(" https://example.com/ ").unwrap(), "https://example.com");
+        assert!(normalize_homeserver("  ").is_err());
+        assert!(normalize_homeserver("ftp://x").is_err());
+    }
+
+    #[test]
+    fn timestamps_convert() {
+        assert!(ms_to_rfc3339(0).starts_with("1970-01-01"));
+    }
+
+    #[test]
+    fn session_format_is_backward_compatible() {
+        let s: MatrixSession = serde_json::from_str(
+            r#"{"homeserver":"https://matrix.org","user_id":"@a:matrix.org","access_token":"t","device_id":"D"}"#,
+        )
+        .unwrap();
+        assert_eq!(s.user_id, "@a:matrix.org");
+    }
 }
