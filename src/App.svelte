@@ -6,7 +6,7 @@
   import {
     windows, visibleWindows, activeWindowId, currentWorkspace, workspaceCount,
     openApp, closeWindow, focusWindow, minimizeWindow, maximizeWindow, togglePiP,
-    moveWindow, resizeWindow, toggleWindowFromTaskbar, switchWorkspace,
+    moveWindow, resizeWindow, toggleWindowFromTaskbar, switchWorkspace, syncWorkspaceFromCompositor,
     startExternalWindowPolling, stopExternalWindowPolling,
     startParentalControlsUsageTracking, stopParentalControlsUsageTracking,
     externalWindows, getSwitcherItems,
@@ -37,7 +37,14 @@
   import ContextMenu from './lib/components/ContextMenu.svelte';
   import { installGlobalContextMenu } from './lib/utils/globalContextMenu';
   import WorkspaceSwitcher from './lib/components/WorkspaceSwitcher.svelte';
+  import HotCorners from './lib/components/HotCorners.svelte';
+  import { normalizeHotCorners, DEFAULT_HOT_CORNERS, type HotCornersConfig, type HotCornerSlot } from './lib/utils/hotCorners';
+  import { listen } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
   import DialogHost from './lib/components/DialogHost.svelte';
+  import ConflictDialog from './lib/components/ConflictDialog.svelte';
+  import TransferProgress from './lib/components/TransferProgress.svelte';
+  import { translate } from './lib/stores/language';
   import BlueFilePicker from './lib/components/BlueFilePicker.svelte';
   import ShellThemeStyle from './lib/components/ShellThemeStyle.svelte';
   import SystemThemeStyle from './lib/components/SystemThemeStyle.svelte';
@@ -165,6 +172,12 @@
 
   let isStartMenuOpen = false;
   let isStartMenuFullScreen = false;
+  let hotCornersCfg: HotCornersConfig = DEFAULT_HOT_CORNERS;
+  let superDoubleTapMs = 350;
+  let deviceNotifications = true;
+  let showTransferProgress = true;
+  let lastSuperTap = 0;
+  let cornerHandler: (slot: HotCornerSlot) => void = () => {};
   let isClipboardOpen = false;
   let isControlCenterOpen = false;
   let isNotificationsOpen = false;
@@ -264,6 +277,10 @@
       shellThemeId = cfg.shellThemeId;
       systemThemeId = cfg.systemThemeId;
       onscreenKeyboardEnabled = cfg.onscreenKeyboardEnabled ?? false;
+      hotCornersCfg = normalizeHotCorners(cfg.hotCorners);
+      deviceNotifications = cfg.deviceNotifications !== false;
+      showTransferProgress = cfg.showTransferProgress !== false;
+      superDoubleTapMs = typeof cfg.superDoubleTapMs === 'number' ? Math.min(800, Math.max(150, cfg.superDoubleTapMs)) : 350;
     });
     const unsubConfig = configStore.subscribe((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -276,17 +293,56 @@
       shellThemeId = cfg.shellThemeId;
       systemThemeId = cfg.systemThemeId;
       onscreenKeyboardEnabled = cfg.onscreenKeyboardEnabled ?? false;
+      hotCornersCfg = normalizeHotCorners(cfg.hotCorners);
+      deviceNotifications = cfg.deviceNotifications !== false;
+      showTransferProgress = cfg.showTransferProgress !== false;
+      superDoubleTapMs = typeof cfg.superDoubleTapMs === 'number' ? Math.min(800, Math.max(150, cfg.superDoubleTapMs)) : 350;
     });
 
     cleanupKeyboard = initKeyboardShortcuts({
       onToggleStartMenu: () => (isStartMenuOpen = !isStartMenuOpen),
       onOpenFullScreenMenu: () => { isStartMenuOpen = true; isStartMenuFullScreen = true; },
       onToggleControlCenter: () => (isControlCenterOpen = !isControlCenterOpen),
+      onSuperTap: () => superTap(),
       isSwitcherVisible: () => switcherVisible,
       switcherIndex: () => switcherIndex,
       setSwitcherVisible: (v) => (switcherVisible = v),
       setSwitcherIndex: (updater) => (switcherIndex = updater(switcherIndex)),
     });
+
+    // Win: pierwszy tap otwiera/zamyka menu; DRUGI tap w oknie czasowym
+    // (domyślnie 350 ms) rozwija je do pełnego ekranu ("Win + Win").
+    // Brak opóźnienia przy pierwszym tapie — menu pokazuje się od razu.
+    const superTap = () => {
+      const now = Date.now();
+      if (isStartMenuOpen && !isStartMenuFullScreen && now - lastSuperTap <= superDoubleTapMs) {
+        isStartMenuFullScreen = true;
+      } else if (isStartMenuOpen) {
+        isStartMenuOpen = false;
+        isStartMenuFullScreen = false;
+      } else {
+        isStartMenuOpen = true;
+        isStartMenuFullScreen = false;
+      }
+      lastSuperTap = now;
+    };
+    const runCornerAction = (slot: HotCornerSlot) => {
+      switch (slot.action) {
+        case 'start-menu': isStartMenuOpen = true; isStartMenuFullScreen = false; break;
+        case 'fullscreen-menu': isStartMenuOpen = true; isStartMenuFullScreen = true; break;
+        case 'show-desktop': showDesktop(); break;
+        case 'workspace-next': switchWorkspace(get(currentWorkspace) + 1); break;
+        case 'workspace-prev': switchWorkspace(get(currentWorkspace) - 1); break;
+        case 'window-switcher': stepSwitcher(1); setTimeout(() => { if (switcherVisible) { /* commit przy ruchu myszy */ } }, 0); break;
+        case 'control-center': isControlCenterOpen = !isControlCenterOpen; break;
+        case 'notifications': isNotificationsOpen = !isNotificationsOpen; break;
+        case 'lock': CompositorBridge.lockScreen(); break;
+        case 'screenshot': takeScreenshot(); break;
+        case 'terminal': openApp(AppId.TERMINAL); break;
+        case 'open-app': if (slot.appId) openApp(slot.appId); break;
+      }
+    };
+    cornerHandler = runCornerAction;
 
     const closePanels = () => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; };
     const toggleClip = () => (isClipboardOpen = !isClipboardOpen);
@@ -345,6 +401,10 @@
     const unlistenShell = CompositorBridge.onShellCommand((cmd, arg) => {
       switch (cmd) {
         case 'toggle-start-menu': isStartMenuOpen = !isStartMenuOpen; if (!isStartMenuOpen) isStartMenuFullScreen = false; break;
+        case 'super-tap': superTap(); break;
+        case 'workspace-sync': if (arg) syncWorkspaceFromCompositor(arg); break;
+        case 'workspace-next': switchWorkspace(get(currentWorkspace) + 1); break;
+        case 'workspace-prev': switchWorkspace(get(currentWorkspace) - 1); break;
         case 'fullscreen-menu': isStartMenuOpen = true; isStartMenuFullScreen = true; break;
         case 'toggle-control-center': isControlCenterOpen = !isControlCenterOpen; break;
         case 'toggle-notifications': isNotificationsOpen = !isNotificationsOpen; break;
@@ -359,6 +419,84 @@
         case 'open-app': if (arg) openApp(arg); break;
       }
     });
+
+    // ── Aktualizacje powłoki (shell_update.rs) ─────────────────────────────
+    // Ciche sprawdzanie w tle; użytkownik widzi coś dopiero, gdy jest nowa wersja.
+    const unlistenUpdAvail = listen<{ version: string; current: string }>('shell-update-available', (ev) => {
+      const v = ev.payload.version;
+      notificationManager.add({
+        title: translate('supd.n_avail_title'),
+        message: translate('supd.n_avail_msg', { v, c: ev.payload.current }),
+        appId: 'settings', icon: '',
+        actions: [{ label: translate('supd.n_ignore'), action: `shell-update:ignore:${v}` }, { label: translate('supd.n_update'), action: `shell-update:install:${v}` }],
+      });
+      window.dispatchEvent(new CustomEvent('blue:show-toast', { detail: { title: translate('supd.n_avail_title'), message: v } }));
+    });
+    const unlistenUpdStaged = listen<{ version: string }>('shell-update-staged', (ev) => {
+      notificationManager.add({
+        title: translate('supd.n_staged_title'),
+        message: translate('supd.n_staged_msg', { v: ev.payload.version }),
+        appId: 'settings', icon: '',
+      });
+    });
+    const onNotifAction = (e: Event) => {
+      const action = String((e as CustomEvent).detail?.action ?? '');
+      const m = action.match(/^shell-update:(ignore|install):(.+)$/);
+      if (!m) return;
+      if (m[1] === 'ignore') invoke('shell_update_ignore', { version: m[2] }).catch(() => {});
+      else invoke('shell_update_install', { version: m[2] }).catch((err) =>
+        notificationManager.add({ title: translate('supd.n_failed'), message: String(err), appId: 'settings', icon: '' }));
+    };
+    window.addEventListener('blue:notification-action', onNotifAction);
+
+    // ── Urządzenia (devices.rs): pendrive, dysk, karta SD, sprzęt USB ──────
+    // Jak „Powiadamianie o urządzeniach" w KDE: powiadomienie z akcjami
+    // Otwórz / Wysuń. Wyłączane w Ustawieniach → Urządzenia.
+    interface StorageEv { name: string; label: string; sizeBytes: number; fstype: string; mountpoint: string | null; model: string; vendor: string }
+    interface UsbEv { id: string; vendorId: string; productId: string; manufacturer: string; product: string; class: string }
+    const fmtSize = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${Math.round(b / 1e6)} MB` : '');
+    const unlistenStorageAdd = listen<StorageEv>('device:storage-added', (ev) => {
+      if (!deviceNotifications) return;
+      const d = ev.payload;
+      const title = d.label || [d.vendor, d.model].filter(Boolean).join(' ') || d.name;
+      const detail = [fmtSize(d.sizeBytes), d.fstype].filter(Boolean).join(' · ');
+      notificationManager.add({
+        title: translate('device.storage_title'),
+        message: detail ? `${title} (${detail})` : title,
+        appId: 'explorer', icon: '',
+        actions: [{ label: translate('device.open'), action: `device:open:${d.name}:${title}` }, { label: translate('device.eject'), action: `device:eject:${d.name}:${title}` }],
+      });
+      window.dispatchEvent(new CustomEvent('blue:show-toast', { detail: { title: translate('device.storage_title'), message: title } }));
+    });
+    const unlistenStorageRemoved = listen<{ name: string }>('device:storage-removed', (ev) => {
+      if (!deviceNotifications) return;
+      window.dispatchEvent(new CustomEvent('blue:show-toast', { detail: { title: translate('device.removed'), message: ev.payload.name } }));
+    });
+    const unlistenUsbAdd = listen<UsbEv>('device:usb-added', (ev) => {
+      const d = ev.payload;
+      // Pamięć masowa (klasa 08) dostaje własne powiadomienie z akcjami (storage-added).
+      if (!deviceNotifications || d.class === '08') return;
+      const name = [d.manufacturer, d.product].filter(Boolean).join(' ') || `${d.vendorId}:${d.productId}`;
+      notificationManager.add({ title: translate('device.usb_title'), message: name, appId: 'settings', icon: '' });
+      window.dispatchEvent(new CustomEvent('blue:show-toast', { detail: { title: translate('device.usb_title'), message: name } }));
+    });
+    const onDeviceAction = async (e: Event) => {
+      const m = String((e as CustomEvent).detail?.action ?? '').match(/^device:(open|eject):([A-Za-z0-9]+):?(.*)$/);
+      if (!m) return;
+      const [, kind, dev, title] = m;
+      try {
+        if (kind === 'open') {
+          const mountpoint = await invoke<string>('device_mount', { name: dev });
+          openApp(AppId.EXPLORER, false, undefined, { initialPath: mountpoint }, title || dev);
+        } else {
+          await invoke('device_eject', { name: dev });
+          notificationManager.add({ title: translate('device.ejected'), message: title || dev, appId: 'explorer', icon: '' });
+        }
+      } catch (err) {
+        notificationManager.add({ title: translate(kind === 'open' ? 'device.mount_failed' : 'device.eject_failed'), message: String(err), appId: 'explorer', icon: '' });
+      }
+    };
+    window.addEventListener('blue:notification-action', onDeviceAction);
 
     // Shell overlays are drawn by the shell, which on every native backend sits beneath
     // native windows — tuck those away while any overlay is open.
@@ -378,6 +516,13 @@
 
     return () => {
       unlistenShell.then((f) => f());
+      unlistenUpdAvail.then((f) => f());
+      unlistenStorageAdd.then((f) => f());
+      unlistenStorageRemoved.then((f) => f());
+      unlistenUsbAdd.then((f) => f());
+      window.removeEventListener('blue:notification-action', onDeviceAction);
+      unlistenUpdStaged.then((f) => f());
+      window.removeEventListener('blue:notification-action', onNotifAction);
       unlistenLaunchFailed.then((f) => f());
       unsubOverlayPeek();
       unsubConfig();
@@ -550,6 +695,7 @@
   {/each}
 
   <WindowSwitcher windows={switcherItems} selectedIndex={switcherIndex} isVisible={switcherVisible} />
+  <HotCorners config={hotCornersCfg} on:trigger={(e) => cornerHandler(e.detail)} />
   <WorkspaceSwitcher currentWorkspace={$currentWorkspace} workspaceCount={$workspaceCount} {windowCounts} />
 
   <ControlCenter isOpen={isControlCenterOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:openSettings={() => { openApp(AppId.SETTINGS); isControlCenterOpen = false; }} />
@@ -569,6 +715,8 @@
   <ToastContainer />
   <ContextMenu />
   <DialogHost />
+  <ConflictDialog />
+  <TransferProgress enabled={showTransferProgress} />
   <BlueFilePicker />
   <OnscreenKeyboard bind:visible={onscreenKeyboardVisible} />
 </div>
