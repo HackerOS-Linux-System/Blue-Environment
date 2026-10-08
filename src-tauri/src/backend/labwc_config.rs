@@ -204,6 +204,10 @@ const MERGED_KEYBINDS_MARKER_END: &str = "<!-- BLUE-ENVIRONMENT:MERGED-KEYBINDS:
 /// it.
 fn keybinds_snippet(params: &Params) -> String {
     let block = r#"    <keybind key="W-space"><action name="Execute" command="@CTL@ --ctl toggle-start-menu"/></keybind>
+    <keybind key="Super_L" onRelease="yes"><action name="Execute" command="@CTL@ --ctl super-tap"/></keybind>
+    <keybind key="Super_R" onRelease="yes"><action name="Execute" command="@CTL@ --ctl super-tap"/></keybind>
+    <keybind key="W-Tab"><action name="GoToDesktop" to="right" wrap="yes"/><action name="Execute" command="@CTL@ --ctl workspace-sync next"/></keybind>
+    <keybind key="W-S-Tab"><action name="GoToDesktop" to="left" wrap="yes"/><action name="Execute" command="@CTL@ --ctl workspace-sync prev"/></keybind>
     <keybind key="A-Tab">
       <action name="If">
         <query identifier="*blue*environment*"/>
