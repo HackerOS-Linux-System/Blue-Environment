@@ -90,8 +90,12 @@ fn update_item(id: &str, f: impl FnOnce(&mut DownloadItem)) {
 /// refined later from the response's `Content-Disposition` header if
 /// the server sends one (see `run_download`).
 fn filename_from_url(url: &str) -> String {
-    url.split('?').next().unwrap_or(url)
-        .rsplit('/')
+    // Odetnij zapytanie i fragment, potem schemat+host — inaczej dla
+    // "https://example.com" ostatnim segmentem byłaby nazwa hosta.
+    let no_query = url.split(['?', '#']).next().unwrap_or(url);
+    let after_scheme = no_query.split_once("://").map(|(_, rest)| rest).unwrap_or(no_query);
+    let path = after_scheme.split_once('/').map(|(_, p)| p).unwrap_or("");
+    path.rsplit('/')
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("download")
