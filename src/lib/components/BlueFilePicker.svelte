@@ -9,6 +9,7 @@
    */
   import { activeFilePicker, closeFilePicker } from '../stores/filePicker';
   import { SystemBridge } from '../utils/systemBridge';
+  import { transferWithDialog, createWithDialog, renameWithDialog } from '../utils/fileTransfer';
   import { configStore } from '../utils/configStore';
   import { BOOKMARKS } from './apps/Explorer-App/types';
   import type { FileEntry } from './apps/Explorer-App/types';
@@ -292,7 +293,7 @@
   async function newFolder() {
     const name = await dialogPrompt({ title: 'Nowy folder', placeholder: 'Nowy folder', defaultValue: 'Nowy folder', confirmLabel: 'Utwórz' });
     if (!name?.trim()) return;
-    try { await SystemBridge.createFolder(currentPath, name.trim()); await load(); } catch { /* best effort */ }
+    try { if (await createWithDialog(currentPath, name.trim(), 'folder')) await load(); } catch { /* best effort */ }
   }
 
   // ── Rename / delete directly from the picker — previously only
@@ -304,12 +305,9 @@
     const file = selectedEntries[0];
     const newName = await dialogPrompt({ title: 'Zmień nazwę', defaultValue: file.name, confirmLabel: 'Zapisz' });
     if (!newName?.trim() || newName.trim() === file.name) return;
-    const dir = file.path.slice(0, file.path.lastIndexOf('/')) || '/';
-    const newPath = `${dir}/${newName.trim()}`.replace(/\/+/g, '/');
     try {
-      await SystemBridge.moveFile(file.path, newPath);
-      selectedPaths = new Set([newPath]);
-      await load();
+      const done = await renameWithDialog(file.path, newName.trim(), !!file.is_dir);
+      if (done) { selectedPaths = new Set([done]); await load(); }
     } catch { /* best effort */ }
   }
   async function deleteSelected() {
@@ -356,12 +354,8 @@
     if (!raw) return;
     let paths: string[] = [];
     try { paths = JSON.parse(raw); } catch { return; }
-    for (const p of paths) {
-      if (p === targetDir) continue;
-      const name = p.split('/').pop();
-      const dest = `${targetDir}/${name}`.replace(/\/+/g, '/');
-      try { await SystemBridge.moveFile(p, dest); } catch { /* best effort */ }
-    }
+    const movable = paths.filter((p) => p !== targetDir);
+    if (movable.length) { try { await transferWithDialog(movable, targetDir, 'move'); } catch { /* best effort */ } }
     selectedPaths = new Set();
     await load();
   }
