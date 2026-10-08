@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter};
 
 pub mod git;
+pub mod lsp_client;
 
 #[derive(Serialize)]
 pub struct LspResult {
@@ -118,11 +119,15 @@ pub fn start_language_server(app: AppHandle, language: String, root_path: String
             let event_name = format!("lsp-message-{key}");
             let closed_event_name = format!("lsp-closed-{key}");
             let app_for_reader = app.clone();
+            let key_for_reader = key.clone();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 loop {
                     match read_one_lsp_message(&mut reader) {
                         Ok(Some(msg)) => {
+                            // Warstwa protokołu (lsp_client.rs): odpowiedzi → oczekujące żądania,
+                            // diagnostyki → zdarzenie, żądania serwera → odpowiedź.
+                            lsp_client::on_message(&app_for_reader, &key_for_reader, &msg);
                             let _ = app_for_reader.emit(&event_name, msg);
                         }
                         Ok(None) => break, // EOF or unrecoverable frame — server is done
@@ -133,6 +138,7 @@ pub fn start_language_server(app: AppHandle, language: String, root_path: String
                 // ended (crash, clean exit, or unreadable pipe) so it
                 // can stop waiting on any still-pending requests instead
                 // of hanging forever.
+                lsp_client::drop_session(&key_for_reader);
                 let _ = app_for_reader.emit(&closed_event_name, ());
             });
 
@@ -147,6 +153,7 @@ pub fn start_language_server(app: AppHandle, language: String, root_path: String
 pub fn stop_language_server(language: String, root_path: String) -> bool {
     let key = format!("{}::{}", language, root_path);
     if let Some(mut proc) = LSP_PROCESSES.lock().unwrap().remove(&key) {
+        lsp_client::drop_session(&key);
         let _ = proc.child.kill();
         true
     } else {
@@ -158,16 +165,22 @@ pub fn stop_language_server(language: String, root_path: String) -> bool {
 /// framed. `message` should already be a well-formed JSON-RPC 2.0
 /// object (built by the frontend's `lspClient.ts`) — see this module's
 /// doc comment on why framing/transport and protocol are kept separate.
-#[tauri::command(async)]
-pub fn lsp_send_message(language: String, root_path: String, message: Value) -> Result<(), String> {
-    let key = format!("{}::{}", language, root_path);
+/// Zapis jednej wiadomości JSON-RPC (ramka `Content-Length`) na stdin serwera `key`.
+pub(crate) fn send_raw(key: &str, message: &Value) -> Result<(), String> {
     let mut procs = LSP_PROCESSES.lock().unwrap();
-    let proc = procs.get_mut(&key).ok_or_else(|| format!("no running language server for {key}"))?;
-    let body = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+    let proc = procs.get_mut(key).ok_or_else(|| format!("no running language server for {key}"))?;
+    let body = serde_json::to_vec(message).map_err(|e| e.to_string())?;
     let header = format!("Content-Length: {}\r\n\r\n", body.len());
     proc.stdin.write_all(header.as_bytes()).map_err(|e| e.to_string())?;
     proc.stdin.write_all(&body).map_err(|e| e.to_string())?;
     proc.stdin.flush().map_err(|e| e.to_string())
+}
+
+/// Surowy zapis wiadomości (zapas dla niestandardowych rozszerzeń LSP);
+/// standardowe operacje mają typowane komendy w `lsp_client.rs`.
+#[tauri::command(async)]
+pub fn lsp_send_message(language: String, root_path: String, message: Value) -> Result<(), String> {
+    send_raw(&format!("{}::{}", language, root_path), &message)
 }
 
 #[tauri::command(async)]
