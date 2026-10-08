@@ -96,6 +96,7 @@
     [AppId.BLUE_SOFTWARE]: ['System'], [AppId.CAMERA]: ['Graphics'],
     [AppId.BLUE_PARTITION_MANAGER]: ['System'],
     [AppId.BLUE_PLAY]: ['Games'],
+    [AppId.BLUE_CONTAINERS]: ['System'], [AppId.BLUE_STUDIO]: ['Multimedia'], [AppId.BLUE_ENGINE]: ['Development'],
     [AppId.BLUE_TRANSLATE]: ['Utility'],
     [AppId.BLUE_TASKS]: ['Office'], [AppId.BLUE_CALENDAR]: ['Office'],
     [AppId.BLUE_NOTIFICATIONS]: ['Utility'], [AppId.BLUE_EMOJI]: ['Utility'],
