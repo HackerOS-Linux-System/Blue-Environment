@@ -8,6 +8,16 @@ mod backend;
 mod logging;
 
 mod session;
+mod session_control;
+mod shell_update;
+#[path = "BlueContainers/mod.rs"]
+mod blue_containers;
+#[path = "BlueStudio/mod.rs"]
+mod blue_studio;
+#[path = "BlueEngine/mod.rs"]
+mod blue_engine;
+mod packagekit;
+mod devices;
 mod cache;
 mod apps;
 mod window_tracker;
@@ -275,8 +285,17 @@ fn main() {
         blue_accounts::accounts_add_entry, blue_accounts::accounts_update_entry, blue_accounts::accounts_delete_entry,
         blue_accounts::accounts_change_master_password, blue_accounts::accounts_generate_password,
         blue_virt::bv_is_kvm_available, blue_virt::bv_list_vms, blue_virt::bv_create_vm,
+        blue_virt::libvirt::lv_compiled_in, blue_virt::libvirt::lv_list, blue_virt::libvirt::lv_action,
         blue_virt::bv_delete_vm, blue_virt::bv_start_vm, blue_virt::bv_stop_vm,
         blue_screenshot::take_screenshot, blue_screenshot::default_screenshot_path, get_wallpapers, get_wallpaper_preview, get_wallpaper_data_url, resolve_default_wallpaper, load_distro_info, system_power,
+        shell_update::shell_update_state, shell_update::shell_update_set_auto, shell_update::shell_update_ignore, shell_update::shell_update_check_now, shell_update::shell_update_install,
+        blue_containers::containers_status, blue_containers::containers_list, blue_containers::containers_action, blue_containers::containers_logs, blue_containers::containers_images, blue_containers::containers_pull_image, blue_containers::containers_remove_image, blue_containers::distrobox_list, blue_containers::distrobox_create, blue_containers::distrobox_enter, blue_containers::distrobox_remove, blue_containers::distrobox_upgrade,
+        blue_studio::studio_check, blue_studio::studio_probe, blue_studio::studio_thumbnail, blue_studio::studio_export,
+        blue_engine::engine_generate, blue_engine::engine_save_project, blue_engine::engine_load_project, blue_engine::engine_build, blue_engine::engine_run,
+        BlueDocs::office::docs_read_spreadsheet,
+        packagekit::pk_available, packagekit::pk_search, packagekit::pk_get_updates, packagekit::pk_refresh_cache, packagekit::pk_install, packagekit::pk_remove, packagekit::pk_update,
+        blue_code_app::lsp_client::lsp_initialize, blue_code_app::lsp_client::lsp_did_open, blue_code_app::lsp_client::lsp_did_change, blue_code_app::lsp_client::lsp_did_close, blue_code_app::lsp_client::lsp_hover, blue_code_app::lsp_client::lsp_completion, blue_code_app::lsp_client::lsp_definition, packagekit::pk_install_name, packagekit::pk_remove_name, packagekit::pk_update_name,
+        devices::device_mount, devices::device_eject,
         get_audio_sinks, set_sink_volume, set_default_sink, toggle_sink_mute, set_volume,
         get_wifi_networks_real, connect_wifi_real, disconnect_wifi, toggle_wifi, get_wifi_radio_enabled,
         get_saved_wifi_connections, forget_wifi_network, rename_saved_wifi_connection,
@@ -286,6 +305,7 @@ fn main() {
         set_brightness,
         save_config, load_config, save_window_state, load_window_state,
         exploler_app::read_file_as_data_url, exploler_app::trash::move_to_trash, exploler_app::trash::list_trash, exploler_app::trash::restore_from_trash, exploler_app::trash::delete_from_trash, exploler_app::trash::empty_trash, exploler_app::trash::trash_item_count, exploler_app::trash::get_trash_path, exploler_app::compress_files, exploler_app::extract_archive_here, exploler_app::get_open_with_apps, exploler_app::open_with_app, exploler_app::get_file_details, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
+        exploler_app::transfer::fm_check_conflicts, exploler_app::transfer::fm_transfer, exploler_app::transfer::fm_job_control, exploler_app::transfer::fm_exists, exploler_app::transfer::fm_create, exploler_app::transfer::fm_rename,
         execute_command, pty_create, pty_write, pty_resize, pty_close, spawn_terminal, write_to_terminal,
         exploler_app::get_default_desktop_path, exploler_app::create_text_file, exploler_app::get_username, exploler_app::get_hostname, exploler_app::get_home_path,
         get_clipboard_history, add_to_clipboard_history, clear_clipboard_history,
@@ -433,6 +453,15 @@ fn main() {
             }
             let _ = ipc_handle.emit("shell:command", serde_json::json!({ "cmd": cmd, "arg": arg }));
         });
+
+        // Ciche aktualizacje powłoki w tle (patrz shell_update.rs): użytkownik
+        // widzi coś dopiero, gdy jest nowa wersja.
+        shell_update::spawn_background_checker(app.handle().clone());
+        // Powiadomienia o podłączeniu urządzeń (USB, dyski, karty SD).
+        devices::spawn_monitor(app.handle().clone());
+        // Blue Messages: odbiór na żywo działa od startu, bez ponownego logowania.
+        blue_messages_app::xmpp::start_background(app.handle().clone());
+        blue_messages_app::matrix::start_background_sync(app.handle().clone());
 
         if backend::is_native() {
             // ── Native backend (labwc / sway / wayfire): everything is
