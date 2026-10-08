@@ -279,13 +279,11 @@ pub fn load_distro_info() -> std::collections::HashMap<String, String> {
 
 #[tauri::command(async)]
 pub fn system_power(action: String) {
-    // Log out on the labwc backend: ask labwc to exit (`labwc -e`) — that
-    // ends the whole session cleanly instead of `pkill`-ing the user.
-    if action == "logout" && crate::backend::is_native() {
-        std::thread::spawn(|| {
-            crate::backend::shell_ipc::cleanup();
-            crate::backend::exit_compositor();
-        });
+    // Wylogowanie zawsze przez session_control: łagodne zamknięcie
+    // kompozytora + loginctl terminate-session, żeby SDDM wrócił do greetera
+    // (wcześniej: czarny ekran, bo procesy powłoki zostawały w sesji).
+    if action == "logout" {
+        crate::session_control::logout_async();
         return;
     }
     let cmd = match action.as_str() {
@@ -294,7 +292,6 @@ pub fn system_power(action: String) {
         // classic binaries as fallback on systems without systemd.
         "shutdown"  => "systemctl poweroff || shutdown -h now || poweroff",
         "reboot"    => "systemctl reboot || reboot",
-        "logout"    => "pkill -u $(whoami)",
         "suspend"   => "systemctl suspend",
         "hibernate" => "systemctl hibernate",
         // For a shell theme change (see ThemesApp/mod.rs's module doc) —
