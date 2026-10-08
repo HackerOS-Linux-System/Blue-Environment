@@ -10,6 +10,8 @@ export interface ShortcutCallbacks {
   onToggleStartMenu: () => void;
   onOpenFullScreenMenu: () => void;
   onToggleControlCenter: () => void;
+  /** Samo dotknięcie Win (bez innego klawisza): menu / pełnoekranowe menu przy podwójnym tapie. */
+  onSuperTap: () => void;
   isSwitcherVisible: () => boolean;
   switcherIndex: () => number;
   setSwitcherVisible: (v: boolean) => void;
@@ -82,7 +84,12 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
 
     if (key === 'Meta') return;
 
-    if (meta && key === 'Tab') { e.preventDefault(); e.stopPropagation(); cb.onOpenFullScreenMenu(); return; }
+    // Win+Tab / Win+Shift+Tab: prawdziwe przełączanie pulpitów (kompozytor + powłoka).
+    if (meta && key === 'Tab') {
+      e.preventDefault(); e.stopPropagation();
+      switchWorkspace(get(currentWorkspace) + (shift ? -1 : 1));
+      return;
+    }
 
     if (meta && /^[1-9]$/.test(key)) {
       e.preventDefault();
@@ -124,7 +131,7 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
 
     if (key === 'Meta') {
       const nonModifiers = [...heldKeys].filter((k) => !['Shift', 'Control', 'Alt', 'Meta'].includes(k));
-      if (nonModifiers.length === 0) cb.onToggleStartMenu();
+      if (nonModifiers.length === 0) cb.onSuperTap();
     }
   }
 
