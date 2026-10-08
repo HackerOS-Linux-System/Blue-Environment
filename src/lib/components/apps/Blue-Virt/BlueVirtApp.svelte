@@ -8,6 +8,8 @@
   import { onMount } from 'svelte';
   import { Plus, Play, Square, Trash2, MonitorPlay, Loader2, Cpu, HardDrive, X, Info, Zap, ZapOff } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
+  import { invoke } from '@tauri-apps/api/core';
+  import { Pause, RotateCw, Power } from 'lucide-svelte';
   import LoadingSpinner from '../../LoadingSpinner.svelte';
   import type { VmSummary, OsType } from './types';
   import { OS_TYPE_LABELS } from './types';
@@ -33,11 +35,39 @@
     vms = await SystemBridge.bvListVms();
   }
 
+  // ── libvirt (src-tauri/src/BlueVirt/libvirt.rs) ─────────────────────────
+  // Domeny zarządzane przez libvirt (te same, które widzi virt-manager/virsh).
+  // Sekcja pojawia się tylko, gdy powłoka zbudowano z cechą `libvirt`.
+  interface LvDomain { name: string; uuid: string; state: string; memoryMb: number; vcpus: number; autostart: boolean }
+  let lvAvailable = false;
+  let lvUri: 'qemu:///session' | 'qemu:///system' = 'qemu:///session';
+  let lvDomains: LvDomain[] = [];
+  let lvError: string | null = null;
+  let lvBusy: string | null = null;
+
+  async function lvRefresh() {
+    lvError = null;
+    try { lvDomains = await invoke<LvDomain[]>('lv_list', { uri: lvUri }); }
+    catch (e) { lvDomains = []; lvError = String(e); }
+  }
+  async function lvAct(name: string, action: 'start' | 'shutdown' | 'destroy' | 'reboot' | 'suspend' | 'resume') {
+    lvBusy = name;
+    lvError = null;
+    try { await invoke('lv_action', { uri: lvUri, name, action }); }
+    catch (e) { lvError = String(e); }
+    lvBusy = null;
+    await lvRefresh();
+  }
+  const lvStateClass = (st: string) =>
+    st === 'running' ? 'bg-emerald-600/20 text-emerald-400' : st === 'paused' || st === 'suspended' ? 'bg-amber-600/20 text-amber-400' : 'bg-slate-700/50 text-slate-400';
+
   onMount(async () => {
     loading = true;
     try {
       kvmAvailable = await SystemBridge.bvIsKvmAvailable();
       await refresh();
+      lvAvailable = await invoke<boolean>('lv_compiled_in').catch(() => false);
+      if (lvAvailable) await lvRefresh();
     } finally {
       loading = false;
     }
@@ -164,6 +194,48 @@
             </div>
           </div>
         {/each}
+      </div>
+    {/if}
+
+    {#if lvAvailable}
+      <div class="mt-6">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-medium text-xs uppercase tracking-wide text-slate-400">libvirt</h2>
+          <div class="flex items-center gap-2">
+            <select bind:value={lvUri} on:change={lvRefresh} class="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs outline-none">
+              <option value="qemu:///session">User session</option>
+              <option value="qemu:///system">System</option>
+            </select>
+            <button on:click={lvRefresh} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs">Refresh</button>
+          </div>
+        </div>
+        {#if lvError}<div class="text-xs text-red-400 mb-2">{lvError}</div>{/if}
+        {#if lvDomains.length === 0 && !lvError}
+          <p class="text-xs text-slate-500">No libvirt domains in this connection.</p>
+        {/if}
+        <div class="grid grid-cols-2 gap-3">
+          {#each lvDomains as d (d.uuid || d.name)}
+            <div class="rounded-xl border border-white/10 bg-slate-900/60 p-3 flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="font-medium truncate">{d.name}</span>
+                <span class="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 {lvStateClass(d.state)}">{d.state}</span>
+              </div>
+              <div class="text-[11px] text-slate-500 flex items-center gap-1"><Cpu class="w-3 h-3" /> {d.vcpus} vCPU · {(d.memoryMb / 1024).toFixed(1)}GB RAM{d.autostart ? ' · autostart' : ''}</div>
+              <div class="flex gap-1.5 mt-1">
+                {#if d.state === 'running'}
+                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'shutdown')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs disabled:opacity-50"><Power class="w-3.5 h-3.5" /> Shut down</button>
+                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'suspend')} title="Pause" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><Pause class="w-3.5 h-3.5" /></button>
+                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'reboot')} title="Reboot" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><RotateCw class="w-3.5 h-3.5" /></button>
+                  <button disabled={lvBusy === d.name} on:click={() => confirm(`Force off ${d.name}?`) && lvAct(d.name, 'destroy')} title="Force off" class="px-2 rounded bg-red-600/20 hover:bg-red-500/30 text-red-400 disabled:opacity-50"><Square class="w-3.5 h-3.5" /></button>
+                {:else if d.state === 'paused' || d.state === 'suspended'}
+                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'resume')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Resume</button>
+                {:else}
+                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'start')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Start</button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
