@@ -26,6 +26,9 @@ export enum AppId {
   BLUE_PLAY = 'blue_play',
   BLUE_CALENDAR = 'blue_calendar',
   BLUE_TASKS = 'blue_tasks',
+  BLUE_CONTAINERS = 'blue_containers',
+  BLUE_STUDIO = 'blue_studio',
+  BLUE_ENGINE = 'blue_engine',
   BLUE_NOTIFICATIONS = 'blue_notifications',
   BLUE_WELCOME = 'blue_welcome',
   BLUE_EMOJI = 'blue_emoji',
@@ -177,6 +180,16 @@ export interface UserConfig {
   weatherUnit?: 'celsius' | 'fahrenheit';
   clipboardHoverPreviewEnabled?: boolean;
   networkHoverInfoEnabled?: boolean;
+  /** Pełne dostosowanie paska — patrz utils/topBarConfig.ts. */
+  topBar?: Partial<import('./utils/topBarConfig').TopBarConfig>;
+  /** Aktywne narożniki ekranu — patrz utils/hotCorners.ts. */
+  hotCorners?: Partial<import('./utils/hotCorners').HotCornersConfig>;
+  /** Czas (ms) na drugie dotknięcie Win, by otworzyć pełnoekranowe menu. */
+  superDoubleTapMs?: number;
+  /** Powiadomienia o podłączeniu urządzeń (domyślnie włączone). */
+  deviceNotifications?: boolean;
+  /** Okno postępu kopiowania/przenoszenia (domyślnie włączone). */
+  showTransferProgress?: boolean;
   /** App IDs pinned to the center of the panel. Previously only settable
    * by hand-editing the config file — now has real Settings UI (see
    * PanelSection.svelte). */
