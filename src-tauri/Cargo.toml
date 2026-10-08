@@ -1,10 +1,10 @@
 [package]
 name = "blue-environment"
-version = "0.8.0"
+version = "0.9.0"
 description = "Blue Environment Desktop Shell"
 authors = ["HackerOS Team <hackeros068@gmail.com>"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.88"
 
 [[bin]]
 name = "blue-environment"
@@ -102,22 +102,10 @@ rand                           = "0.8"
 # wasn't, which is exactly what produced the "cannot find crate
 # `thiserror`" build error this comment is now next to).
 thiserror                      = "1"
-# `argon2`'s `password-hash` dependency chain transitively pulls
-# `base64ct`, whose 1.7+ releases require Cargo's `edition2024` feature
-# (stable only on Rust 1.85+ — this project otherwise only needs
-# edition 2021). Declaring it directly here, pinned to the last 1.6.x
-# release, makes Cargo's resolver unify the whole dependency graph onto
-# that version instead of whatever `argon2`'s own loose `^1.0`-style
-# constraint would otherwise resolve to on a fresh `cargo update`. Not
-# used directly by any of this crate's own code — this entry exists
-# purely to pin a transitive dependency's version.
-base64ct                       = "=1.6.0"
 sha2                           = "0.10"
 blue-auth                      = { path = "../auth" }
 chrono                         = { version = "0.4", features = ["serde"] }
 urlencoding                    = "2"
-# Inherit workspace pin (time =0.3.36) — cookie 0.18 needs the 1-arg parse API
-time                           = { workspace = true }
 uuid                           = { version = "1", features = ["v4"] }
 glob                           = "0.3"
 base64                         = "0.21"
@@ -129,6 +117,22 @@ reqwest                        = { version = "0.12", features = ["json", "stream
 # `StreamExt::next()` is what actually drives it item-by-item in a
 # plain `while let` loop.
 futures-util                   = { version = "0.3", default-features = false }
+# Blue Containers: klient API Docker/Podman (zamiast pisania go od zera).
+# Blue Code: Git przez libgit2 zamiast procesu `git` + parsowania tekstu.
+git2                           = { version = "0.19", default-features = false }
+# Blue Docs: arkusze (calamine) i Word (docx-rs) bez pandoc/pythona.
+virt                           = { version = "0.4", optional = true }
+# Blue Messages: gotowe klienty protokołów zamiast ręcznego HTTP/XML/SCRAM.
+matrix-sdk                     = { version = "0.16", default-features = false, features = ["rustls-tls"] }
+tokio-xmpp                     = { version = "6", default-features = false, features = ["direct-tls", "starttls", "ring", "rustls-native-certs"] }
+xmpp-parsers                   = "0.23"
+# Blue Code: typy LSP zamiast ręcznego JSON-a.
+lsp-types                      = "0.97"
+calamine                       = "0.26"
+docx-rs                        = "0.4"
+bollard                        = "0.18"
+# Blue Studio: uruchamianie ffmpeg i zdarzenia postępu.
+ffmpeg-sidecar                 = { version = "2", default-features = false }
 once_cell                      = "1"
 linicon                         = "2.3.0"
 walkdir                        = "2"
@@ -148,23 +152,6 @@ sysinfo                        = "0.30"
 # `Command::new(...).output()` calls elsewhere — not the async
 # `tokio-native-tls` wrapper, since xmpp.rs's commands aren't `async`.
 native-tls                     = "0.2"
-# Real streaming XML parser for Blue Messages' XMPP client (see
-# BlueMessagesApp/xml_stream.rs) — replaces the previous pragmatic
-# "scan the buffer for a substring" approach, which could stall on a
-# stanza split unluckily across TCP packets. `quick-xml`'s `Reader`
-# does incremental/pull parsing directly off a blocking `Read`, so it
-# naturally keeps blocking for more bytes mid-tag/mid-stanza instead of
-# needing this project's own buffering logic to get that right.
-quick-xml                      = { version = "0.36", default-features = false }
-# RFC 5802 SCRAM-SHA-1/SCRAM-SHA-256 for XMPP auth (see
-# BlueMessagesApp/scram.rs) — added alongside the existing SASL PLAIN
-# path so servers that only offer SCRAM (increasingly common; some
-# public servers disable PLAIN outright even over TLS) can still log
-# in. `hmac`/`pbkdf2`/`sha1` are the exact three primitives RFC 5802
-# composes; `sha2` (already a dependency) covers the SHA-256 variant.
-hmac                           = "0.12"
-pbkdf2                         = { version = "0.12", default-features = false, features = ["hmac"] }
-sha1                           = "0.10"
 # ModemManager D-Bus client for Blue Messages' SMS channel (see
 # BlueMessagesApp/sms.rs). `zbus` is pure-Rust (no `libdbus` headers
 # needed at build time, unlike the `dbus` crate), which matters here
@@ -265,6 +252,8 @@ objc2-web-kit = "0.2"
 block2 = "0.5"
 
 [features]
+# Blue Virt: backend libvirt (wymaga libvirt-dev przy budowie i libvirt.so w czasie działania).
+libvirt         = ["dep:virt"]
 custom-protocol = ["tauri/custom-protocol"]
 default         = ["custom-protocol"]
 
