@@ -1,3 +1,4 @@
+import { SPREADSHEET_EXTS, rowsToCsv, sheetDocName, type SheetData } from './spreadsheetImport';
 import { writable, get } from 'svelte/store';
 import type { DocFile, DocFormat } from './types';
 import { emptyPresentation } from './types';
@@ -146,6 +147,21 @@ export function createDocumentState() {
       const name = path.split('/').pop() ?? 'Untitled';
       const ext = name.split('.').pop()?.toLowerCase() ?? '';
       const format: DocFormat = ext === 'md' ? 'markdown' : ext === 'csv' || ext === 'xlsx' ? 'spreadsheet' : ext === 'pptx' ? 'presentation' : 'rich';
+
+      // Skoroszyty Excel/ODS: odczyt przez backend (calamine), każdy arkusz → osobny dokument CSV.
+      // Bez `path`, żeby „Zapisz" nie wpisał CSV do pliku .xlsx — użytkownik wybiera „Zapisz jako".
+      if (SPREADSHEET_EXTS.has(ext)) {
+        const sheets = await SystemBridge.invokeCommand<SheetData[]>('docs_read_spreadsheet', { path });
+        if (!sheets?.length) throw new Error('Skoroszyt jest pusty');
+        const stamp = Date.now();
+        const opened: DocFile[] = sheets.map((sh, i) => ({
+          id: `doc-${stamp}-${i}`, name: sheetDocName(name, sh.name, sheets.length), format: 'spreadsheet' as DocFormat,
+          content: rowsToCsv(sh.rows), path: undefined, modified: false, created: new Date(), updated: new Date(),
+        }));
+        docs.update((ds) => [...ds, ...opened]);
+        activeId.set(opened[0].id);
+        return;
+      }
 
       let content = '';
       if (ext === 'docx') {
