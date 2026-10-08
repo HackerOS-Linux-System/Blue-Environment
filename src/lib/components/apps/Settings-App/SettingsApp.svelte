@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import {
+  import { HardDrive,
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
     Sparkles, Puzzle, Layers, Clock, Keyboard, Copy, FileCog,
@@ -19,6 +19,10 @@
   import NetworkSection from './sections/NetworkSection.svelte';
   import PowerSection from './sections/PowerSection.svelte';
   import PanelSection from './sections/PanelSection.svelte';
+  import BarSection from './sections/BarSection.svelte';
+  import HotCornersSection from './sections/HotCornersSection.svelte';
+  import ShellUpdatesSection from './sections/ShellUpdatesSection.svelte';
+  import DevicesSection from './sections/DevicesSection.svelte';
   import WeatherSection from './sections/WeatherSection.svelte';
   import LanguageSection from './sections/LanguageSection.svelte';
   import NightLightSection from './sections/NightLightSection.svelte';
@@ -36,7 +40,7 @@
   import PrintersSection from '../../settings/PrintersSection.svelte';
   import UsersSection from '../../settings/UsersSection.svelte';
 
-  interface TabEntry { id: SettingsTab; labelKey: string; icon: any; group: 'Appearance' | 'Network' | 'System' | 'Hardware' | 'Account'; }
+  interface TabEntry { id: SettingsTab; labelKey: string; label?: string; icon: any; group: 'Appearance' | 'Network' | 'System' | 'Hardware' | 'Account'; }
 
   const TABS: TabEntry[] = [
     { id: 'display', labelKey: 'settings.tab.display', icon: ImageIcon, group: 'Appearance' },
@@ -45,6 +49,10 @@
     { id: 'plugins', labelKey: 'settings.tab.plugins', icon: Puzzle, group: 'System' },
     { id: 'nightLight', labelKey: 'settings.tab.night_light', icon: Moon, group: 'Appearance' },
     { id: 'panel', labelKey: 'settings.tab.panel', icon: PanelTop, group: 'Appearance' },
+    { id: 'bar', labelKey: 'settings.tab.bar', icon: PanelTop, group: 'Appearance' },
+    { id: 'hotCorners', labelKey: 'settings.tab.hotcorners', icon: Monitor, group: 'Appearance' },
+    { id: 'shellUpdates', labelKey: 'settings.tab.shellupdates', icon: Sparkles, group: 'System' },
+    { id: 'devices', labelKey: 'settings.tab.devices', icon: HardDrive, group: 'System' },
     { id: 'weather', labelKey: 'settings.tab.weather', icon: Globe, group: 'Appearance' },
     { id: 'language', labelKey: 'settings.tab.language', icon: Globe, group: 'Appearance' },
     { id: 'network', labelKey: 'settings.tab.network', icon: Wifi, group: 'Network' },
@@ -150,7 +158,7 @@
 
   $: resolutionList = modes.map((m) => m.resolution);
   $: rateList = modes.find((m) => m.resolution === resolution)?.rates ?? [60];
-  $: filteredTabs = query.trim() ? TABS.filter((tab) => $t(tab.labelKey).toLowerCase().includes(query.trim().toLowerCase())) : TABS;
+  $: filteredTabs = query.trim() ? TABS.filter((tab) => (tab.label ?? $t(tab.labelKey)).toLowerCase().includes(query.trim().toLowerCase())) : TABS;
 </script>
 
 {#if !config}
@@ -172,7 +180,7 @@
               <div class="px-2.5 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">{$t(GROUP_LABEL_KEYS[group])}</div>
               <div class="space-y-0.5">
                 {#each groupTabs as tab (tab.id)}
-                  <TabButton icon={tab.icon} label={$t(tab.labelKey)} isActive={activeTab === tab.id} on:click={() => (activeTab = tab.id)} />
+                  <TabButton icon={tab.icon} label={tab.label ?? $t(tab.labelKey)} isActive={activeTab === tab.id} on:click={() => (activeTab = tab.id)} />
                 {/each}
               </div>
             </div>
@@ -192,6 +200,10 @@
       {:else if activeTab === 'plugins'}<PluginsSection {config} {onSave} />
       {:else if activeTab === 'nightLight'}<NightLightSection {config} {onSave} />
       {:else if activeTab === 'panel'}<PanelSection {config} {onSave} />
+      {:else if activeTab === 'bar'}<BarSection {config} {onSave} />
+      {:else if activeTab === 'hotCorners'}<HotCornersSection {config} {onSave} />
+      {:else if activeTab === 'shellUpdates'}<ShellUpdatesSection />
+      {:else if activeTab === 'devices'}<DevicesSection {config} {onSave} />
       {:else if activeTab === 'weather'}<WeatherSection {config} {onSave} />
       {:else if activeTab === 'language'}<LanguageSection />
       {:else if activeTab === 'network'}<NetworkSection />
