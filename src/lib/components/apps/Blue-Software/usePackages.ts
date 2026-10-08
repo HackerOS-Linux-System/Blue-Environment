@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import { SystemBridge, type PackageInfo } from '../../../utils/systemBridge';
 import type { InstallLog } from './types';
 
-export type PkgBackend = 'Dnf' | 'Apt' | 'Pacman' | 'Zypper' | 'RpmOstree' | 'Flatpak' | 'AppImage' | 'Unknown';
+export type PkgBackend = 'PackageKit' | 'Dnf' | 'Apt' | 'Pacman' | 'Zypper' | 'RpmOstree' | 'Flatpak' | 'AppImage' | 'Unknown';
 
 export interface BootcStatus {
   image: string;
@@ -21,7 +21,14 @@ export function createPackages() {
   const backend = writable<PkgBackend>('Unknown');
   const bootcStatus = writable<BootcStatus | null>(null);
 
-  SystemBridge.invokeCommand<string>('get_detected_backend').then((b) => backend.set(b as PkgBackend)).catch(() => {});
+  // PackageKit (D-Bus) obsługuje wszystkie menedżery pakietów jednym API i sam
+  // pyta o autoryzację przez polkit — gdy jest dostępny, ma pierwszeństwo.
+  // Stare ścieżki (apt/dnf/pacman…) zostają jako zapas.
+  let pkAvailable = false;
+  const pkReady = SystemBridge.invokeCommand<boolean>('pk_available')
+    .then((ok) => { pkAvailable = !!ok; if (ok) backend.set('PackageKit'); })
+    .catch(() => { pkAvailable = false; });
+  SystemBridge.invokeCommand<string>('get_detected_backend').then((b) => { if (!pkAvailable) backend.set(b as PkgBackend); }).catch(() => {});
   SystemBridge.invokeCommand<BootcStatus | null>('get_bootc_status').then((s) => bootcStatus.set(s)).catch(() => {});
 
   // Loading is now PROGRESSIVE. The old version awaited native + flatpak +
@@ -83,6 +90,19 @@ export function createPackages() {
     ];
     await Promise.all(tasks);
 
+    // Gdy klasyczne zapytanie nic nie zwróciło (nieznany menedżer pakietów),
+    // listę aktualizacji pobierz z PackageKit.
+    await pkReady;
+    if (seq === loadSeq && pkAvailable && !get(packages).some((p) => !['flatpak', 'appimage'].includes(p.source))) {
+      try {
+        const ups = await withTimeout(SystemBridge.invokeCommand<{ name: string; version: string; summary: string }[]>('pk_get_updates'), 'PackageKit');
+        mergeGroup('native', (ups ?? []).map((u) => ({
+          id: u.name, name: u.name, description: u.summary, version: u.version,
+          source: 'dnf' as const, installed: true, update_available: true,
+        })));
+      } catch (e: any) { failures.push(e?.message ?? String(e)); }
+    }
+
     if (seq !== loadSeq) return;
     if (failures.length && get(packages).length === 0) {
       error.set(`Could not load packages: ${failures.join('; ')}. Check your network connection and package manager, then refresh.`);
@@ -107,16 +127,30 @@ export function createPackages() {
       let ok = false;
       const isNative = !['flatpak', 'appimage'].includes(pkg.source);
 
+      await pkReady;
+      // Zwraca true/false, gdy PackageKit obsłużył żądanie; null = użyj starej ścieżki.
+      const viaPk = async (cmd: 'pk_install_name' | 'pk_remove_name' | 'pk_update_name'): Promise<boolean | null> => {
+        if (!pkAvailable) return null;
+        try { await SystemBridge.invokeCommand<void>(cmd, { name: pkg.id }); return true; }
+        catch (e: any) {
+          const msg = String(e?.message ?? e);
+          if (msg.includes('PackageKit niedostępny')) return null;   // demon nie działa → zapas
+          addLog(msg);
+          return false;
+        }
+      };
+      if (isNative && pkAvailable) addLog('Backend: PackageKit');
+
       if (action === 'install') {
-        if (isNative) ok = await SystemBridge.invokeCommand<boolean>('install_native_package', { pkgId: pkg.id });
+        if (isNative) ok = (await viaPk('pk_install_name')) ?? await SystemBridge.invokeCommand<boolean>('install_native_package', { pkgId: pkg.id });
         else if (pkg.source === 'flatpak') ok = await SystemBridge.installFlatpakPackage(pkg.id);
         else ok = await SystemBridge.installAppImage(pkg.id);
       } else if (action === 'remove') {
-        if (isNative) ok = await SystemBridge.invokeCommand<boolean>('remove_native_package', { pkgId: pkg.id });
+        if (isNative) ok = (await viaPk('pk_remove_name')) ?? await SystemBridge.invokeCommand<boolean>('remove_native_package', { pkgId: pkg.id });
         else if (pkg.source === 'flatpak') ok = await SystemBridge.removeFlatpakPackage(pkg.id);
         else ok = await SystemBridge.removeAppImage(pkg.id);
       } else {
-        if (isNative) ok = await SystemBridge.invokeCommand<boolean>('install_native_package', { pkgId: pkg.id });
+        if (isNative) ok = (await viaPk('pk_update_name')) ?? await SystemBridge.invokeCommand<boolean>('install_native_package', { pkgId: pkg.id });
         else if (pkg.source === 'flatpak') ok = await SystemBridge.updateFlatpakPackage(pkg.id);
         else ok = false;
       }
