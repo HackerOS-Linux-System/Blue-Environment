@@ -1,13 +1,13 @@
 name: Build Blue Connect
 
-# Builds + tests the three Blue Connect clients:
+# Builds + tests the Blue Connect clients for Android and Windows:
 #   Android (Kotlin)  → Blue-Connect-android*.apk
 #   Windows (C#)      → Blue-Connect-windows-x64.zip (self-contained, single exe)
-#   macOS   (Swift)   → Blue-Connect-macos.zip (universal .app)
+# The Apple clients (macOS .app + production iOS .ipa) live in build-blue-connect-macos.yml.
 #
-# Triggers: changes under src/lib/components/apps/Blue-Connect/{android,windows,macos},
+# Triggers: changes under src/lib/components/apps/Blue-Connect/{android,windows},
 # manual run, and tags named  blue-connect-vX.Y.Z  — a tag also publishes a GitHub Release
-# with all three downloads attached.
+# with these downloads attached (the Apple workflow attaches its own files to the same release).
 #
 # Optional repository secrets for a signed, installable release APK (without them the
 # release contains the debug-signed APK, which installs fine for sideloading):
@@ -22,14 +22,12 @@ on:
     paths:
       - 'src/lib/components/apps/Blue-Connect/android/**'
       - 'src/lib/components/apps/Blue-Connect/windows/**'
-      - 'src/lib/components/apps/Blue-Connect/macos/**'
       - '.github/workflows/build-blue-connect.yml'
     tags: ['blue-connect-v*']
   pull_request:
     paths:
       - 'src/lib/components/apps/Blue-Connect/android/**'
       - 'src/lib/components/apps/Blue-Connect/windows/**'
-      - 'src/lib/components/apps/Blue-Connect/macos/**'
       - '.github/workflows/build-blue-connect.yml'
   workflow_dispatch:
 
@@ -155,48 +153,11 @@ jobs:
           path: out/Blue-Connect-windows-x64.zip
           if-no-files-found: error
 
-  # ───────────────────────────── macOS ─────────────────────────────
-  macos:
-    name: macOS (Swift)
-    runs-on: macos-14
-    defaults:
-      run:
-        working-directory: src/lib/components/apps/Blue-Connect/macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Version
-        id: ver
-        shell: bash
-        working-directory: .
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/blue-connect-v* ]]; then v="${GITHUB_REF#refs/tags/blue-connect-v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          # Info.plist wants a plain numeric version
-          echo "plist=${v%%-*}" >> "$GITHUB_OUTPUT"
-
-      - name: Swift version
-        run: swift --version
-
-      - name: Unit tests
-        run: swift test
-
-      - name: Build universal .app and zip
-        # `bash` explicitly: the exec bit is lost when the repo is zipped / uploaded
-        # through a web UI, and "Permission denied" killed this step before.
-        run: bash scripts/build-app.sh "${{ steps.ver.outputs.plist }}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: blue-connect-macos
-          path: src/lib/components/apps/Blue-Connect/macos/dist/Blue-Connect-macos.zip
-          if-no-files-found: error
-
   # ───────────────────────────── Release ─────────────────────────────
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/blue-connect-v')
-    needs: [android, windows, macos]
+    needs: [android, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -215,4 +176,3 @@ jobs:
           files: |
             dist/Blue-Connect-android.apk
             dist/Blue-Connect-windows-x64.zip
-            dist/Blue-Connect-macos.zip
