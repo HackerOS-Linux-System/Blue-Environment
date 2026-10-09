@@ -1,1 +1,413 @@
+name: Build Blue Connect (Apple)
 
+# Apple clients of Blue Connect, built on macos-latest:
+#   macOS (Swift)  -> Blue-Connect-macos.zip  (universal .app, ad-hoc signed)
+#   iOS   (Swift)  -> Blue-Connect-ios.ipa    (PRODUCTION, signed with your Apple Distribution identity)
+#
+# The iOS app reuses the macOS sources (BlueConnectCore + SwiftUI views). The Xcode project
+# for it is generated on the fly in CI (XcodeGen), so nothing iOS-specific lives in the repo.
+#
+# Triggers: changes under src/lib/components/apps/Blue-Connect/macos, manual run, and tags
+# named  blue-connect-vX.Y.Z  - a tag also attaches both downloads to the GitHub Release.
+#
+# Repository secrets required for the production .ipa:
+#   IOS_CERTIFICATE_BASE64            base64 of your "Apple Distribution" .p12   (base64 -i dist.p12 | pbcopy)
+#   IOS_CERTIFICATE_PASSWORD          password of that .p12
+#   IOS_PROVISIONING_PROFILE_BASE64   base64 of the .mobileprovision for org.hackeros.blueconnect
+# Optional repository variable:
+#   IOS_EXPORT_METHOD                 app-store-connect (default) | release-testing | enterprise
+#
+# Note: UDP broadcast discovery on iOS needs Apple's "Multicast Networking" entitlement
+# (com.apple.developer.networking.multicast) to be enabled on the App ID / profile.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/lib/components/apps/Blue-Connect/macos/**'
+      - '.github/workflows/build-blue-connect-macos.yml'
+    tags: ['blue-connect-v*']
+  pull_request:
+    paths:
+      - 'src/lib/components/apps/Blue-Connect/macos/**'
+      - '.github/workflows/build-blue-connect-macos.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-blue-connect-apple-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MAC_DIR: src/lib/components/apps/Blue-Connect/macos
+  BUNDLE_ID: org.hackeros.blueconnect
+
+jobs:
+  # ───────────────────────────── macOS ─────────────────────────────
+  macos:
+    name: macOS (Swift)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: src/lib/components/apps/Blue-Connect/macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: ver
+        shell: bash
+        working-directory: .
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/blue-connect-v* ]]; then v="${GITHUB_REF#refs/tags/blue-connect-v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          # Info.plist wants a plain numeric version
+          echo "plist=${v%%-*}" >> "$GITHUB_OUTPUT"
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Build universal .app and zip
+        # `bash` explicitly: the exec bit is lost when the repo is zipped / uploaded
+        # through a web UI, and "Permission denied" killed this step before.
+        run: bash scripts/build-app.sh "${{ steps.ver.outputs.plist }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blue-connect-macos
+          path: src/lib/components/apps/Blue-Connect/macos/dist/Blue-Connect-macos.zip
+          if-no-files-found: error
+
+  # ───────────────────────────── iOS (.ipa) ─────────────────────────────
+  ios:
+    name: iOS production .ipa
+    needs: macos
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    env:
+      IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'app-store-connect' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        shell: bash
+        run: |
+          missing=0
+          for n in IOS_CERTIFICATE_BASE64 IOS_CERTIFICATE_PASSWORD IOS_PROVISIONING_PROFILE_BASE64; do
+            if [ -z "${!n}" ]; then echo "::error::Missing repository secret $n (needed for a production .ipa)"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/blue-connect-v* ]]; then v="${GITHUB_REF#refs/tags/blue-connect-v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "plist=${v%%-*}" >> "$GITHUB_OUTPUT"
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate iOS project from the shared sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/$MAC_DIR/Sources"
+          OUT="$GITHUB_WORKSPACE/ios-build"
+          rm -rf "$OUT"
+          mkdir -p "$OUT/Core/Sources" "$OUT/App/Assets.xcassets/AppIcon.appiconset"
+          cp -R "$SRC/BlueConnectCore" "$OUT/Core/Sources/BlueConnectCore"
+          cp "$SRC"/BlueConnect/ConnectModel.swift "$SRC"/BlueConnect/ContentView.swift "$SRC"/BlueConnect/Notifier.swift "$OUT/App/"
+
+          # Core as a local Swift package (library only, iOS + macOS)
+          cat > "$OUT/Core/Package.swift" <<'SWIFT'
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(
+              name: "BlueConnectCore",
+              platforms: [.iOS(.v16), .macOS(.v13)],
+              products: [.library(name: "BlueConnectCore", targets: ["BlueConnectCore"])],
+              targets: [.target(name: "BlueConnectCore", path: "Sources/BlueConnectCore")]
+          )
+          SWIFT
+
+          # iOS entry point (the macOS one uses MenuBarExtra / NSApplication)
+          cat > "$OUT/App/BlueConnectApp.swift" <<'SWIFT'
+          import BlueConnectCore
+          import SwiftUI
+
+          @main
+          struct BlueConnectApp: App {
+              @StateObject private var model = ConnectModel()
+
+              var body: some Scene {
+                  WindowGroup {
+                      ContentView()
+                          .environmentObject(model)
+                          .task { await model.start() }
+                  }
+              }
+          }
+          SWIFT
+
+          cat > "$OUT/App/PlatformInfo.swift" <<'SWIFT'
+          import UIKit
+
+          enum PlatformInfo {
+              static var deviceName: String { UIDevice.current.name }
+          }
+          SWIFT
+
+          # SecIdentityCreateWithCertificate is macOS-only; on iOS the identity is looked up by certificate.
+          cat > "$OUT/Core/Sources/BlueConnectCore/IOSCompat.swift" <<'SWIFT'
+          import Foundation
+          import Security
+
+          func bcIdentity(_ cert: SecCertificate, _ out: inout SecIdentity?) -> OSStatus {
+              let query: [String: Any] = [
+                  kSecClass as String: kSecClassIdentity,
+                  kSecReturnRef as String: true,
+                  kSecMatchLimit as String: kSecMatchLimitAll,
+              ]
+              var items: CFTypeRef?
+              let status = SecItemCopyMatching(query as CFDictionary, &items)
+              guard status == errSecSuccess else { return status }
+              let wanted = SecCertificateCopyData(cert) as Data
+              for any in (items as? [Any]) ?? [] {
+                  let identity = any as! SecIdentity // swiftlint:disable:this force_cast
+                  var c: SecCertificate?
+                  if SecIdentityCopyCertificate(identity, &c) == errSecSuccess, let c = c,
+                     SecCertificateCopyData(c) as Data == wanted {
+                      out = identity
+                      return errSecSuccess
+                  }
+              }
+              return errSecItemNotFound
+          }
+          SWIFT
+
+          # Small source adjustments for iOS (each one must match, otherwise the build stops here)
+          python3 - "$OUT" <<'PY'
+          import re, sys, pathlib
+          out = pathlib.Path(sys.argv[1])
+
+          def patch(path, fn):
+              p = out / path
+              s = p.read_text()
+              n = fn(s)
+              if n == s:
+                  sys.exit(f"patch had no effect: {path}")
+              p.write_text(n)
+
+          def tls(s):
+              n, c = re.subn(r'SecIdentityCreateWithCertificate\(nil, (\w+), ', r'bcIdentity(\1, ', s)
+              if c != 2: sys.exit(f"expected 2 SecIdentityCreateWithCertificate calls, found {c}")
+              return n
+          patch("Core/Sources/BlueConnectCore/TLSIdentity.swift", tls)
+
+          patch("App/ConnectModel.swift",
+                lambda s: s.replace('Host.current().localizedName ?? "Mac"', 'PlatformInfo.deviceName'))
+
+          def view(s):
+              s = s.replace('.frame(width: 420)', '.frame(maxWidth: 420)')
+              s = s.replace('.frame(width: 480, height: 540)', '.frame(maxWidth: 480, maxHeight: .infinity)')
+              return s.replace('wants to pair with this Mac.', 'wants to pair with this device.')
+          patch("App/ContentView.swift", view)
+          PY
+
+          # App Store needs a 1024x1024 opaque icon: draw a simple one (blue gradient + white ring)
+          python3 - "$OUT/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png" <<'PY'
+          import sys, zlib, struct, math
+          N = 1024
+          rows = bytearray()
+          for y in range(N):
+              rows.append(0)
+              for x in range(N):
+                  t = (x + y) / (2 * N)
+                  r, g, b = int(20 + 20 * t), int(90 + 60 * t), int(235 - 35 * t)
+                  d = math.hypot(x - N / 2, y - N / 2)
+                  if 250 <= d <= 340:
+                      r, g, b = 255, 255, 255
+                  rows += bytes((r, g, b))
+          def chunk(tag, data):
+              c = struct.pack(">I", len(data)) + tag + data
+              return c + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+          png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", N, N, 8, 2, 0, 0, 0)) \
+                + chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b"")
+          open(sys.argv[1], "wb").write(png)
+          PY
+          cat > "$OUT/App/Assets.xcassets/AppIcon.appiconset/Contents.json" <<'JSON'
+          {
+            "images": [
+              { "filename": "icon-1024.png", "idiom": "universal", "platform": "ios", "size": "1024x1024" }
+            ],
+            "info": { "author": "xcode", "version": 1 }
+          }
+          JSON
+          echo '{ "info": { "author": "xcode", "version": 1 } }' > "$OUT/App/Assets.xcassets/Contents.json"
+
+          cat > "$OUT/project.yml" <<YAML
+          name: BlueConnect
+          options:
+            deploymentTarget:
+              iOS: "16.0"
+          packages:
+            BlueConnectCore:
+              path: Core
+          targets:
+            BlueConnect:
+              type: application
+              platform: iOS
+              sources:
+                - App
+              dependencies:
+                - package: BlueConnectCore
+              info:
+                path: App/Info.plist
+                properties:
+                  CFBundleDisplayName: Blue Connect
+                  CFBundleShortVersionString: "\$(MARKETING_VERSION)"
+                  CFBundleVersion: "\$(CURRENT_PROJECT_VERSION)"
+                  LSApplicationCategoryType: public.app-category.utilities
+                  ITSAppUsesNonExemptEncryption: false
+                  UILaunchScreen: {}
+                  UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+                  UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+                  NSLocalNetworkUsageDescription: Blue Connect finds and talks to your other devices (phone, Blue Environment PC) on your local network.
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: ${BUNDLE_ID}
+                  PRODUCT_NAME: BlueConnect
+                  MARKETING_VERSION: "${{ steps.ver.outputs.plist }}"
+                  CURRENT_PROJECT_VERSION: "${{ github.run_number }}"
+                  SWIFT_VERSION: "5.0"
+                  TARGETED_DEVICE_FAMILY: "1,2"
+                  GENERATE_INFOPLIST_FILE: NO
+                  ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+          YAML
+
+          cd "$OUT" && xcodegen generate
+
+      - name: Install signing certificate and provisioning profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/blueconnect-signing.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+          echo "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/dist.p12" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$RUNNER_TEMP/profile.plist")"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          {
+            echo "PROFILE_UUID=$PROFILE_UUID"
+            echo "PROFILE_NAME=$PROFILE_NAME"
+            echo "TEAM_ID=$TEAM_ID"
+          } >> "$GITHUB_ENV"
+          echo "Profile: $PROFILE_NAME ($PROFILE_UUID), team $TEAM_ID"
+
+      - name: Archive (Release)
+        shell: bash
+        working-directory: ios-build
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project BlueConnect.xcodeproj \
+            -scheme BlueConnect \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/BlueConnect.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN"
+
+      - name: Export production .ipa
+        shell: bash
+        working-directory: ios-build
+        run: |
+          set -euo pipefail
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>${EXPORT_METHOD}</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict><key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string></dict>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/BlueConnect.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          IPA="$(ls build/export/*.ipa | head -n 1)"
+          cp "$IPA" "$GITHUB_WORKSPACE/out/Blue-Connect-ios.ipa"
+          ls -la "$GITHUB_WORKSPACE/out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blue-connect-ios
+          path: out/Blue-Connect-ios.ipa
+          if-no-files-found: error
+
+      - name: Clean up signing material
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+          if [ -n "${PROFILE_UUID:-}" ]; then rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"; fi
+          rm -f "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/profile.plist"
+
+  # ───────────────────────────── Release ─────────────────────────────
+  release:
+    name: Attach to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/blue-connect-v')
+    needs: [macos, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - run: ls -la dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Blue Connect ${{ github.ref_name }}
+          files: |
+            dist/Blue-Connect-macos.zip
+            dist/Blue-Connect-ios.ipa
