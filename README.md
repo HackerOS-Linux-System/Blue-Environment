@@ -1,7 +1,7 @@
 # ![Blue Enviroment - Graphical environment for HackerOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/default.png)
 # Blue Environment v0.9
 
-Production-grade Wayland desktop environment for LegendaryOS, built on
+Production-grade Wayland desktop environment for HackerOS, built on
 [Tauri](https://tauri.app) + Svelte (desktop shell).
 
 ## Features
