@@ -129,7 +129,7 @@
 
 {#if $activeDialog}
   {@const dialog = $activeDialog}
-  <div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" on:mousedown={handleBackdropClick}>
+  <div data-shell-occluder="dialog" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" on:mousedown={handleBackdropClick}>
     <div bind:this={dialogEl} class="w-[400px] bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" role="dialog" aria-modal="true">
       <h3 class="text-white font-semibold text-base mb-1">{dialog.options.title}</h3>
 
