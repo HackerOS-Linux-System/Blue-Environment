@@ -16,7 +16,7 @@
 
   const TOGGLES: { key: keyof TopBarConfig; labelKey: string }[] = [
     { key: 'showStartButton', labelKey: 'sbar.start' },
-    { key: 'showSearch', labelKey: 'sbar.search' },
+    { key: 'showRunningApps', labelKey: 'sbar.running_apps' },
     { key: 'showPinned', labelKey: 'sbar.pinned' },
     { key: 'showWorkspaces', labelKey: 'sbar.workspaces' },
     { key: 'showWeather', labelKey: 'sbar.weather' },
@@ -63,8 +63,11 @@
       <input class="bg-slate-700 rounded-lg px-2 py-1 w-32" maxlength="24" placeholder="Blue" value={bar.startLabel} on:change={onStr('startLabel')} /></label>
     <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.icon_size', { n: bar.pinnedIconSize })}
       <input type="range" min="14" max="32" value={bar.pinnedIconSize} on:change={onNum('pinnedIconSize')} /></label>
-    <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.search_width', { n: bar.searchWidth })}
-      <input type="range" min="120" max="320" value={bar.searchWidth} on:change={onNum('searchWidth')} /></label>
+    <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.running_max', { n: bar.runningAppsMax })}
+      <input type="range" min="1" max="12" step="1" value={bar.runningAppsMax} on:change={onNum('runningAppsMax')} /></label>
+    <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.running_labels')}
+      <input type="checkbox" checked={bar.runningAppsLabels} on:change={onBool('runningAppsLabels')} /></label>
+    <p class="text-xs text-slate-500 -mt-2">{$t('sbar.running_hint')}</p>
     <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.blur')}
       <select class="bg-slate-700 rounded-lg px-2 py-1" value={bar.blur} on:change={onStr('blur')}>
         <option value="none">{$t('sbar.blur_none')}</option><option value="sm">{$t('sbar.blur_sm')}</option><option value="md">{$t('sbar.blur_md')}</option><option value="xl">{$t('sbar.blur_xl')}</option>
@@ -81,6 +84,13 @@
     {/if}
     <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.autohide')}
       <input type="checkbox" checked={bar.autoHide} on:change={onBool('autoHide')} /></label>
+  </div>
+
+  <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
+    <div class="text-sm font-medium text-slate-400">{$t('sbar.osd_title')}</div>
+    <label class="flex items-center justify-between text-sm text-slate-200">{$t('sbar.osd_enabled')}
+      <input type="checkbox" checked={config.osdEnabled !== false} on:change={(e) => onSave({ osdEnabled: e.currentTarget.checked })} /></label>
+    <p class="text-xs text-slate-500">{$t('sbar.osd_hint')}</p>
   </div>
 
   <div class="text-xs text-slate-500">{$t('sbar.hint')}</div>
