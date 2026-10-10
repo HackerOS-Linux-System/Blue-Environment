@@ -21,33 +21,39 @@
   // or resized, since there's no DOM event for "an ancestor's CSS
   // transform changed", only continuous measurement.
   //
-  // ── The z-order bug, and how `webviewShouldBeVisible` below fixes it ──
+  // ── The z-order problem, and how this file deals with it ───────────────
   // Because the embedded webview is a separate native surface, it
   // doesn't just render on top of *this* window's own DOM — it renders
   // on top of every other window and every shell overlay too (start
-  // menu, control center, notifications, dialogs, the alt-tab switcher,
-  // another app window dragged on top of this one, a PiP window
-  // floating above it). None of that is visible to a native child
-  // surface, which only knows "I'm a rectangle positioned at (x,y)
-  // within the OS window" — it has no concept of what else the shell
-  // has drawn since. `topmostVisibleWindowId` and `blockingOverlayOpen`
-  // (see those stores' doc comments) are exactly the signals the DOM
-  // side already computes correctly for its own stacking; this
-  // component just also uses them to decide whether the *native*
-  // webview should be shown at all, hiding it via `web_view_set_visible`
-  // whenever the answer is no. This is necessarily a blunt fix — "hide
-  // entirely" rather than "clip to the visible region" — because
-  // there's no API to partially occlude a native child webview by an
-  // arbitrary DOM shape; hiding it whenever this window isn't strictly
-  // topmost is the closest correct approximation available.
-  import { onMount, onDestroy } from 'svelte';
+  // menu, control center, dialogs, the alt-tab switcher, another app
+  // window dragged on top of this one, a PiP window floating above it…).
+  // A native child surface only knows "I'm a rectangle at (x,y)"; it
+  // cannot be partially occluded by DOM, so the only correct way to let
+  // something cover it is to HIDE it (`web_view_set_visible`).
+  //
+  // Hiding used to leave an empty "in the background" placeholder where
+  // the page had been — whenever another window was on top, or the person
+  // so much as opened a menu. Now:
+  //   1. the page is hidden ONLY when something really overlaps its
+  //      rectangle (`occlusion.ts`: windows stacked above it, plus every
+  //      shell overlay that carries `data-shell-occluder`) — a window
+  //      elsewhere on screen, or a widget in another corner, changes nothing,
+  //      and the page stays live (video keeps playing, links stay clickable);
+  //   2. right before it is hidden, a snapshot of the page is taken
+  //      (`web_view_snapshot`) and painted in the DOM placeholder, so the
+  //      page is still SEEN — just underneath whatever covers it — instead
+  //      of vanishing. When a platform can't take snapshots, a neutral card
+  //      with the page's title takes its place.
+  // `reconcileVisibility()` below is the only place that shows/hides.
+  import { onMount, onDestroy, tick } from 'svelte';
   import { Plus, X, Globe, ExternalLink, Search, ZoomIn, ZoomOut, ArrowUp, ArrowDown, EyeOff, Download } from 'lucide-svelte';
   import { createTabs } from './tabs';
   import { createHistory } from './history';
   import { createWebSettings } from './webSettings';
   import { SystemBridge } from '../../../utils/systemBridge';
-  import { topmostVisibleWindowId } from '../../../stores/windowManager';
-  import { windows } from '../../../stores/windowManager';
+  import { windows, activeWindowId, focusWindow } from '../../../stores/windowManager';
+  import { get } from 'svelte/store';
+  import { isCovered, windowsAbove, type Rect } from './occlusion';
   import { blockingOverlayOpen, windowInteracting } from '../../../stores/overlayState';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
@@ -104,7 +110,7 @@
 
   const {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, snapshot,
   } = createTabs(
     handleNavigate, handleFavicon, () => $settings.searchEngine, () => $settings.defaultZoom,
     // getBounds / getShouldBeVisible — let tabs.ts measure the content area itself
@@ -120,6 +126,8 @@
       lastError = message;
       tabs.update((prev) => prev.map((t) => (t.id === $activeId ? { ...t, isNew: true } : t)));
     },
+    // A click inside the page: it never reaches this window's own mousedown handler.
+    () => { if (get(activeWindowId) !== windowId) focusWindow(windowId); },
   );
 
   // While an app window is being dragged/resized, embedded (native) webviews
@@ -133,36 +141,104 @@
   $: canGoBack = $navIdx > 0;
   $: zoomPct = Math.round((activeTab.zoom ?? 1) * 100);
 
-  // ── The z-order fix itself ──────────────────────────────────────────
-  // Recomputed whenever any of its inputs change: this window's own
-  // topmost-ness, whether a shell overlay is open, or which tab is
-  // active (a tab switch needs to re-run `setActiveWebview`'s
-  // show/hide logic anyway). `webviewShouldBeVisible` is the single
-  // source of truth `setActiveWebview`/`setAllHidden` below are driven
-  // from — nothing else in this file calls `web_view_set_visible`
-  // directly.
-  $: webviewShouldBeVisible = $topmostVisibleWindowId === windowId && !$blockingOverlayOpen && !settingsOpen;
+  // ── Visibility ──────────────────────────────────────────────────────
+  /** Something (a window above this one, a shell overlay) covers the page right now. */
+  let occluded = false;
+  /** Whether the native page may be shown. The single input to `reconcileVisibility`. */
+  $: wantVisible = !occluded && !settingsOpen;
+  // Kept for tabs.ts's `getShouldBeVisible` (a freshly created webview asks right away).
+  $: webviewShouldBeVisible = wantVisible;
 
-  let prevVisible = webviewShouldBeVisible;
-  let prevActiveId = $activeId;
-  $: {
-    const activeChanged = $activeId !== prevActiveId;
-    const visibilityChanged = webviewShouldBeVisible !== prevVisible;
-    if (activeChanged || visibilityChanged) {
-      prevActiveId = $activeId;
-      prevVisible = webviewShouldBeVisible;
-      if (webviewShouldBeVisible) {
-        setActiveWebview($activeId);
-      } else {
-        // Not the topmost window right now (covered by another window,
-        // a PiP window, or a shell overlay) — hide every live webview
-        // this component owns rather than just the previously-active
-        // one, since a tab switch could otherwise race with the
-        // visibility change and leave the wrong tab's webview showing.
-        setAllHidden();
-      }
-      if (activeChanged) lastRect = null; // force a fresh bounds push for the newly-active tab next frame
+  /** What the native layer currently shows: `nativeHidden` ⇒ the DOM placeholder is on view. */
+  let nativeHidden = false;
+  let shownTabId: string | null = null;
+  /** Last snapshot per tab (JPEG data URL) — what the placeholder paints while the page is covered. */
+  let snapshots: Record<string, string> = {};
+  let snapshotFailures = 0;
+  const SNAPSHOT_GIVE_UP_AFTER = 3;
+  const SNAPSHOT_WAIT_MS = 450;
+
+  let reconciling = false;
+  let reconcileAgain = false;
+
+  const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+  /** Snapshot the shown page (bounded wait), remembering whatever arrives, even late. */
+  async function captureSnapshot(tabId: string) {
+    if (snapshotFailures >= SNAPSHOT_GIVE_UP_AFTER || !hasLiveWebview(tabId)) return;
+    const pending = snapshot(tabId).then((shot) => {
+      if (shot) { snapshots = { ...snapshots, [tabId]: shot }; snapshotFailures = 0; }
+      else snapshotFailures += 1;
+    });
+    await Promise.race([pending, new Promise<void>((r) => setTimeout(r, SNAPSHOT_WAIT_MS))]);
+  }
+
+  /**
+   * Brings the native layer in line with `wantVisible` / the active tab. Serialised: a change
+   * that arrives mid-transition is applied right after it, never concurrently with it.
+   */
+  async function reconcileVisibility() {
+    if (reconciling) { reconcileAgain = true; return; }
+    reconciling = true;
+    try {
+      do {
+        reconcileAgain = false;
+        const want = wantVisible;
+        const id = $activeId;
+        if (want) {
+          if (nativeHidden || shownTabId !== id) {
+            await setActiveWebview(id);
+            shownTabId = id;
+            lastRect = null; // fresh bounds push for the (re)shown page on the next frame
+            // Only now drop the placeholder: the live page is up, so there is no blank frame.
+            nativeHidden = false;
+          }
+        } else if (!nativeHidden) {
+          // Capture while the page is still on screen, paint it underneath, THEN hide it.
+          if (shownTabId) await captureSnapshot(shownTabId);
+          nativeHidden = true;
+          await tick();
+          await nextFrame();
+          await setAllHidden();
+        } else if (shownTabId !== id) {
+          shownTabId = id; // tab switched while covered: the placeholder follows the active tab
+        }
+      } while (reconcileAgain);
+    } finally {
+      reconciling = false;
     }
+  }
+
+  $: { wantVisible; $activeId; reconcileVisibility(); }
+
+  /** Rects of everything drawn above this window's page right now. `null` = unknown (be safe). */
+  function coverRects(): Rect[] | null {
+    const rects: Rect[] = [];
+    const me = $windows.find((w) => w.id === windowId);
+    if (me) {
+      for (const above of windowsAbove(me, $windows)) {
+        const el = document.querySelector(`[data-window-root="${above.id}"]`);
+        if (el) rects.push(domRect(el));
+      }
+    }
+    const overlays = document.querySelectorAll('[data-shell-occluder]');
+    for (const el of overlays) rects.push(domRect(el));
+    // An overlay is open but nothing identifies where it is: assume it covers everything.
+    if (get(blockingOverlayOpen) && overlays.length === 0) return null;
+    return rects;
+  }
+
+  function domRect(el: Element): Rect {
+    const r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, width: r.width, height: r.height };
+  }
+
+  /** Per frame: is the page's rectangle covered by a window above it or by a shell overlay? */
+  function computeOccluded(): boolean {
+    const page = measureRect();
+    if (!page) return false; // nothing laid out, nothing to cover
+    const covers = coverRects();
+    return covers === null ? true : isCovered(page, covers);
   }
 
   function measureRect() {
@@ -238,7 +314,7 @@
   // IPC call when the measured rect actually differs from last frame,
   // so a static window costs nothing beyond the (cheap)
   // getBoundingClientRect() call itself. Skips entirely while the
-  // webview is meant to be hidden (`webviewShouldBeVisible` false) —
+  // webview is meant to be hidden (`wantVisible` false / placeholder shown) —
   // no point pushing bounds for a surface nothing should be showing.
   // `lastRect` is only updated once the backend ACKed the push. The old code
   // stored the rect even when it had NOT been sent (webview not live yet),
@@ -248,7 +324,13 @@
   // window drag from flooding the main thread).
   let pushingBounds = false;
   function syncLoop() {
-    if (webviewShouldBeVisible && !pushingBounds) {
+    if (!activeTab.isNew && !settingsOpen) {
+      const covered = computeOccluded();
+      if (covered !== occluded) occluded = covered;
+    } else if (occluded) {
+      occluded = false;
+    }
+    if (wantVisible && !nativeHidden && !pushingBounds) {
       const rect = measureRect();
       if (rect && !rectsEqual(rect, lastRect) && SystemBridge.isTauri() && hasLiveWebview($activeId)) {
         pushingBounds = true;
@@ -384,7 +466,7 @@
 <div class="flex flex-col h-full bg-slate-900 text-white select-none">
   <div class="flex items-center h-9 bg-slate-950/70 border-b border-white/5 overflow-x-auto shrink-0">
     {#each $tabs as t (t.id)}
-      <div on:click={() => activeId.set(t.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeId.set(t.id))(); } }}
+      <div on:click={() => activeId.set(t.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => activeId.set(t.id))(); } }}
         class="group flex items-center gap-1.5 px-3 h-full shrink-0 cursor-pointer border-r border-white/5 transition-colors max-w-[180px] {t.id === $activeId ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'} {t.isPrivate ? 'bg-indigo-950/40' : ''}">
         {#if t.isPrivate}<EyeOff size={11} class="shrink-0 text-indigo-400" />
         {:else if t.favicon}<img src={t.favicon} alt="" class="w-3 h-3 shrink-0 rounded-sm" on:error={() => (t.favicon = undefined)} />
@@ -455,15 +537,28 @@
           </div>
         {/if}
       </div>
-      {#if !webviewShouldBeVisible}
-        <!-- Nothing renders here in the common case — this is purely a
-             debug/legibility affordance for the (rare) moment this
-             window is genuinely open but not topmost, e.g. right after
-             alt-tabbing away. Without it, a click landing where the
-             page used to be would silently do nothing, which is more
-             confusing than a clear "backgrounded" placeholder. -->
-        <div class="absolute inset-0 flex items-center justify-center bg-slate-900/70 pointer-events-none">
-          <span class="text-xs text-slate-500">{$tr('blueweb.backgrounded')}</span>
+      {#if nativeHidden}
+        <!-- The native page is hidden because something covers it (see the module doc). The page
+             stays visible anyway: this is the snapshot taken an instant before it was hidden,
+             painted in the DOM — i.e. underneath whatever covers it. It lines up with the
+             webview's own bounds (side panel / find bar are excluded exactly like in
+             `measureRect`) and ignores the pointer, so a click falls through to the window
+             (which focuses it). With no snapshot available a neutral card stands in. -->
+        <div class="absolute overflow-hidden bg-slate-900 pointer-events-none"
+          style="left:0; bottom:0; top:{findBarOpen ? 44 : 0}px; right:{panel === 'none' ? 0 : 288}px;">
+          {#if snapshots[$activeId]}
+            <img src={snapshots[$activeId]} alt="" draggable="false" class="block w-full h-full object-cover object-left-top select-none" />
+          {:else}
+            <div class="flex flex-col items-center justify-center gap-3 h-full px-8 text-center">
+              {#if activeTab.favicon}
+                <img src={activeTab.favicon} alt="" class="w-10 h-10 rounded-lg" />
+              {:else}
+                <div class="w-12 h-12 rounded-2xl bg-slate-800 border border-white/5 flex items-center justify-center"><Globe size={22} class="text-slate-500" /></div>
+              {/if}
+              <p class="text-sm text-slate-300 font-medium max-w-md truncate">{activeTab.title}</p>
+              <p class="text-xs text-slate-600 font-mono max-w-md truncate">{activeTab.url}</p>
+            </div>
+          {/if}
         </div>
       {/if}
     {/if}
