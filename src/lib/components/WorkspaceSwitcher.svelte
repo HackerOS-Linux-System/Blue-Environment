@@ -18,7 +18,7 @@
 </script>
 
 {#if visible}
-  <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-[300] pointer-events-none animate-fade-in">
+  <div data-shell-occluder="workspace-switcher" class="absolute bottom-16 left-1/2 -translate-x-1/2 z-[300] pointer-events-none animate-fade-in">
     <div class="bg-slate-900/95 border border-white/10 rounded-2xl px-6 py-4 shadow-2xl backdrop-blur-xl flex flex-col items-center gap-3">
       <span class="text-xs text-slate-400 font-medium uppercase tracking-widest">Workspace</span>
       <div class="flex gap-3 items-center">
