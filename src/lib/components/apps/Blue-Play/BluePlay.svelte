@@ -312,7 +312,7 @@
 </div>
 
 {#if showAddDialog}
-  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" on:click={() => (showAddDialog = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (showAddDialog = false))(); } }}>
+  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" on:click={() => (showAddDialog = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showAddDialog = false))(); } }}>
     <div class="bg-slate-900 border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4" on:click|stopPropagation>
       <div class="flex items-center justify-between">
         <h3 class="font-semibold text-sm">Add {addKind === 'windows' ? 'Windows' : 'native Linux'} game</h3>
