@@ -182,6 +182,8 @@ export interface UserConfig {
   networkHoverInfoEnabled?: boolean;
   /** Pełne dostosowanie paska — patrz utils/topBarConfig.ts. */
   topBar?: Partial<import('./utils/topBarConfig').TopBarConfig>;
+  /** On-screen display for volume / brightness changes (default on). */
+  osdEnabled?: boolean;
   /** Aktywne narożniki ekranu — patrz utils/hotCorners.ts. */
   hotCorners?: Partial<import('./utils/hotCorners').HotCornersConfig>;
   /** Czas (ms) na drugie dotknięcie Win, by otworzyć pełnoekranowe menu. */
