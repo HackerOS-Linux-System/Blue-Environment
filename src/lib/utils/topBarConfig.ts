@@ -1,10 +1,13 @@
+import { RUNNING_APPS_DEFAULT_MAX, clampRunningMax } from './runningApps';
+
 export type BarBlur = 'none' | 'sm' | 'md' | 'xl';
 export type BarClockStyle = 'time' | 'time-date' | 'date-time';
 
 export interface TopBarConfig {
   // ── Elementy ───────────────────────────────────────────────
   showStartButton: boolean;
-  showSearch: boolean;
+  /** Strip of running apps next to the Start button (replaced the old search pill). */
+  showRunningApps: boolean;
   showPinned: boolean;
   showWorkspaces: boolean;
   showWeather: boolean;
@@ -20,7 +23,8 @@ export interface TopBarConfig {
   // ── Wygląd ─────────────────────────────────────────────────
   startLabel: string;       // własny tekst obok ikony Start (pusty = "Blue")
   pinnedIconSize: number;   // px, 14–32
-  searchWidth: number;      // px, 120–320
+  runningAppsMax: number;   // ile uruchomionych aplikacji widać naraz (1–12); resztę pokazuje „+N” / podwójne kliknięcie
+  runningAppsLabels: boolean; // nazwa obok ikony (na szerokich ekranach)
   floating: boolean;        // pływający pasek z marginesem i zaokrągleniem
   floatingMargin: number;   // px, 0–24
   cornerRadius: number;     // px, 0–28 (działa przy floating)
@@ -32,7 +36,7 @@ export interface TopBarConfig {
 
 export const DEFAULT_TOP_BAR: TopBarConfig = {
   showStartButton: true,
-  showSearch: true,
+  showRunningApps: true,
   showPinned: true,
   showWorkspaces: true,
   showWeather: true,
@@ -46,7 +50,8 @@ export const DEFAULT_TOP_BAR: TopBarConfig = {
   showSeconds: false,
   startLabel: '',
   pinnedIconSize: 20,
-  searchWidth: 176,
+  runningAppsMax: RUNNING_APPS_DEFAULT_MAX,
+  runningAppsLabels: true,
   floating: false,
   floatingMargin: 8,
   cornerRadius: 16,
@@ -65,7 +70,9 @@ export function normalizeTopBar(raw: Partial<TopBarConfig> | undefined | null): 
   const d = DEFAULT_TOP_BAR;
   return {
     showStartButton: bool(r.showStartButton, d.showStartButton),
-    showSearch: bool(r.showSearch, d.showSearch),
+    // Migration: whoever had hidden the old search pill (`showSearch: false`)
+    // gets the running-apps strip hidden too, instead of it popping up unasked.
+    showRunningApps: bool(r.showRunningApps, bool((r as { showSearch?: unknown }).showSearch, d.showRunningApps)),
     showPinned: bool(r.showPinned, d.showPinned),
     showWorkspaces: bool(r.showWorkspaces, d.showWorkspaces),
     showWeather: bool(r.showWeather, d.showWeather),
@@ -80,7 +87,8 @@ export function normalizeTopBar(raw: Partial<TopBarConfig> | undefined | null): 
     showSeconds: bool(r.showSeconds, d.showSeconds),
     startLabel: typeof r.startLabel === 'string' ? r.startLabel.slice(0, 24) : d.startLabel,
     pinnedIconSize: clamp(r.pinnedIconSize, 14, 32, d.pinnedIconSize),
-    searchWidth: clamp(r.searchWidth, 120, 320, d.searchWidth),
+    runningAppsMax: clampRunningMax(r.runningAppsMax),
+    runningAppsLabels: bool(r.runningAppsLabels, d.runningAppsLabels),
     floating: bool(r.floating, d.floating),
     floatingMargin: clamp(r.floatingMargin, 0, 24, d.floatingMargin),
     cornerRadius: clamp(r.cornerRadius, 0, 28, d.cornerRadius),
