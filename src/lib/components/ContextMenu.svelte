@@ -69,7 +69,7 @@
        there is swallowed so it doesn't pop up the native menu either. -->
   <div class="fixed inset-0 z-[99998]" on:mousedown={close} on:contextmenu|preventDefault={close} role="presentation" />
 
-  <div bind:this={el} class="fixed z-[99999] min-w-[200px] max-w-[320px] bg-slate-800/95 backdrop-blur border border-white/10 rounded-xl shadow-2xl py-1 text-sm text-slate-100 select-none"
+  <div bind:this={el} data-shell-occluder="context-menu" class="fixed z-[99999] min-w-[200px] max-w-[320px] bg-slate-800/95 backdrop-blur border border-white/10 rounded-xl shadow-2xl py-1 text-sm text-slate-100 select-none"
     style="left:{pos.x}px; top:{pos.y}px;" role="menu" on:contextmenu|preventDefault>
     {#each $contextMenu.items as it, i}
       {#if it.separator}
