@@ -40,6 +40,9 @@
   import HotCorners from './lib/components/HotCorners.svelte';
   import { normalizeHotCorners, DEFAULT_HOT_CORNERS, type HotCornersConfig, type HotCornerSlot } from './lib/utils/hotCorners';
   import { listen } from '@tauri-apps/api/event';
+  import OsdOverlay from './lib/components/OsdOverlay.svelte';
+  import { showOsd, setOsdEnabled } from './lib/stores/osd';
+  import { buildRunningItems, type RunningItem } from './lib/utils/runningApps';
   import { invoke } from '@tauri-apps/api/core';
   import DialogHost from './lib/components/DialogHost.svelte';
   import ConflictDialog from './lib/components/ConflictDialog.svelte';
@@ -281,6 +284,7 @@
       deviceNotifications = cfg.deviceNotifications !== false;
       showTransferProgress = cfg.showTransferProgress !== false;
       superDoubleTapMs = typeof cfg.superDoubleTapMs === 'number' ? Math.min(800, Math.max(150, cfg.superDoubleTapMs)) : 350;
+      setOsdEnabled(cfg.osdEnabled !== false);
     });
     const unsubConfig = configStore.subscribe((cfg) => {
       if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -297,6 +301,7 @@
       deviceNotifications = cfg.deviceNotifications !== false;
       showTransferProgress = cfg.showTransferProgress !== false;
       superDoubleTapMs = typeof cfg.superDoubleTapMs === 'number' ? Math.min(800, Math.max(150, cfg.superDoubleTapMs)) : 350;
+      setOsdEnabled(cfg.osdEnabled !== false);
     });
 
     cleanupKeyboard = initKeyboardShortcuts({
@@ -344,7 +349,9 @@
     };
     cornerHandler = runCornerAction;
 
-    const closePanels = () => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; };
+    // Escape must also leave the full-screen drawer's MODE, or the next plain open
+    // of the Start menu would come back full-screen.
+    const closePanels = () => { isStartMenuOpen = false; isStartMenuFullScreen = false; isControlCenterOpen = false; isNotificationsOpen = false; isClipboardOpen = false; showPowerMenu = false; };
     const toggleClip = () => (isClipboardOpen = !isClipboardOpen);
     const openTerm = () => openApp(AppId.TERMINAL);
     const showDesktop = () => {
@@ -472,6 +479,10 @@
       if (!deviceNotifications) return;
       window.dispatchEvent(new CustomEvent('blue:show-toast', { detail: { title: translate('device.removed'), message: ev.payload.name } }));
     });
+    // Volume / brightness changed (media keys, headset, other apps, …) — the backend
+    // watchers (src-tauri/src/shell_osd.rs) report it; the OSD shows it KDE-style.
+    const unlistenOsdVolume = listen<{ volume: number; muted: boolean }>('osd:volume', (ev) => showOsd('volume', ev.payload.volume, ev.payload.muted));
+    const unlistenOsdBrightness = listen<{ percent: number }>('osd:brightness', (ev) => showOsd('brightness', ev.payload.percent));
     const unlistenUsbAdd = listen<UsbEv>('device:usb-added', (ev) => {
       const d = ev.payload;
       // Pamięć masowa (klasa 08) dostaje własne powiadomienie z akcjami (storage-added).
@@ -520,6 +531,8 @@
       unlistenStorageAdd.then((f) => f());
       unlistenStorageRemoved.then((f) => f());
       unlistenUsbAdd.then((f) => f());
+      unlistenOsdVolume.then((f) => f());
+      unlistenOsdBrightness.then((f) => f());
       window.removeEventListener('blue:notification-action', onDeviceAction);
       unlistenUpdStaged.then((f) => f());
       window.removeEventListener('blue:notification-action', onNotifAction);
@@ -582,6 +595,28 @@
   // whenever either list changes.
   $: switcherItems = getSwitcherItems($windows, $externalWindows);
 
+  // Top bar's running-apps strip: one entry per open window (Blue + native).
+  $: runningItems = buildRunningItems($windows, $externalWindows, $activeWindowId);
+
+  function activateRunning(item: RunningItem) {
+    const otherWorkspace = item.workspace !== get(currentWorkspace);
+    if (otherWorkspace) switchWorkspace(item.workspace);
+    if (item.isExternal) {
+      SystemBridge.focusExternalWindow(item.id);
+    } else if (otherWorkspace) {
+      // Just arrived on that workspace: bring the window up (a toggle would minimize it).
+      focusWindow(item.id);
+    } else {
+      toggleWindowFromTaskbar(item.id);
+    }
+    closePopupsNow();
+  }
+
+  function closeRunning(item: RunningItem) {
+    if (item.isExternal) SystemBridge.closeExternalWindow(item.id);
+    else closeWindow(item.id);
+  }
+
   // StartMenu (both the popup dropdown and the fullscreen app drawer) is
   // meant to always sit above every window, including a maximized/
   // fullscreen/PiP one — that's the whole point of it being a modal
@@ -638,6 +673,7 @@
 
   <TopBar
     openWindows={openWindowSummaries}
+    {runningItems}
     currentWorkspace={$currentWorkspace}
     workspaceCount={$workspaceCount}
     {isStartMenuOpen}
@@ -647,6 +683,8 @@
     shellThemeId={activeShellTheme?.id}
     on:openApp={(e) => openApp(e.detail)}
     on:toggleWindow={(e) => toggleWindowFromTaskbar(e.detail)}
+    on:activateRunning={(e) => activateRunning(e.detail)}
+    on:closeRunning={(e) => closeRunning(e.detail)}
     on:startClick={() => (isStartMenuOpen = !isStartMenuOpen)}
     on:startDoubleClick={() => { isStartMenuOpen = true; isStartMenuFullScreen = true; }}
     on:toggleControlCenter={() => (isControlCenterOpen = !isControlCenterOpen)}
@@ -713,6 +751,7 @@
   {/if}
 
   <ToastContainer />
+  <OsdOverlay zIndex={startMenuZIndex + 200} bottomInset={effectivePanelPosition === 'bottom' ? barHeight : 0} />
   <ContextMenu />
   <DialogHost />
   <ConflictDialog />
