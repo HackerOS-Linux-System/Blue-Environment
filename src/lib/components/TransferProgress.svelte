@@ -14,7 +14,7 @@
 </script>
 
 {#if visible.length}
-  <div class="fixed right-4 bottom-16 z-[9990] flex flex-col gap-3 w-[22rem] max-w-[92vw]">
+  <div data-shell-occluder="transfers" class="fixed right-4 bottom-16 z-[9990] flex flex-col gap-3 w-[22rem] max-w-[92vw]">
     {#each visible as j (j.jobId)}
       <div class="bg-slate-800/95 backdrop-blur border border-white/10 rounded-2xl shadow-2xl p-4 text-sm text-slate-200" role="status" aria-live="polite">
         <div class="flex items-center gap-2 mb-2">
