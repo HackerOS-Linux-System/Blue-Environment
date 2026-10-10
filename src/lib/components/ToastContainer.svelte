@@ -27,7 +27,7 @@
 </script>
 
 {#if toasts.length > 0}
-  <div class="fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+  <div data-shell-occluder="toasts" class="fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
     {#each toasts as toast (toast.id)}
       <div class="w-80 bg-slate-900/95 backdrop-blur border border-white/10 rounded-xl shadow-2xl p-4"
            use:autoDismiss={{ id: toast.id, onDismiss: removeToast }}>
