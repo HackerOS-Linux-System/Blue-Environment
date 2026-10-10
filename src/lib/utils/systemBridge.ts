@@ -1,3 +1,5 @@
+import { noteLocalChange } from '../stores/osd';
+
 export interface DesktopEntry {
     id: string;
     name: string;
@@ -139,6 +141,8 @@ export interface UserConfig {
     networkHoverInfoEnabled?: boolean;
     /** Pełne dostosowanie paska — patrz utils/topBarConfig.ts. */
     topBar?: Partial<import('./topBarConfig').TopBarConfig>;
+    /** On-screen display for volume / brightness changes (default on). */
+    osdEnabled?: boolean;
     /** Aktywne narożniki ekranu — patrz utils/hotCorners.ts. */
     hotCorners?: Partial<import('./hotCorners').HotCornersConfig>;
     /** Czas (ms) na drugie dotknięcie Win, by otworzyć pełnoekranowe menu. */
@@ -244,6 +248,23 @@ export interface AIConfig {
     apiKey: string;
     configured?: boolean;
     rememberChoice?: boolean;
+}
+
+/** `get_battery_status` — see src-tauri/src/battery_info.rs. */
+export interface BatteryStatus {
+    present: boolean;
+    percentage: number;
+    charging: boolean;
+    /** "Charging" | "Discharging" | "Full" | "Not charging" | "Unknown" */
+    status: string;
+    /** Mains / USB-PD supply online (the machine is plugged in). */
+    acOnline?: boolean;
+    /** Current charge / discharge power in watts, when the driver reports it. */
+    powerWatts?: number | null;
+    /** Minutes until full (charging) or empty (discharging). */
+    minutesRemaining?: number | null;
+    /** Full-charge capacity vs. design capacity, percent. */
+    healthPercent?: number | null;
 }
 
 export interface ExternalWindow {
@@ -712,9 +733,9 @@ export const SystemBridge = {
 
     // --- Battery (top bar) ---
     // `present: false` on machines without a battery → the indicator hides.
-    getBatteryStatus: async (): Promise<{ present: boolean; percentage: number; charging: boolean; status: string }> => {
+    getBatteryStatus: async (): Promise<BatteryStatus> => {
         if (isTauri) return await invoke('get_battery_status');
-        return { present: true, percentage: 82, charging: false, status: 'Discharging' };
+        return { present: true, percentage: 82, charging: false, status: 'Discharging', acOnline: false, powerWatts: 9.4, minutesRemaining: 275, healthPercent: 91 };
     },
 
     // --- Compositor backend (hackeros-comp | labwc | sway | wayfire) ---
@@ -770,10 +791,12 @@ export const SystemBridge = {
         ];
     },
 
-    setVolume:      async (level: number)                      => { mockVolume = level; if (isTauri) await invoke('set_volume',      { level }); },
-    setSinkVolume:  async (sinkName: string, volume: number)   => { if (isTauri) await invoke('set_sink_volume',  { sinkName, volume }); },
+    // The ones below are the shell's own sliders: `noteLocalChange` makes the OSD ignore
+    // the echo of the change (the slider itself is the feedback) — see stores/osd.ts.
+    setVolume:      async (level: number)                      => { mockVolume = level; noteLocalChange('volume'); if (isTauri) await invoke('set_volume',      { level }); },
+    setSinkVolume:  async (sinkName: string, volume: number)   => { noteLocalChange('volume'); if (isTauri) await invoke('set_sink_volume',  { sinkName, volume }); },
     setDefaultSink: async (sinkName: string)                   => { if (isTauri) await invoke('set_default_sink', { sinkName }); },
-    toggleSinkMute: async (sinkName: string)                   => { if (isTauri) await invoke('toggle_sink_mute', { sinkName }); },
+    toggleSinkMute: async (sinkName: string)                   => { noteLocalChange('volume'); if (isTauri) await invoke('toggle_sink_mute', { sinkName }); },
 
     // --- Wi-Fi ---
     // Android-style mobile data — see commands/network.rs::has_cellular_modem.
@@ -917,7 +940,12 @@ export const SystemBridge = {
     },
 
     // --- Brightness ---
-    setBrightness: async (level: number) => { mockBrightness = level; if (isTauri) await invoke('set_brightness', { level }); },
+    /** Relative steps for the media keys the shell itself receives (see stores/osdKeys.ts).
+     *  Resolve with the new level so the OSD can show it right away. */
+    osdAdjustVolume:     async (delta: number): Promise<{ volume: number; muted: boolean } | null> => (isTauri ? invoke('osd_adjust_volume', { delta }) : null),
+    osdToggleMute:       async (): Promise<{ volume: number; muted: boolean } | null>              => (isTauri ? invoke('osd_toggle_mute') : null),
+    osdAdjustBrightness: async (delta: number): Promise<number | null>                              => (isTauri ? invoke('osd_adjust_brightness', { delta }) : null),
+    setBrightness: async (level: number) => { mockBrightness = level; noteLocalChange('brightness'); if (isTauri) await invoke('set_brightness', { level }); },
 
     // --- Screenshot ---
     takeScreenshot: async (): Promise<string | null> => {
