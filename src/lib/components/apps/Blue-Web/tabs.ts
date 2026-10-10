@@ -67,6 +67,8 @@ export function createTabs(
   onWebviewCreated?: (tabId: string) => void,
   /** Called when a webview could not be created at all. */
   onCreateError?: (message: string) => void,
+  /** The person clicked inside a tab's page (a native surface — the shell's own mousedown never sees it). */
+  onPressed?: (tabId: string) => void,
 ) {
   const first = makeTab();
   if (getDefaultZoom) first.zoom = getDefaultZoom();
@@ -120,7 +122,10 @@ export function createTabs(
       activeId.set(t.id);
       openUrl(url, t.id);
     });
-    tabUnlisten.set(id, [navUn, metaUn, popupUn]);
+    // A click inside the page doesn't reach the shell's DOM (the page is a native surface above
+    // it), so the backend reports it — the window can then take focus like any other window.
+    const pressUn = await listenEvent(`web-pressed-${id}`, () => onPressed?.(id));
+    tabUnlisten.set(id, [navUn, metaUn, popupUn, pressUn]);
   }
 
   function fetchFaviconFor(id: string, url: string) {
@@ -306,6 +311,22 @@ export function createTabs(
     }
   }
 
+  /**
+   * A JPEG `data:` URL of what tab `id`'s page currently shows, or `null` when that
+   * isn't possible (not Tauri, no live webview, a platform without snapshot support,
+   * a render WebKit couldn't read back). Must be called while the webview is still
+   * shown — a hidden webview can't be rendered.
+   */
+  async function snapshot(id: string): Promise<string | null> {
+    if (!SystemBridge.isTauri() || !liveWebviews.has(id)) return null;
+    try {
+      const shot = await SystemBridge.invokeCommand<string>('web_view_snapshot', { tabId: id });
+      return typeof shot === 'string' && shot.startsWith('data:image/') ? shot : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Click-through toggle for every live webview (window drag/resize guard). */
   async function setInteractive(interactive: boolean) {
     if (!SystemBridge.isTauri()) return;
@@ -359,6 +380,6 @@ export function createTabs(
 
   return {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, snapshot,
   };
 }
