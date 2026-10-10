@@ -178,12 +178,13 @@
 
 {#if !win.isMinimized}
   {#if snapPreview}
-    <div class="fixed pointer-events-none z-[9999]"
+    <div data-shell-occluder="snap-preview" class="fixed pointer-events-none z-[9999]"
          style="left:{snapPreview.x}px; top:{snapPreview.y}px; width:{snapPreview.w}px; height:{snapPreview.h}px;
                 background:rgba(59,130,246,0.15); border:2px solid rgba(59,130,246,0.5); border-radius:12px; transition:all 0.12s ease;" />
   {/if}
 
   <div
+    data-window-root={win.id}
     class="absolute flex flex-col overflow-hidden shadow-2xl border transition-shadow duration-150 theme-bg-primary
       {isActive ? 'border-blue-500/60 shadow-blue-500/20' : 'theme-border shadow-black/60'}
       {isDragging ? 'cursor-grabbing select-none' : ''}
