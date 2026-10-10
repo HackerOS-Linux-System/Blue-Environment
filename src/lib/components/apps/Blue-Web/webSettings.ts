@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
-import { DEFAULT_WEB_SETTINGS } from './types';
+import { DEFAULT_WEB_SETTINGS, SEARCH_ENGINES } from './types';
+import type { SearchEngineId } from './types';
 import type { BlueWebSettings } from './types';
 import { SystemBridge } from '../../../utils/systemBridge';
 
@@ -22,13 +23,49 @@ export const BUILTIN_BLOCKLIST = [
     'adnxs.com', 'criteo.com', 'moatads.com', 'amazon-adsystem.com',
 ];
 
+/** What the defaults were before the HackerOS Search Engine became the default. */
+const LEGACY_ENGINE: SearchEngineId = 'duckduckgo';
+const LEGACY_HOMEPAGES = ['https://duckduckgo.com', 'https://duckduckgo.com/'];
+
+/**
+ * Settings from localStorage (any generation) merged over the current defaults.
+ *
+ * Saved settings used to contain the then-default engine, so merely reading them
+ * would keep every existing install on DuckDuckGo forever. Settings that still
+ * have exactly the OLD defaults (DuckDuckGo + its homepage) were never customised
+ * and move to the new default; anything else the person chose is left alone.
+ */
+export function mergeStoredSettings(raw: unknown): BlueWebSettings {
+    const stored = raw && typeof raw === 'object' ? (raw as Partial<BlueWebSettings>) : {};
+    const merged: BlueWebSettings = { ...DEFAULT_WEB_SETTINGS, ...stored };
+    if (!stored.defaultsVersion || stored.defaultsVersion < 2) {
+        if (merged.searchEngine === LEGACY_ENGINE && LEGACY_HOMEPAGES.includes(merged.homepage)) {
+            merged.searchEngine = DEFAULT_WEB_SETTINGS.searchEngine;
+            merged.homepage = DEFAULT_WEB_SETTINGS.homepage;
+        }
+    }
+    merged.defaultsVersion = DEFAULT_WEB_SETTINGS.defaultsVersion;
+    if (!SEARCH_ENGINES.some((e) => e.id === merged.searchEngine)) merged.searchEngine = DEFAULT_WEB_SETTINGS.searchEngine;
+    return merged;
+}
+
+/** The engine currently chosen in Blue Web's settings (for other apps that search the web). */
+export function getConfiguredSearchEngine(): SearchEngineId {
+    try {
+        const raw = localStorage.getItem(LS_KEY);
+        return mergeStoredSettings(raw ? JSON.parse(raw) : null).searchEngine;
+    } catch {
+        return DEFAULT_WEB_SETTINGS.searchEngine;
+    }
+}
+
 export function createWebSettings() {
     const stored = (() => {
         try {
             const raw = localStorage.getItem(LS_KEY);
-            return raw ? { ...DEFAULT_WEB_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_WEB_SETTINGS };
+            return mergeStoredSettings(raw ? JSON.parse(raw) : null);
         } catch {
-            return { ...DEFAULT_WEB_SETTINGS };
+            return mergeStoredSettings(null);
         }
     })();
 
