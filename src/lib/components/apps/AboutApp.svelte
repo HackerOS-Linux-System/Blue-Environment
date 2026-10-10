@@ -166,7 +166,7 @@
         </div>
         <div class="text-right">
           <div class="text-xs text-slate-500">GNU GPL v3.0</div>
-          <div class="text-xs text-slate-500 mt-0.5">© 2026 LegendaryOS Team</div>
+          <div class="text-xs text-slate-500 mt-0.5">© 2026 HackerOS Team</div>
         </div>
       </div>
     </div>
