@@ -33,7 +33,7 @@
 </script>
 
 {#if isOpen}
-  <div class="absolute right-4 w-96 border rounded-3xl shadow-2xl z-40 flex flex-col overflow-hidden {shellThemeId === 'hydra' ? 'bg-slate-900 border-pink-500/30' : 'bg-slate-900 border-white/10'}"
+  <div data-shell-occluder="notifications" class="absolute right-4 w-96 border rounded-3xl shadow-2xl z-40 flex flex-col overflow-hidden {shellThemeId === 'hydra' ? 'bg-slate-900 border-pink-500/30' : 'bg-slate-900 border-white/10'}"
     style="{panelPosition === 'top' ? `top:${panelSize + 8}px; bottom:16px;` : `top:16px; bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.2);' : ''}"
   >
     <div class="p-5 border-b border-white/5 flex items-center justify-between">
