@@ -5,6 +5,7 @@ import {
   getSwitcherItems, activateSwitcherItem,
 } from './windowManager';
 import { activeDialog } from './dialog';
+import { mediaKeyAction, runMediaKeyAction } from './osdKeys';
 
 export interface ShortcutCallbacks {
   onToggleStartMenu: () => void;
@@ -52,6 +53,14 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
 
     const key = e.key;
     heldKeys.add(key);
+
+    // Volume / brightness keys nobody else handled: step the level and show the OSD.
+    const mediaAction = mediaKeyAction(key);
+    if (mediaAction) {
+      e.preventDefault();
+      void runMediaKeyAction(mediaAction);
+      return;
+    }
 
     const alt = e.altKey;
     const meta = e.metaKey || key === 'Meta';
