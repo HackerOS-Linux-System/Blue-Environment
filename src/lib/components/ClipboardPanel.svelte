@@ -35,7 +35,7 @@
   function formatTime(timestamp: number) { return new Date(timestamp).toLocaleTimeString(); }
 </script>
 
-<div class="absolute top-14 right-4 w-96 bg-slate-900/98 border border-white/10 rounded-2xl shadow-2xl p-4 z-50 backdrop-blur-xl">
+<div data-shell-occluder="clipboard" class="absolute top-14 right-4 w-96 bg-slate-900/98 border border-white/10 rounded-2xl shadow-2xl p-4 z-50 backdrop-blur-xl">
   <div class="flex items-center justify-between mb-3">
     <h3 class="font-semibold text-white flex items-center gap-2"><Clipboard size={16} /> Clipboard History</h3>
     <button on:click={() => dispatch('close')} class="text-slate-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors">
