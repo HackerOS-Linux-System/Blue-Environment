@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, 
 use tauri::webview::{DownloadEvent, NewWindowResponse};
 
 mod content_blocking;
+mod snapshot;
 pub mod capability_selftest;
 // Linux-only: poprawne osadzanie webview-dzieci (GtkOverlay) — patrz
 // `linux_embed.rs` (bez tego strona renderuje się POD powłoką, a nie w oknie).
@@ -393,8 +394,17 @@ pub fn web_view_create(
     // dopiero po tym wygląda to tak, jak na Windows/macOS.
     #[cfg(target_os = "linux")]
     {
+        // A click inside the page never reaches the shell's own DOM (the page is
+        // a native surface above it), so tell the frontend — it focuses/raises
+        // the Blue Web window, exactly as clicking any other window would.
+        let app_for_press = app.clone();
+        let tab_for_press = tab_id.clone();
         let _ = webview.with_webview(move |pw| {
-            linux_embed::attach_child(&pw.inner(), x, y, width, height);
+            let wv = pw.inner();
+            linux_embed::attach_child(&wv, x, y, width, height);
+            linux_embed::on_pressed(&wv, move || {
+                let _ = app_for_press.emit(&format!("web-pressed-{tab_for_press}"), ());
+            });
         });
     }
 
@@ -590,6 +600,49 @@ pub fn web_view_set_visible(registry: tauri::State<WebViewRegistry>, tab_id: Str
     let reg = registry.0.lock().unwrap();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
     if visible { webview.show().map_err(|e| e.to_string()) } else { webview.hide().map_err(|e| e.to_string()) }
+}
+
+/// Renders what a tab's webview currently shows into a compact JPEG `data:` URL.
+///
+/// The frontend calls this right before it has to hide the (native, always
+/// on-top) webview because another window or overlay covers it, and paints the
+/// result in the DOM placeholder — so the page stays visible underneath
+/// whatever covers it instead of turning into an empty rectangle.
+///
+/// `Err` is a normal outcome (non-Linux platform, a hidden webview, a render
+/// WebKit could not read back): the frontend then shows a neutral placeholder.
+#[tauri::command(async)]
+pub fn web_view_snapshot(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<String, String> {
+    let webview = {
+        let reg = registry.0.lock().unwrap();
+        let Some(webview) = reg.get(&tab_id) else { return Err("no such tab".to_string()) };
+        webview.clone()
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<snapshot::RawSnapshot, String>>();
+        webview
+            .with_webview(move |pw| {
+                // Runs on the GTK main thread; the callback fires there once
+                // WebKit has rendered. Only a pixel copy happens on that thread.
+                linux_embed::capture(&pw.inner(), move |raw| {
+                    let _ = tx.send(raw);
+                });
+            })
+            .map_err(|e| e.to_string())?;
+        // This command runs on a worker thread, so waiting here never blocks GTK.
+        let raw = rx
+            .recv_timeout(std::time::Duration::from_millis(2500))
+            .map_err(|_| "snapshot timed out".to_string())??;
+        return snapshot::encode_data_url(&raw);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = webview;
+        Err("page snapshots are not supported on this platform".to_string())
+    }
 }
 
 /// Session-history navigation for a tab's webview (`delta` = -1 back, +1 forward).
