@@ -248,44 +248,9 @@ pub fn set_volume(level: i32) {
 }
 
 
-/// Lightweight battery probe for the top bar. Unlike `get_battery_info`
-/// (which pretends a desktop is "100 % charging"), this reports whether a
-/// battery exists at all so the UI can hide the indicator on desktops.
-#[derive(serde::Serialize)]
-pub struct BatteryStatus {
-    pub present: bool,
-    pub percentage: f32,
-    pub charging: bool,
-    /// "Charging" | "Discharging" | "Full" | "Not charging" | "Unknown"
-    pub status: String,
-}
-
+/// Battery state for the top bar's hover card / chip — see `battery_info.rs`
+/// (charging, time left, power draw, health, adapter; unit-tested there).
 #[tauri::command]
-pub async fn get_battery_status() -> Result<BatteryStatus, String> {
-    tokio::task::spawn_blocking(read_battery_status).await.map_err(|e| e.to_string())
-}
-
-fn read_battery_status() -> BatteryStatus {
-    let none = BatteryStatus { present: false, percentage: 0.0, charging: false, status: "Unknown".into() };
-    let Ok(entries) = fs::read_dir("/sys/class/power_supply") else { return none };
-    let mut best: Option<BatteryStatus> = None;
-    for entry in entries.flatten() {
-        let dir = entry.path();
-        let kind = fs::read_to_string(dir.join("type")).unwrap_or_default();
-        if kind.trim() != "Battery" {
-            continue;
-        }
-        // Skip peripheral batteries (wireless mice, headsets…): scope is "Device".
-        if fs::read_to_string(dir.join("scope")).map(|s| s.trim() == "Device").unwrap_or(false) {
-            continue;
-        }
-        let Some(percentage) = fs::read_to_string(dir.join("capacity")).ok().and_then(|c| c.trim().parse::<f32>().ok()) else {
-            continue;
-        };
-        let status = fs::read_to_string(dir.join("status")).map(|s| s.trim().to_string()).unwrap_or_else(|_| "Unknown".into());
-        let charging = status == "Charging";
-        best = Some(BatteryStatus { present: true, percentage, charging, status });
-        break;
-    }
-    best.unwrap_or(none)
+pub async fn get_battery_status() -> Result<crate::battery_info::BatteryStatus, String> {
+    tokio::task::spawn_blocking(crate::battery_info::read_battery_status).await.map_err(|e| e.to_string())
 }
