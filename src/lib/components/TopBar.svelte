@@ -3,10 +3,10 @@
   import { AppId } from '../types';
   import { APPS } from '../constants';
   import {
-    Search, Wifi, Bell, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
+    Wifi, Bell, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
     Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
     Battery, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, BatteryWarning,
-    Zap, Check, Command,
+    Zap, Check, Command, Plug, HeartPulse,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
@@ -18,8 +18,14 @@
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
   import { normalizeTopBar, formatBarClock, BLUR_CLASS, type TopBarConfig } from '../utils/topBarConfig';
+  import RunningApps from './RunningApps.svelte';
+  import { batteryPhase, splitMinutes, formatWatts, formatPercent, phaseColor } from '../utils/batteryInfo';
+  import type { BatteryStatus } from '../utils/systemBridge';
+  import type { RunningItem } from '../utils/runningApps';
 
   export let openWindows: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
+  /** Every open window (Blue + native, all workspaces) — feeds the running-apps strip. */
+  export let runningItems: RunningItem[] = [];
   export let currentWorkspace = 0;
   export let workspaceCount = 4;
   export let isStartMenuOpen = false;
@@ -38,6 +44,8 @@
   const dispatch = createEventDispatcher<{
     openApp: string;
     toggleWindow: string;
+    activateRunning: RunningItem;
+    closeRunning: RunningItem;
     startClick: void;
     startDoubleClick: void;
     toggleControlCenter: void;
@@ -195,7 +203,7 @@
   // Shown right next to the weather chip. Hidden entirely on machines with
   // no battery (desktops) — `present` comes from /sys/class/power_supply
   // (see `get_battery_status` in system_stats.rs), not a fake "100 %".
-  interface BatteryState { present: boolean; percentage: number; charging: boolean; status: string; }
+  type BatteryState = BatteryStatus;
   let battery: BatteryState | null = null;
   let batteryTimer: ReturnType<typeof setInterval>;
   async function loadBattery() {
@@ -215,10 +223,48 @@
     return 'text-slate-300';
   }
 
+  // Hover card (charging or not, time left, power draw, health, adapter) and the
+  // click popover (power profile). While either is open the numbers are refreshed
+  // every few seconds — they change quickly right after (un)plugging the charger.
+  let showBatteryHover = false;
+  let batteryHoverTimer: ReturnType<typeof setTimeout>;
+  let batteryLiveTimer: ReturnType<typeof setInterval> | undefined;
+  const BATTERY_LIVE_MS = 5_000;
+
+  $: phase = battery?.present ? batteryPhase(battery) : 'unknown';
+  $: batteryLive = showBatteryHover || showPowerPopover;
+  $: {
+    if (batteryLive && !batteryLiveTimer) batteryLiveTimer = setInterval(loadBattery, BATTERY_LIVE_MS);
+    else if (!batteryLive && batteryLiveTimer) { clearInterval(batteryLiveTimer); batteryLiveTimer = undefined; }
+  }
+
+  function onBatteryEnter() {
+    if (showPowerPopover) return;
+    clearTimeout(batteryHoverTimer);
+    batteryHoverTimer = setTimeout(() => { loadBattery(); showBatteryHover = true; }, 250);
+  }
+  function onBatteryLeave() {
+    clearTimeout(batteryHoverTimer);
+    showBatteryHover = false;
+  }
+  function phaseLabel(p: string, tt: typeof $t): string {
+    switch (p) {
+      case 'charging': return tt('battery.charging');
+      case 'discharging': return tt('battery.discharging');
+      case 'full': return tt('battery.full');
+      case 'plugged': return tt('battery.plugged');
+      default: return tt('battery.unknown');
+    }
+  }
+  function durationText(min: number, tt: typeof $t): string {
+    const { h, m } = splitMinutes(min);
+    return h > 0 ? tt('battery.time_hm', { h, m }) : tt('battery.time_m', { m });
+  }
+
   // --- Power mode (power-profiles-daemon) ---------------------------------
   // Click the battery chip → pick Power Saver / Balanced / Performance.
   // `get_power_profiles` returns [] when power-profiles-daemon isn't there,
-  // in which case the switcher simply isn't offered (see power.rs).
+  // in which case the popover explains what is missing instead of listing profiles.
   interface PowerProfileItem { name: string; active: boolean; icon?: string; description: string; }
   let powerProfiles: PowerProfileItem[] = [];
   let showPowerPopover = false;
@@ -239,9 +285,11 @@
     try { powerProfiles = (await SystemBridge.getPowerProfiles()) ?? []; } catch { /* keep last value */ }
   }
   async function togglePowerPopover() {
+    clearTimeout(batteryHoverTimer);
+    showBatteryHover = false;
     showPowerPopover = !showPowerPopover;
     powerError = '';
-    if (showPowerPopover) await loadPowerProfiles(); // the mode may have been changed elsewhere
+    if (showPowerPopover) { loadBattery(); await loadPowerProfiles(); } // the mode may have been changed elsewhere
   }
   async function choosePowerProfile(p: PowerProfileItem) {
     if (powerBusy || p.active) { showPowerPopover = false; return; }
@@ -265,7 +313,7 @@
   let showClipboardPreview = false;
   /** Click-away for every TopBar popover, even when the click lands inside an app window. */
   function closeOwnPopovers() {
-    showWeatherPopover = false; showPowerPopover = false; showClipboardPreview = false; showClockPopover = false;
+    showWeatherPopover = false; showPowerPopover = false; showClipboardPreview = false; showClockPopover = false; showBatteryHover = false;
   }
   onMount(() => {
     window.addEventListener(CLOSE_POPUPS_EVENT, closeOwnPopovers);
@@ -421,6 +469,8 @@
     clearInterval(clipboardTimer);
     clearInterval(batteryTimer);
     clearInterval(powerTimer);
+    clearInterval(batteryLiveTimer);
+    clearTimeout(batteryHoverTimer);
     clearTimeout(clipboardHoverTimer);
     clearTimeout(clockHoverTimer);
     unsubConfig?.();
@@ -453,8 +503,8 @@
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
     : `background-color:rgba(15, 23, 42, var(--panel-opacity, ${panelOpacity}));`}"
 >
-  <!-- Left: Start + search -->
-  <div class="flex items-center gap-3 w-1/3">
+  <!-- Left: Start + running apps -->
+  <div class="flex items-center gap-3 w-1/3 min-w-0">
     {#if bar.showStartButton}
     <button
       on:contextmenu={startButtonMenu}
@@ -475,15 +525,16 @@
       {/if}
     </button>
     {/if}
-    {#if bar.showSearch}
-    <div
-      style="width:{bar.searchWidth}px"
-      class="hidden md:flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 rounded-full px-3 py-1 text-xs text-slate-400 cursor-text transition-colors"
-      on:click={() => dispatch('startClick')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('startClick'))(); } }}
-    >
-      <Search size={12} />
-      <span>{$t('topbar.search')}</span>
-    </div>
+    {#if bar.showRunningApps}
+      <RunningApps
+        items={runningItems}
+        {currentWorkspace}
+        max={bar.runningAppsMax}
+        showLabels={bar.runningAppsLabels}
+        {position}
+        on:activate={(e) => dispatch('activateRunning', e.detail)}
+        on:close={(e) => dispatch('closeRunning', e.detail)}
+      />
     {/if}
   </div>
 
@@ -553,8 +604,8 @@
         </button>
 
         {#if showWeatherPopover}
-          <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (showWeatherPopover = false))(); } }} />
-          <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
+          <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showWeatherPopover = false))(); } }} />
+          <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
             <div class="flex items-center justify-between mb-3">
               <div>
                 <div class="text-sm font-semibold text-white">{weather.city}</div>
@@ -579,12 +630,11 @@
     {/if}
 
     {#if bar.showBattery && (battery?.present || powerProfiles.length > 0)}
-      <div class="relative">
+      <div class="relative" on:mouseenter={onBatteryEnter} on:mouseleave={onBatteryLeave} role="presentation">
         <button
           on:click={togglePowerPopover}
-          disabled={powerProfiles.length === 0}
-          class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors {powerProfiles.length ? 'hover:bg-white/5 cursor-pointer' : 'cursor-default'} {showPowerPopover ? 'bg-white/10' : ''}"
-          title="{battery?.present ? `${$t('topbar.battery')}: ${Math.round(battery.percentage)}% — ${battery.status}` : ''}{battery?.present && activePowerProfile ? ' · ' : ''}{activePowerProfile ? `${$t('panel.power_mode')}: ${powerName(activePowerProfile)}` : ''}"
+          class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors hover:bg-white/5 cursor-pointer {showPowerPopover ? 'bg-white/10' : ''}"
+          aria-label="{battery?.present ? `${$t('topbar.battery')}: ${Math.round(battery.percentage)}%, ${phaseLabel(phase, $t)}` : $t('panel.power_mode')}"
           aria-haspopup="menu" aria-expanded={showPowerPopover}
         >
           {#if battery?.present}
@@ -596,9 +646,58 @@
           {/if}
         </button>
 
+        {#if showBatteryHover && !showPowerPopover && battery?.present}
+          <div data-shell-occluder="topbar" role="tooltip"
+            class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50 pointer-events-none">
+            <div class="flex items-center gap-3">
+              <svelte:component this={batteryIconFor(battery)} size={28} class={batteryColor(battery)} />
+              <div class="min-w-0">
+                <div class="text-xl font-semibold tabular-nums text-white leading-none">{Math.round(battery.percentage)}%</div>
+                <div class="text-xs mt-1 font-medium {phaseColor(phase, battery.percentage)}">{phaseLabel(phase, $t)}</div>
+              </div>
+            </div>
+            <div class="mt-3 space-y-1.5 text-xs text-slate-300">
+              {#if phase === 'charging' || phase === 'discharging'}
+                <div class="flex items-center gap-2">
+                  <Clock size={12} class="text-slate-500 shrink-0" />
+                  {#if battery.minutesRemaining != null}
+                    {phase === 'charging' ? $t('battery.time_to_full', { time: durationText(battery.minutesRemaining, $t) }) : $t('battery.time_to_empty', { time: durationText(battery.minutesRemaining, $t) })}
+                  {:else}
+                    <span class="text-slate-500">{$t('battery.estimating')}</span>
+                  {/if}
+                </div>
+              {/if}
+              {#if battery.powerWatts != null}
+                <div class="flex items-center gap-2"><Zap size={12} class="text-slate-500 shrink-0" />{phase === 'charging' ? $t('battery.rate_in', { w: formatWatts(battery.powerWatts) }) : $t('battery.rate_out', { w: formatWatts(battery.powerWatts) })}</div>
+              {/if}
+              {#if battery.acOnline}
+                <div class="flex items-center gap-2"><Plug size={12} class="text-slate-500 shrink-0" />{$t('battery.adapter')}</div>
+              {/if}
+              {#if battery.healthPercent != null}
+                <div class="flex items-center gap-2"><HeartPulse size={12} class="text-slate-500 shrink-0" />{$t('battery.health', { n: formatPercent(battery.healthPercent) })}</div>
+              {/if}
+              {#if activePowerProfile}
+                <div class="flex items-center gap-2"><svelte:component this={powerIconFor(activePowerProfile.name)} size={12} class="{powerColorFor(activePowerProfile.name)} shrink-0" />{$t('panel.power_mode')}: {powerName(activePowerProfile)}</div>
+              {/if}
+            </div>
+            <div class="mt-3 pt-2 border-t border-white/5 text-[10px] text-slate-500">{$t('battery.click_hint')}</div>
+          </div>
+        {/if}
+
         {#if showPowerPopover}
           <div class="fixed inset-0 z-40" on:click={() => (showPowerPopover = false)} role="button" tabindex="-1" on:keydown={(e) => { if (e.key === 'Escape') showPowerPopover = false; }} />
-          <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-2 z-50" role="menu">
+          <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-72 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-2 z-50" role="menu">
+            {#if battery?.present}
+              <div class="flex items-center gap-3 px-2 pt-1.5 pb-2.5 mb-1 border-b border-white/5">
+                <svelte:component this={batteryIconFor(battery)} size={22} class={batteryColor(battery)} />
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-semibold text-white tabular-nums">{Math.round(battery.percentage)}%</div>
+                  <div class="text-[11px] {phaseColor(phase, battery.percentage)}">
+                    {phaseLabel(phase, $t)}{#if battery.minutesRemaining != null && (phase === 'charging' || phase === 'discharging')} · {phase === 'charging' ? $t('battery.time_to_full', { time: durationText(battery.minutesRemaining, $t) }) : $t('battery.time_to_empty', { time: durationText(battery.minutesRemaining, $t) })}{/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
             <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{$t('panel.power_mode')}</div>
             {#each powerProfiles as p (p.name)}
               <button
@@ -613,6 +712,12 @@
                 {#if p.active}<Check size={15} class="text-blue-400 shrink-0" />{/if}
               </button>
             {/each}
+            {#if powerProfiles.length === 0}
+              <div class="mx-1 mb-1 px-3 py-2.5 rounded-xl bg-white/5 text-[11px] leading-snug text-slate-400">
+                <div class="font-medium text-slate-200 mb-0.5">{$t('battery.profiles_unavailable')}</div>
+                {$t('battery.profiles_unavailable_hint')}
+              </div>
+            {/if}
             {#if powerError}
               <div class="mt-1 px-2 py-1.5 text-[10px] text-red-300 bg-red-500/10 rounded-lg break-words">{powerError}</div>
             {/if}
@@ -633,7 +738,7 @@
       </button>
 
       {#if showClipboardPreview && clipboardHoverPreviewEnabled}
-        <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50">
+        <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50">
           <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{$t('topbar.clipboard_latest')}</div>
           {#if latestClipboardItem}
             <div class="text-xs text-slate-200 break-words line-clamp-4 bg-slate-800/60 rounded-lg p-2 mb-2">{latestClipboardItem.content}</div>
@@ -660,7 +765,7 @@
       </button>
 
       {#if showClockPopover && networkHoverInfoEnabled}
-        <div class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-56 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50 text-xs">
+        <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-56 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-3 z-50 text-xs">
           <div class="flex items-center gap-2 mb-2 text-slate-300">
             <Globe2 size={13} class="text-blue-400 shrink-0" />
             <div class="min-w-0">
