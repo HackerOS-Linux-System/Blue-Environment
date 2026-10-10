@@ -148,7 +148,7 @@
 </script>
 
 {#if visible}
-  <div class="fixed bottom-0 left-0 right-0 z-[9999] bg-slate-900/95 backdrop-blur-xl border-t border-white/10 px-3 pt-2 pb-3 select-none" data-testid="onscreen-keyboard">
+  <div data-shell-occluder="keyboard" class="fixed bottom-0 left-0 right-0 z-[9999] bg-slate-900/95 backdrop-blur-xl border-t border-white/10 px-3 pt-2 pb-3 select-none" data-testid="onscreen-keyboard">
     <div class="flex justify-end mb-1">
       <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400" on:click={() => (visible = false)} title="Hide keyboard" aria-label="Hide keyboard">
         <ChevronDown size={16} />
