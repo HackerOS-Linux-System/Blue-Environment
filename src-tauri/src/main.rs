@@ -18,6 +18,8 @@ mod blue_studio;
 mod blue_engine;
 mod packagekit;
 mod devices;
+mod shell_osd;
+mod battery_info;
 mod cache;
 mod apps;
 mod window_tracker;
@@ -100,7 +102,7 @@ use blue_web_app::{
     web_view_set_visible, web_view_close, WebViewRegistry, web_view_set_interactive, web_view_history_go,
     web_view_set_zoom, web_view_find, web_view_clear_find,
     web_downloads_list, web_download_remove, web_download_reveal, DownloadRegistry,
-    web_set_blocklist, BlockList, web_report_meta,
+    web_set_blocklist, BlockList, web_report_meta, web_view_snapshot,
 };
 use blue_code_app::{start_language_server, stop_language_server, lsp_send_message, lsp_is_running};
 use blue_code_app::git::{
@@ -152,6 +154,7 @@ use commands::config::*;
 use commands::ai::*;
 use commands::packages::*;
 use commands::misc::*;
+use commands::osd::*;
 
 fn main() {
     // ── Backend gate (config.hk → [backend] compositor) ───────────────────
@@ -303,6 +306,8 @@ fn main() {
         get_bluetooth_devices_real, bluetooth_connect, bluetooth_disconnect, bluetooth_pair, bluetooth_forget, get_bluetooth_rssi,
         get_power_profiles, set_power_profile,
         set_brightness,
+        osd_get_state, osd_adjust_volume, osd_toggle_mute, osd_adjust_brightness,
+        web_view_snapshot,
         save_config, load_config, save_window_state, load_window_state,
         exploler_app::read_file_as_data_url, exploler_app::trash::move_to_trash, exploler_app::trash::list_trash, exploler_app::trash::restore_from_trash, exploler_app::trash::delete_from_trash, exploler_app::trash::empty_trash, exploler_app::trash::trash_item_count, exploler_app::trash::get_trash_path, exploler_app::compress_files, exploler_app::extract_archive_here, exploler_app::get_open_with_apps, exploler_app::open_with_app, exploler_app::get_file_details, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
         exploler_app::transfer::fm_check_conflicts, exploler_app::transfer::fm_transfer, exploler_app::transfer::fm_job_control, exploler_app::transfer::fm_exists, exploler_app::transfer::fm_create, exploler_app::transfer::fm_rename,
@@ -459,6 +464,12 @@ fn main() {
         shell_update::spawn_background_checker(app.handle().clone());
         // Powiadomienia o podłączeniu urządzeń (USB, dyski, karty SD).
         devices::spawn_monitor(app.handle().clone());
+        // Volume / brightness changes (media keys, headset, other apps…) →
+        // `osd:volume` / `osd:brightness` events for the on-screen display.
+        let osd_handle = app.handle().clone();
+        shell_osd::start_watchers(move |name, payload| {
+            let _ = osd_handle.emit(name, payload);
+        });
         // Blue Messages: odbiór na żywo działa od startu, bez ponownego logowania.
         blue_messages_app::xmpp::start_background(app.handle().clone());
         blue_messages_app::matrix::start_background_sync(app.handle().clone());
