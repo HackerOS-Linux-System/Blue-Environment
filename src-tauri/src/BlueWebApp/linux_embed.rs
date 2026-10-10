@@ -1,6 +1,8 @@
 use gtk::prelude::*;
 use std::cell::RefCell;
-use webkit2gtk::WebView;
+use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebView, WebViewExt};
+
+use super::snapshot::RawSnapshot;
 
 thread_local! {
     /// Overlay okna powłoki. Dostępny tylko z głównego wątku GTK.
@@ -147,4 +149,58 @@ pub fn set_interactive(child: &WebView, interactive: bool) {
     if let Some(overlay) = OVERLAY.with(|c| c.borrow().clone()) {
         overlay.set_overlay_pass_through(child, !interactive);
     }
+}
+
+/// Renders the visible part of `webview` into pixels. Main GTK thread only;
+/// `done` runs later on that same thread, once WebKit has finished rendering.
+///
+/// Only the raw pixel buffer is copied here — colour conversion, downscaling
+/// and JPEG encoding happen off the UI thread (see `snapshot.rs`).
+pub fn capture<F>(webview: &WebView, done: F)
+where
+    F: FnOnce(Result<RawSnapshot, String>) + 'static,
+{
+    webview.snapshot(
+        SnapshotRegion::Visible,
+        SnapshotOptions::NONE,
+        None::<&gio::Cancellable>,
+        move |result| done(result.map_err(|e| e.to_string()).and_then(copy_surface)),
+    );
+}
+
+fn copy_surface(surface: gtk::cairo::Surface) -> Result<RawSnapshot, String> {
+    use gtk::cairo::{Format, ImageSurface};
+
+    let mut img = ImageSurface::try_from(surface).map_err(|_| "snapshot is not an image surface".to_string())?;
+    let has_alpha = match img.format() {
+        Format::ARgb32 => true,
+        Format::Rgb24 => false,
+        other => return Err(format!("unsupported snapshot pixel format: {other:?}")),
+    };
+    let (width, height, stride) = (img.width(), img.height(), img.stride());
+    if width <= 0 || height <= 0 || stride <= 0 {
+        return Err("empty snapshot".to_string());
+    }
+    img.flush();
+    let data = img.data().map_err(|e| e.to_string())?;
+    Ok(RawSnapshot {
+        width: width as u32,
+        height: height as u32,
+        stride: stride as usize,
+        has_alpha,
+        bytes: data.to_vec(),
+    })
+}
+
+/// Calls `f` whenever the person presses a mouse button inside the page.
+///
+/// The page is a native surface above the shell's DOM, so such a click never
+/// reaches the shell's own `mousedown` handler — without this a Blue Web
+/// window that is visible but not focused (another window is on top elsewhere)
+/// would not come to the front when clicked.
+pub fn on_pressed<F: Fn() + 'static>(child: &WebView, f: F) {
+    child.connect_button_press_event(move |_, _| {
+        f();
+        gtk::glib::Propagation::Proceed
+    });
 }
