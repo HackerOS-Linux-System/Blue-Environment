@@ -66,9 +66,10 @@
 </script>
 
 <div
+  data-shell-occluder="power-menu"
   class="fixed inset-0 flex items-center justify-center"
   style="z-index:{zIndex}; background:rgba(2,8,18,0.8); backdrop-filter:blur(20px);"
-  on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}
+  on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => dispatch('close'))(); } }}
 >
   <div
     class="relative glass-card rounded-3xl p-8 w-96 animate-scale-in"
