@@ -19,7 +19,7 @@
 </script>
 
 {#if isVisible && windows.length > 0}
-  <div class="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none">
+  <div data-shell-occluder="switcher" class="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" />
     <div class="relative bg-slate-900/95 border border-white/10 p-5 rounded-2xl shadow-2xl shadow-black/50 flex flex-col items-center gap-4 max-w-[88vw]">
       <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
