@@ -390,12 +390,12 @@
 </script>
 
 {#if isOpen}
-  <div class="absolute right-4 w-80 border rounded-2xl shadow-2xl p-3 z-50 {shellThemeId === 'hydra' ? 'bg-slate-900/98 border-pink-500/30' : 'bg-slate-900/98 border-white/10'}"
+  <div data-shell-occluder="control-center" class="absolute right-4 w-80 border rounded-2xl shadow-2xl p-3 z-50 {shellThemeId === 'hydra' ? 'bg-slate-900/98 border-pink-500/30' : 'bg-slate-900/98 border-white/10'}"
     style="{panelPosition === 'top' ? `top:${panelSize + 8}px;` : `bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}"
   >
     <div class="grid grid-cols-2 gap-2 mb-2">
       <button on:click={toggleWifiExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group relative {wifiEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
-        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleWifi(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleWifi(); })(e); } }}>
+        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleWifi(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleWifi(); })(e); } }}>
           {#if wifiEnabled}<Wifi size={14} />{:else}<WifiOff size={14} />{/if}
         </div>
         <div class="min-w-0 flex-1">
@@ -405,7 +405,7 @@
         <ChevronDown size={12} class="opacity-60 transition-transform shrink-0 {wifiExpanded ? 'rotate-180' : ''}" />
       </button>
       <button on:click={toggleBtExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
-        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleBluetooth(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleBluetooth(); })(e); } }}>
+        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleBluetooth(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleBluetooth(); })(e); } }}>
           {#if btEnabled}<Bluetooth size={14} />{:else}<BluetoothOff size={14} />{/if}
         </div>
         <div class="min-w-0 flex-1">
