@@ -379,7 +379,7 @@
 </script>
 
 {#if picker}
-  <div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
+  <div data-shell-occluder="file-picker" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
     <div bind:this={pickerRootEl} on:keydown={handleRootKeydown} role="dialog" aria-modal="true" class="w-[760px] h-[540px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <!-- Title bar -->
       <div class="h-11 flex items-center gap-2 px-4 border-b border-white/10 shrink-0">
