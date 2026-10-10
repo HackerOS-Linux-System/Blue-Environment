@@ -12,8 +12,10 @@
   import * as Icons from 'lucide-svelte';
   import AppIconGlyph from './AppIconGlyph.svelte';
   import { createEventDispatcher, tick, onMount } from 'svelte';
+  import { searchApps, execBasename } from '../utils/appSearch';
   import { openInBlueWeb } from '../utils/openInBlueWeb';
   import { normalizeUrl } from './apps/Blue-Web/types';
+  import { getConfiguredSearchEngine } from './apps/Blue-Web/webSettings';
   import { configStore } from '../utils/configStore';
   import { listInstalled, onStoreChanged, type Receipt } from '../utils/blueStore';
   import { openCommunityApp } from '../stores/windowManager';
@@ -131,6 +133,25 @@
     searchDebounceHandle = setTimeout(() => (searchTerm = next), 90);
   }
 
+  /** Keyboard selection (Arrow keys / Enter). -1 = nothing highlighted. */
+  let selectedIndex = -1;
+  let searchEl: HTMLInputElement | undefined;
+  let popupSearchEl: HTMLInputElement | undefined;
+  let gridInnerEl: HTMLDivElement | undefined;
+
+  // A finished (or abandoned) search must not greet the next opening.
+  $: if (!isOpen) { searchInput = ''; searchTerm = ''; selectedIndex = -1; }
+  // Searching always highlights the best match so Enter launches it.
+  $: highlightBestMatch(searchTerm);
+  function highlightBestMatch(term: string) { selectedIndex = term ? 0 : -1; }
+  // Focus the field the moment the menu shows (and when it switches between the
+  // dropdown and the full-screen layout), so typing works without a click.
+  $: if (isOpen) { isFullScreen; focusSearch(); }
+  async function focusSearch() {
+    await tick();
+    (isFullScreen ? searchEl : popupSearchEl)?.focus({ preventScroll: true });
+  }
+
   let systemApps: SystemApp[] = [];
   let recentApps: string[] = [];
   let loading = false;
@@ -231,12 +252,13 @@
     );
 
   $: allApps = (() => {
-    const term = searchTerm.toLowerCase().trim();
     const combined: AnyApp[] = [...internalApps, ...systemApps];
-    if (!term) return combined;
-    return combined.filter(
-      (app) => app.name.toLowerCase().includes(term) || (!('isInternal' in app) && app.comment.toLowerCase().includes(term))
-    );
+    // Token-based, ranked, diacritics-insensitive — see utils/appSearch.ts.
+    // "system mon" (a space!) is just two tokens, not a reason to give up.
+    return searchApps(combined, searchTerm, (app) => ({
+      name: app.name,
+      extra: 'isInternal' in app ? app.categories.join(' ') : `${app.comment ?? ''} ${execBasename(app.exec)} ${app.categories.join(' ')}`,
+    }));
   })();
 
   $: groupedApps = (() => {
@@ -262,6 +284,14 @@
   $: visibleCategories = CATEGORY_ORDER.filter((cat) => groupedApps[cat.key]?.length > 0);
 
   $: externalAppCount = systemApps.length;
+
+  // The dropdown's lists, computed once so rendering and keyboard selection agree
+  // on what is where (recent apps first, then the rest).
+  $: popupRecent = !searchTerm && recentApps.length > 0
+    ? (recentApps.slice(0, 3).map((id) => allApps.find((a) => a.id === id)).filter(Boolean) as AnyApp[])
+    : [];
+  $: popupRest = (searchTerm ? allApps : allApps.filter((a) => !recentApps.slice(0, 3).includes(a.id))).slice(0, 12);
+  $: popupItems = [...popupRecent, ...popupRest];
 
   // Powers the fullscreen grid: search always shows every match; otherwise
   // "All Apps" and "Installed apps" (external/system .desktop apps) are
@@ -294,6 +324,44 @@
   function onGridScroll() {
     if (!gridEl || visibleLimit >= currentTiles.length) return;
     if (gridEl.scrollTop + gridEl.clientHeight > gridEl.scrollHeight - 500) visibleLimit += TILE_CHUNK;
+  }
+
+  /** Items the keyboard moves over right now. */
+  $: navItems = (isFullScreen ? shownTiles : popupItems) as AnyApp[];
+
+  function gridColumns(): number {
+    if (!isFullScreen || !gridInnerEl) return 1;
+    const cols = getComputedStyle(gridInnerEl).gridTemplateColumns.split(' ').filter(Boolean).length;
+    return Math.max(1, cols);
+  }
+
+  async function moveSelection(delta: number) {
+    if (navItems.length === 0) return;
+    const next = selectedIndex < 0 ? (delta > 0 ? 0 : navItems.length - 1) : Math.min(navItems.length - 1, Math.max(0, selectedIndex + delta));
+    selectedIndex = next;
+    await tick();
+    document.querySelector('[data-start-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function onSearchKeydown(e: KeyboardEvent) {
+    const input = e.currentTarget as HTMLInputElement;
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); await moveSelection(isFullScreen ? gridColumns() : 1); break;
+      case 'ArrowUp': e.preventDefault(); await moveSelection(isFullScreen ? -gridColumns() : -1); break;
+      // Left/Right only steer the grid when they could not move the text caret anyway.
+      case 'ArrowRight': if (isFullScreen && input.selectionStart === input.value.length) { e.preventDefault(); await moveSelection(1); } break;
+      case 'ArrowLeft': if (isFullScreen && input.selectionEnd === 0) { e.preventDefault(); await moveSelection(-1); } break;
+      case 'Enter': {
+        e.preventDefault();
+        // Apply the text typed in the last 90 ms right away instead of the debounced term.
+        searchTerm = input.value;
+        await tick();
+        const target = selectedIndex >= 0 ? navItems[selectedIndex] : navItems[0];
+        if (target) handleLaunch(target);
+        else if (searchTerm.trim() && allApps.length === 0) { openInBlueWeb(normalizeUrl(searchTerm, getConfiguredSearchEngine())); dispatch('close'); }
+        break;
+      }
+    }
   }
 
   function handleLaunch(app: AnyApp) {
@@ -350,7 +418,10 @@
 </script>
 
 {#if isOpen && isFullScreen}
-  <div class="absolute inset-0 bg-slate-900 flex" style="z-index:{zIndex};" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => dispatch('close'))(); } }}>
+  <!-- Backdrop: a click on empty space closes. Keyboard handling deliberately lives on the
+       search field (and Escape is global) — a keydown handler HERE would also receive every key
+       typed into the field, which is exactly how the space bar used to close the whole menu. -->
+  <div class="absolute inset-0 bg-slate-900 flex" style="z-index:{zIndex};" data-shell-occluder="startmenu" on:click={() => dispatch('close')} role="presentation">
     <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" on:click|stopPropagation>
       <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
@@ -381,7 +452,8 @@
       <div class="px-8 pt-10 pb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-xl">
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input type="text" autofocus placeholder={$t('topbar.search')}
+          <input type="text" bind:this={searchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
+            on:keydown={onSearchKeydown}
             class="w-full bg-slate-800 border border-white/10 rounded-2xl py-3 pl-12 pr-4 text-white text-lg focus:outline-none focus:border-blue-500/60 transition-colors"
             bind:value={searchInput} />
         </div>
@@ -405,16 +477,17 @@
           {#if currentTiles.length === 0}
             <div class="flex flex-col items-center justify-center gap-3 text-slate-500 pt-20">
               <Search size={32} class="opacity-40" />
-              <p class="text-sm">No apps found{#if searchTerm} for "{searchTerm}"{/if}</p>
+              <p class="text-sm">{searchTerm ? $t('startmenu.no_results', { q: searchTerm }) : $t('startmenu.no_results_plain')}</p>
             </div>
           {:else}
-            <div class="grid grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {#each shownTiles as app (app.id)}
+            <div class="grid grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3" bind:this={gridInnerEl}>
+              {#each shownTiles as app, i (app.id)}
                 {@const external = !('isInternal' in app)}
                 <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+                  data-start-selected={selectedIndex === i ? 'true' : undefined}
                   title={external ? app.comment || app.name : app.name}
                   style="content-visibility:auto; contain-intrinsic-size:auto 112px;"
-                  class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border border-transparent hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-colors group text-center">
+                  class="relative flex flex-col items-center gap-2 p-3.5 rounded-2xl border hover:border-white/10 hover:bg-white/[0.07] active:scale-[0.97] transition-colors group text-center {selectedIndex === i ? 'border-blue-500/60 bg-white/[0.07]' : 'border-transparent'}">
                   {#if external}
                     <span class="absolute top-2 right-2 w-4 h-4 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-slate-500 group-hover:text-blue-400 transition-colors" title={$t('startmenu.installed_system_app')}>
                       <ExternalLink size={9} />
@@ -438,7 +511,7 @@
     </div>
   </div>
 {:else if isOpen}
-  <div class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
+  <div data-shell-occluder="startmenu" class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
     <div class="p-4 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg">
@@ -473,7 +546,8 @@
     <div class="px-3 pt-3">
       <div class="relative">
         <Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input type="text" placeholder={$t('topbar.search')}
+        <input type="text" bind:this={popupSearchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
+          on:keydown={onSearchKeydown}
           class="w-full bg-slate-800 border border-white/10 rounded-xl py-2 pl-8 pr-3 text-sm text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
           bind:value={searchInput} />
       </div>
@@ -483,28 +557,30 @@
       {#if loading}
         <div class="flex items-center gap-2 px-3 py-2 text-slate-500 text-xs"><Loader2 size={12} class="animate-spin" /> {$t('startmenu.loading')}</div>
       {:else}
-        {#if !searchTerm && recentApps.length > 0}
+        {#if popupRecent.length > 0}
           <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Clock size={10} /> {$t('startmenu.recent')}</div>
-          {#each recentApps.slice(0, 3) as id (id)}
-            {@const app = allApps.find((a) => a.id === id)}
-            {#if app}
-              <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
-                <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
-                  <AppIconGlyph icon={app.icon} name={app.name} size={20} />
-                </div>
-                <div class="flex-1 min-w-0 text-left">
-                  <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">{app.name}</div>
-                  {#if !('isInternal' in app) && app.comment}
-                    <div class="text-[10px] text-slate-500 truncate">{app.comment}</div>
-                  {/if}
-                </div>
-              </button>
-            {/if}
+          {#each popupRecent as app, i (app.id)}
+            <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+              data-start-selected={selectedIndex === i ? 'true' : undefined}
+              class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group {selectedIndex === i ? 'bg-white/10' : ''}">
+              <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
+                <AppIconGlyph icon={app.icon} name={app.name} size={20} />
+              </div>
+              <div class="flex-1 min-w-0 text-left">
+                <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">{app.name}</div>
+                {#if !('isInternal' in app) && app.comment}
+                  <div class="text-[10px] text-slate-500 truncate">{app.comment}</div>
+                {/if}
+              </div>
+            </button>
           {/each}
           <div class="h-px bg-white/5 my-1" />
         {/if}
-        {#each (searchTerm ? allApps : allApps.filter((a) => !recentApps.includes(a.id))).slice(0, 12) as app (app.id)}
-          <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group">
+        {#each popupRest as app, j (app.id)}
+          {@const idx = popupRecent.length + j}
+          <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+            data-start-selected={selectedIndex === idx ? 'true' : undefined}
+            class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group {selectedIndex === idx ? 'bg-white/10' : ''}">
             <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
               <AppIconGlyph icon={app.icon} name={app.name} size={20} />
             </div>
@@ -517,13 +593,13 @@
           </button>
         {/each}
         {#if allApps.length === 0 && searchTerm}
-          <button on:click={() => { openInBlueWeb(normalizeUrl(searchTerm)); dispatch('close'); }}
+          <button on:click={() => { openInBlueWeb(normalizeUrl(searchTerm, getConfiguredSearchEngine())); dispatch('close'); }}
             class="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-white/5 transition-colors group text-left">
             <div class="w-8 h-8 bg-blue-500/15 rounded-xl flex items-center justify-center border border-blue-500/20 shrink-0">
               <Globe size={16} class="text-blue-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">Search the web for "{searchTerm}"</div>
+              <div class="text-sm text-slate-200 group-hover:text-white font-medium truncate">{$t('startmenu.search_web', { q: searchTerm })}</div>
               <div class="text-[10px] text-slate-500">{$t('startmenu.no_match')}</div>
             </div>
           </button>
