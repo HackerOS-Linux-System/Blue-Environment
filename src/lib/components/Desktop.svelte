@@ -414,7 +414,7 @@
   bind:this={containerEl}
   class="absolute inset-0 select-none z-[1]"
   on:mousedown={onContainerMouseDown}
-  on:click={onContainerClick} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onContainerClick(); } }}
+  on:click={onContainerClick} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onContainerClick(); } }}
   on:contextmenu={(e) => openMenu(e, null)}
   on:dragover={onDesktopDragOver}
   on:drop={onDesktopDrop}
