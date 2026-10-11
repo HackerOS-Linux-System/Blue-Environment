@@ -1,0 +1,34 @@
+<script lang="ts">
+  /**
+   * Full-screen host for running Blue apps, used by the phone and TV shells.
+   * Every open (non-minimized) app of the current workspace stays mounted so
+   * it keeps its state while another app is in front; only the active one is
+   * visible. Nothing is positioned or resized — each app fills the viewport,
+   * which is how phone/TV UIs present apps.
+   */
+  import { windows, activeWindowId, currentWorkspace } from '../stores/windowManager';
+  import { APPS } from '../constants';
+  import type { AppId } from '../types';
+  import ErrorBoundary from '../components/ErrorBoundary.svelte';
+  import CommunityAppHost from '../components/apps/Community-App-Host/CommunityAppHost.svelte';
+
+  function componentFor(appId: string) {
+    if (appId.startsWith('community:')) return CommunityAppHost;
+    return APPS[appId as AppId]?.component;
+  }
+
+  $: mounted = $windows.filter((w) => !w.isMinimized && !w.isExternal && w.workspace === $currentWorkspace);
+</script>
+
+{#each mounted as win (win.id)}
+  {@const component = componentFor(win.appId)}
+  <div
+    class="absolute inset-0 overflow-auto theme-bg-primary theme-text-primary {win.id === $activeWindowId ? '' : 'hidden'}"
+    data-app-viewport={win.id}
+    aria-hidden={win.id === $activeWindowId ? 'false' : 'true'}
+  >
+    {#if component}
+      <ErrorBoundary {component} appTitle={win.title} props={{ windowId: win.id, ...win.launchArgs }} />
+    {/if}
+  </div>
+{/each}
