@@ -57,19 +57,28 @@ fn mime_for_ext(ext: &str) -> &'static str {
 
 /// Resolves paths that start with the `HOME` sentinel used throughout
 /// the frontend's default config (e.g. `"HOME/Desktop"`) or `~`.
+///
+/// Legacy English XDG names (`HOME/Downloads`, `~/Desktop`, …) are mapped to
+/// the user's real, localized directories (`~/Pobrane`, `~/Pulpit`, …) when
+/// the English one doesn't exist — see `user_dirs.rs`. This is what lets every
+/// older hard-coded `HOME/Downloads` in the shell keep working on a
+/// non-English system without touching each call site.
 pub fn resolve_path(path: &str) -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    if path == "HOME" {
-        home
+    let rel = if path == "HOME" || path == "~" {
+        return home;
     } else if let Some(rest) = path.strip_prefix("HOME/") {
-        home.join(rest)
-    } else if path == "~" {
-        home
+        rest
     } else if let Some(rest) = path.strip_prefix("~/") {
-        home.join(rest)
+        rest
     } else {
-        PathBuf::from(path)
+        return PathBuf::from(path);
+    };
+    let plain = home.join(rel);
+    if plain.exists() {
+        return plain;
     }
+    crate::user_dirs::remap_legacy_env(rel).unwrap_or(plain)
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -494,13 +503,11 @@ pub fn get_default_desktop_path() -> String {
             if !p.is_empty() && p != "/" { return p; }
         }
     }
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    for dir in &["Desktop", "Pulpit"] {
-        let d = home.join(dir);
-        if d.exists() { return d.to_string_lossy().to_string(); }
-    }
-    let d = home.join("Desktop");
-    let _ = fs::create_dir_all(&d);
+    // `user_dirs` reads user-dirs.dirs and also recognises the localized
+    // names of every language the installer knows (Pulpit, Schreibtisch, …),
+    // not just "Desktop"/"Pulpit".
+    let d = crate::user_dirs::dir_for("desktop");
+    if !d.exists() { let _ = fs::create_dir_all(&d); }
     d.to_string_lossy().to_string()
 }
 
