@@ -9,6 +9,7 @@
   import TimeGrid from './TimeGrid.svelte';
   import { t, language } from '../../../stores/language';
   import { SystemBridge } from '../../../utils/systemBridge';
+  import { userDirPath, ensureUserDirsLoaded } from '../../../utils/userDirs';
   import { pickPaths } from '../../../stores/filePicker';
 
   export let windowId: string;
@@ -112,7 +113,8 @@
     const ics = await store.exportIcs();
     if (ics === null) return;
     const d = new Date();
-    const path = `HOME/Downloads/blue-calendar-${isoDate(d)}-${pad(d.getHours())}${pad(d.getMinutes())}.ics`;
+    await ensureUserDirsLoaded();
+    const path = `${userDirPath('downloads')}/blue-calendar-${isoDate(d)}-${pad(d.getHours())}${pad(d.getMinutes())}.ics`;
     try { await SystemBridge.writeFile(path, ics); flash($t('cal.export.done', { path: path.replace('HOME', '~') })); }
     catch (e: any) { flash(String(e?.message ?? e)); }
   }
