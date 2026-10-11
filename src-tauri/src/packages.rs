@@ -337,7 +337,7 @@ pub fn update_flatpak(pkg_id: &str) -> bool {
 
 pub fn get_appimage_packages() -> Vec<PackageInfo> {
     let home = dirs::home_dir().unwrap_or_default();
-    let app_dirs = [home.join("Applications"), home.join(".local/bin"), home.join("Downloads")];
+    let app_dirs = [home.join("Applications"), home.join(".local/bin"), crate::user_dirs::dir_for("downloads")];
     let mut packages = Vec::new();
     let mut seen: std::collections::HashSet<String> = Default::default();
     for dir in &app_dirs {
