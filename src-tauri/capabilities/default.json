@@ -233,6 +233,7 @@
     "allow-get-system-stats",
     "allow-get-temp-sensors",
     "allow-get-trash-path",
+    "allow-get-user-dirs",
     "allow-get-username",
     "allow-get-wallpaper-data-url",
     "allow-get-wallpaper-preview",
