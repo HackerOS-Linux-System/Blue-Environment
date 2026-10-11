@@ -1081,9 +1081,7 @@ pub fn settings_get_wallpapers(directory: Option<String>) -> Vec<String> {
     // before use in a `sh -c` string (it previously wasn't, which was
     // a direct shell-injection hole via a plain folder picker).
     let dir = directory.unwrap_or_else(|| {
-        dirs::home_dir()
-            .map(|p| p.join("Pictures").to_string_lossy().into_owned())
-            .unwrap_or_else(|| "~/Pictures".into())
+        crate::user_dirs::dir_for("pictures").to_string_lossy().into_owned()
     });
     let dir_q = shell_escape(&dir);
     let exts = "jpg jpeg png webp bmp svg";
