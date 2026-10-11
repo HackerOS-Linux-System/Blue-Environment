@@ -61,6 +61,30 @@ export interface ShellThemeExtras {
   fontFamily?: string;
   /** Maps to a CSS transition-duration custom property. */
   animationSpeed?: 'none' | 'normal' | 'fast';
+
+  // ── Added later: window chrome, wallpaper tone, panel colour, UI scale ──
+  // (all optional — a theme that sets none of them looks exactly as before)
+
+  /** Window translucency, 60–100 (%); 100 = opaque. */
+  windowOpacity?: number;
+  /** Shadow under windows; `glow` is tinted with the accent colour. */
+  windowShadow?: 'none' | 'soft' | 'medium' | 'strong' | 'glow';
+  /** Window border thickness in px (0–4). */
+  windowBorderWidth?: number;
+  /** Window border colour (any CSS colour); default = the theme's `border` colour. */
+  windowBorderColor?: string;
+  /** Title-bar height in px (28–56); default 36. */
+  titlebarHeight?: number;
+  /** Scales every size in the shell, 80–130 (%); default 100. */
+  uiScalePercent?: number;
+  /** Scrollbar look across the shell. */
+  scrollbarStyle?: 'default' | 'thin' | 'hidden' | 'accent';
+  /** Wallpaper brightness, 30–130 (%); 100 = unchanged. */
+  wallpaperBrightness?: number;
+  /** Wallpaper colour saturation, 0–200 (%); 100 = unchanged, 0 = greyscale. */
+  wallpaperSaturation?: number;
+  /** Panel background colour (any CSS colour); default = the built-in dark navy. */
+  panelColor?: string;
 }
 
 export interface ShellTheme {
