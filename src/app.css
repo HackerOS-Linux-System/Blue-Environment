@@ -81,6 +81,32 @@ body {
 .theme-border        { border-color: rgba(255,255,255,0.1); }
 [data-theme='light-glass'] .theme-border { border-color: rgba(0,0,0,0.1); }
 
+/* ── Shell-theme extras (see utils/shellThemeCss.ts) ─────────────────────
+ * The theme's `border` / `surfaceElevated` colours used to be stored and
+ * never read. They are now exposed as variables; `.theme-border` follows the
+ * theme's border colour while a shell theme is active, and
+ * `.theme-bg-elevated` is available for popups/cards. */
+[data-shell-theme] .theme-border { border-color: var(--border-color); }
+.theme-bg-elevated { background-color: var(--surface-elevated, var(--bg-secondary)); }
+
+/* Window chrome. Each rule is gated on a data-attribute that is only present
+ * while the active theme actually sets that option, so themes that don't are
+ * untouched (an unset custom property without a fallback would otherwise
+ * blank the property). */
+:root[data-window-shadow] [data-window-root] { box-shadow: var(--window-shadow) !important; }
+:root[data-window-opacity] [data-window-root] { opacity: var(--window-opacity); }
+:root[data-window-border] [data-window-root] {
+  border-width: var(--window-border-width, 1px) !important;
+  border-color: var(--window-border-color, var(--border-color)) !important;
+}
+:root[data-titlebar] [data-window-titlebar] { height: var(--titlebar-height) !important; }
+
+/* Scrollbar styles (`extras.scrollbarStyle`). */
+:root[data-scrollbar='thin']   ::-webkit-scrollbar { width: 4px; height: 4px; }
+:root[data-scrollbar='hidden'] ::-webkit-scrollbar { width: 0; height: 0; }
+:root[data-scrollbar='accent'] ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root[data-scrollbar='accent'] ::-webkit-scrollbar-thumb { border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+
 /* `--shell-anim-duration` — a custom theme's `extras.animationSpeed`
  * ('none' | 'normal' | 'fast', see ShellThemeStyle.svelte for the exact
  * ms values). Applied globally to Tailwind's own `transition-*`
