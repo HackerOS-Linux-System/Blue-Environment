@@ -47,8 +47,9 @@ fn sh(cmd: &str) -> Result<String, String> {
 
 pub(crate) fn expand_path(path: &str) -> String {
     if path.starts_with("~/") {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        path.replacen('~', &home, 1)
+        // Goes through the shared resolver so `~/Documents/x.docx` lands in
+        // `~/Dokumenty/x.docx` on a localized system (see user_dirs.rs).
+        crate::exploler_app::resolve_path(path).to_string_lossy().into_owned()
     } else {
         path.to_string()
     }
