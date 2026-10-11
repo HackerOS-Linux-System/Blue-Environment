@@ -94,6 +94,7 @@ mod legacy_migration;
 mod icon_store;
 mod music;
 mod music_mpris;
+mod user_dirs;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
 use blue_web_app::{
@@ -327,6 +328,7 @@ fn main() {
         file_type_associations::file_type_upsert_association,
         file_type_associations::file_type_remove_association,
         file_type_associations::file_type_resolve,
+        user_dirs::get_user_dirs,
         custom_shell_themes::custom_theme_list,
         custom_shell_themes::custom_theme_upsert,
         custom_shell_themes::custom_theme_remove,
