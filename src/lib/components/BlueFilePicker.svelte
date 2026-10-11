@@ -11,7 +11,7 @@
   import { SystemBridge } from '../utils/systemBridge';
   import { transferWithDialog, createWithDialog, renameWithDialog } from '../utils/fileTransfer';
   import { configStore } from '../utils/configStore';
-  import { BOOKMARKS } from './apps/Explorer-App/types';
+  import { userDirs, buildPlaces, ensureUserDirsLoaded } from '../utils/userDirs';
   import type { FileEntry } from './apps/Explorer-App/types';
   import FileIcon from './apps/Explorer-App/FileIcon.svelte';
   import {
@@ -24,8 +24,9 @@
   import { tick } from 'svelte';
 
   const BM_ICONS: Record<string, any> = { Home, Folder, FileText, Download, Image, Music, Video };
-  const bookmarks = [
-    ...BOOKMARKS.map((b) => ({ ...b, icon: BM_ICONS[b.iconName] ?? Folder })),
+  ensureUserDirsLoaded();
+  $: bookmarks = [
+    ...buildPlaces($userDirs).map((b) => ({ ...b, icon: BM_ICONS[b.iconName] ?? Folder })),
     { name: 'Filesystem', path: '/', icon: HardDrive },
   ];
 
