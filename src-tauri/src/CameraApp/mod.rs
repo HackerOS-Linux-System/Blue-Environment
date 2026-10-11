@@ -8,20 +8,16 @@ pub struct CameraDevice {
     pub name: String,
 }
 
+// Resolved through `user_dirs` (user-dirs.dirs, then localized folder names).
+// `xdg-user-dir` is deliberately not used any more: for a folder that isn't
+// configured it prints `$HOME`, which put photos and recordings straight into
+// the home directory.
 fn pictures_dir() -> PathBuf {
-    if let Ok(o) = Command::new("xdg-user-dir").arg("PICTURES").output() {
-        let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        if !p.is_empty() && p != "/" { return PathBuf::from(p); }
-    }
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp")).join("Pictures")
+    crate::user_dirs::dir_for("pictures")
 }
 
 fn videos_dir() -> PathBuf {
-    if let Ok(o) = Command::new("xdg-user-dir").arg("VIDEOS").output() {
-        let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        if !p.is_empty() && p != "/" { return PathBuf::from(p); }
-    }
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp")).join("Videos")
+    crate::user_dirs::dir_for("videos")
 }
 
 /// Lists `/dev/video*` nodes. Where `v4l2-ctl` is available we also pull a
