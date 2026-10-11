@@ -1,0 +1,195 @@
+<script lang="ts">
+  /**
+   * Blue Environment — TV shell ("10-foot UI").
+   *
+   * Built for a remote or a game pad: big tiles, an unmistakable focus ring and
+   * directional navigation. Arrow keys / D-pad / left stick move the focus
+   * between tiles (see lib/altShell/spatialNav.ts); Enter / A activates;
+   * Esc, Backspace or B goes back (an app can handle it first by cancelling the
+   * `blue:back` event); Home / Start / Guide returns to the home screen;
+   * Menu / Y / the context-menu key opens quick settings (volume, Wi-Fi, power).
+   *
+   * Apps run full screen and reuse the desktop shell's window manager, so every
+   * Blue app works; inside an app the D-pad moves between controls.
+   */
+  import { onDestroy, onMount, tick } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { windows, activeWindowId, focusWindow, openApp } from '../lib/stores/windowManager';
+  import { APPS } from '../lib/constants';
+  import { AppId, type PowerAction } from '../lib/types';
+  import { startAltShell } from '../lib/altShell/boot';
+  import { listLauncherApps, type RecentItem } from '../lib/altShell/apps';
+  import { goHome, dispatchBack } from '../lib/altShell/shellUtils';
+  import { moveFocus, type Dir } from '../lib/altShell/spatialNav';
+  import { PadTracker, type PadAction } from '../lib/altShell/gamepad';
+  import { normalizeTopBar } from '../lib/utils/topBarConfig';
+  import { SystemBridge } from '../lib/utils/systemBridge';
+  import { t } from '../lib/stores/language';
+  import ShellFrame from '../lib/altShell/ShellFrame.svelte';
+  import AppViewport from '../lib/altShell/AppViewport.svelte';
+  import PowerMenu from '../lib/components/PowerMenu.svelte';
+  import TvHome from './TvHome.svelte';
+  import TvMenu from './TvMenu.svelte';
+
+  let wallpaper = '';
+  let theme = 'dark';
+  let shellThemeId: string | undefined;
+  let systemThemeId: string | null | undefined;
+  let appsEnabled: Record<string, boolean> = {};
+  let use24h = true;
+  let showTransferProgress = true;
+
+  const stop = startAltShell((cfg) => {
+    if (cfg.wallpaper) wallpaper = cfg.wallpaper;
+    if (cfg.theme) theme = cfg.theme;
+    shellThemeId = cfg.shellThemeId;
+    systemThemeId = cfg.systemThemeId;
+    if (cfg.appsEnabled) appsEnabled = cfg.appsEnabled;
+    use24h = normalizeTopBar(cfg.topBar).clock24h;
+    showTransferProgress = cfg.showTransferProgress !== false;
+  });
+  onDestroy(stop);
+
+  let now = new Date();
+  let clock: ReturnType<typeof setInterval>;
+  let raf = 0;
+  const pad = new PadTracker();
+
+  type Panel = 'none' | 'menu' | 'power';
+  let panel: Panel = 'none';
+
+  $: apps = listLauncherApps(APPS as any, appsEnabled);
+  $: running = $windows.filter((w) => !w.isExternal).sort((a, b) => b.zIndex - a.zIndex);
+  $: appOpen = running.some((w) => w.id === $activeWindowId && !w.isMinimized);
+  $: runningItems = running.map<RecentItem>((w) => ({
+    id: w.id, title: w.title, icon: (APPS as any)[w.appId]?.icon, active: w.id === $activeWindowId && !w.isMinimized,
+  }));
+
+  let rootEl: HTMLElement;
+
+  /** The region directional input currently acts on. */
+  function activeRegion(): HTMLElement | null {
+    if (!rootEl) return null;
+    if (panel === 'menu') return rootEl.querySelector<HTMLElement>('[data-tv-menu]');
+    if (panel === 'power') return rootEl.querySelector<HTMLElement>('[data-tv-power]');
+    if (appOpen) return rootEl.querySelector<HTMLElement>(`[data-app-viewport="${$activeWindowId}"]`);
+    return rootEl.querySelector<HTMLElement>('[data-tv-home]');
+  }
+
+  async function focusFirstOnHome() {
+    await tick();
+    if (!appOpen && panel === 'none') (rootEl?.querySelector('[data-tv-home] [data-tv-focusable]') as HTMLElement | null)?.focus();
+  }
+  // Whenever the home screen comes (back) into view, put the focus on a tile.
+  $: if (!appOpen && panel === 'none') focusFirstOnHome();
+
+  function go(dir: Dir) {
+    const region = activeRegion();
+    if (!region) return;
+    const el = document.activeElement as HTMLInputElement | null;
+    // A focused slider: left/right adjust it, up/down leave it.
+    if (el?.tagName === 'INPUT' && el.type === 'range' && (dir === 'left' || dir === 'right')) {
+      if (dir === 'right') el.stepUp(); else el.stepDown();
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    moveFocus(region, dir);
+  }
+
+  function select() { (document.activeElement as HTMLElement | null)?.click?.(); }
+  function home() { panel = 'none'; goHome(); }
+  function back() {
+    if (panel !== 'none') { panel = 'none'; return; }
+    if (dispatchBack()) return;
+    if (appOpen) goHome();
+  }
+  function toggleMenu() { panel = panel === 'menu' ? 'none' : 'menu'; }
+
+  function perform(a: PadAction) {
+    document.body.classList.add('tv-nav-active');
+    switch (a) {
+      case 'up': case 'down': case 'left': case 'right': go(a); break;
+      case 'select': select(); break;
+      case 'back': back(); break;
+      case 'home': home(); break;
+      case 'menu': toggleMenu(); break;
+      default: break;
+    }
+  }
+
+  // ── keyboard / remote ────────────────────────────────────────────────
+  function isEditable(el: EventTarget | null): boolean {
+    const e = el as HTMLElement | null;
+    if (!e) return false;
+    return e.tagName === 'TEXTAREA' || (e.tagName === 'INPUT' && !['range', 'button', 'checkbox', 'radio'].includes((e as HTMLInputElement).type)) || e.isContentEditable;
+  }
+  function onKey(e: KeyboardEvent) {
+    document.body.classList.add('tv-nav-active');
+    switch (e.key) {
+      case 'Home': case 'BrowserHome': e.preventDefault(); home(); return;
+      case 'ContextMenu': case 'F1': case 'MediaTopMenu': e.preventDefault(); toggleMenu(); return;
+      case 'Escape': e.preventDefault(); back(); return;
+      case 'Backspace': if (!isEditable(e.target)) { e.preventDefault(); back(); } return;
+    }
+    // On the home screen and in panels the arrows move between tiles. Inside
+    // an app they are left to the app (it may use them itself).
+    if (appOpen && panel === 'none') return;
+    const dir: Dir | null = e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : e.key === 'ArrowLeft' ? 'left' : e.key === 'ArrowRight' ? 'right' : null;
+    if (dir && !isEditable(e.target)) { e.preventDefault(); go(dir); }
+  }
+
+  // ── game pad ─────────────────────────────────────────────────────────
+  function poll(ts: number) {
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) as Gamepad[] : [];
+    const gp = pads[0];
+    if (gp) {
+      const actions = pad.step(ts, { buttons: gp.buttons.map((b) => b.pressed), axes: Array.from(gp.axes) });
+      for (const a of actions) perform(a);
+    } else pad.reset();
+    raf = requestAnimationFrame(poll);
+  }
+
+  onMount(() => {
+    clock = setInterval(() => (now = new Date()), 10000);
+    raf = requestAnimationFrame(poll);
+    const showPointer = () => document.body.classList.remove('tv-nav-active');
+    window.addEventListener('mousemove', showPointer);
+    return () => window.removeEventListener('mousemove', showPointer);
+  });
+  onDestroy(() => { clearInterval(clock); cancelAnimationFrame(raf); document.body.classList.remove('tv-nav-active'); });
+
+  function launch(id: string) { panel = 'none'; openApp(id); }
+  function resume(id: string) { panel = 'none'; focusWindow(id); }
+  function onPower(e: CustomEvent<PowerAction>) { panel = 'none'; SystemBridge.powerAction(e.detail); }
+  function openSettings() { panel = 'none'; openApp(AppId.SETTINGS); }
+</script>
+
+<svelte:window on:keydown={onKey} />
+
+<ShellFrame variant="tv" {wallpaper} {shellThemeId} {systemThemeId} {theme} keyboardOnFocus={true} {showTransferProgress}>
+  <div class="absolute inset-0" bind:this={rootEl}>
+    <div class="absolute inset-0 bg-black/35 pointer-events-none" />
+    {#if !appOpen}
+      <TvHome {apps} running={runningItems} {now} {use24h} on:launch={(e) => launch(e.detail)} on:resume={(e) => resume(e.detail)} />
+    {/if}
+    <AppViewport />
+
+    {#if !appOpen && panel === 'none'}
+      <div class="absolute bottom-0 inset-x-0 z-20 px-12 py-4 flex gap-8 text-sm text-white/80 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" transition:fade={{ duration: 120 }}>
+        <span><kbd class="px-2 py-0.5 rounded bg-white/20">A</kbd> {$t('altui.tv_select')}</span>
+        <span><kbd class="px-2 py-0.5 rounded bg-white/20">B</kbd> {$t('altui.tv_back')}</span>
+        <span><kbd class="px-2 py-0.5 rounded bg-white/20">Y</kbd> {$t('altui.tv_menu')}</span>
+        <span><kbd class="px-2 py-0.5 rounded bg-white/20">Start</kbd> {$t('altui.tv_home')}</span>
+      </div>
+    {/if}
+
+    {#if panel === 'menu'}
+      <TvMenu on:close={() => (panel = 'none')} on:settings={openSettings} on:power={() => (panel = 'power')} />
+    {/if}
+    {#if panel === 'power'}
+      <div class="absolute inset-0 z-50" data-tv-power transition:fade={{ duration: 120 }}>
+        <PowerMenu zIndex={60} on:action={onPower} on:close={() => (panel = 'none')} />
+      </div>
+    {/if}
+  </div>
+</ShellFrame>
