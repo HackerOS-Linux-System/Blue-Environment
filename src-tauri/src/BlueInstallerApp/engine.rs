@@ -124,6 +124,33 @@ fn validate_target(cfg: &InstallConfig) -> InstallResult<()> {
     if cfg.hostname.trim().is_empty() {
         return Err(InstallError::new("bad_config", "Hostname is empty"));
     }
+    validate_user_dir_names(&cfg.user_dirs)?;
+    Ok(())
+}
+
+/// The localized folder names (`Pobrane`, `Pulpit`, …) come from the frontend
+/// and end up in two places: as directory names under the new home, and inside
+/// double quotes in `user-dirs.dirs` (which `xdg-user-dirs` and shells treat as
+/// a shell-like file). So they must be plain single path components with
+/// nothing the quoting could break on.
+fn validate_user_dir_names(d: &UserDirNames) -> InstallResult<()> {
+    let all = [
+        ("desktop", &d.desktop), ("documents", &d.documents), ("downloads", &d.downloads),
+        ("music", &d.music), ("pictures", &d.pictures), ("videos", &d.videos),
+        ("templates", &d.templates), ("public", &d.public),
+    ];
+    for (label, name) in all {
+        let n = name.as_str();
+        let bad = n.trim().is_empty()
+            || n != n.trim()
+            || n.chars().count() > 64
+            || n == "." || n == ".."
+            || n.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | '"' | '$' | '`'));
+        if bad {
+            return Err(InstallError::new("bad_config", format!("The name of the \"{label}\" folder is not valid: {n:?}"))
+                .hint("Folder names must be a single plain name without slashes, quotes or $."));
+        }
+    }
     Ok(())
 }
 
@@ -711,6 +738,25 @@ fn remove_live_account(cfg: &InstallConfig) -> InstallResult<()> {
             }
         }
     }
+    // LightDM: the live image's own autologin drop-in (see
+    // HackerOS blue-live-autologin.sh) names the live account.
+    let lightdm_live = format!("{TARGET_ROOT}/etc/lightdm/lightdm.conf.d/60-blue-live-autologin.conf");
+    if let Ok(content) = fs::read_to_string(&lightdm_live) {
+        if content.contains(&format!("autologin-user={live_user}")) {
+            let _ = fs::remove_file(&lightdm_live);
+        }
+    }
+    // GDM: keep the files (they also carry unrelated settings) but drop the
+    // live autologin lines; AccountsService's per-user record goes entirely.
+    for f in ["/etc/gdm3/daemon.conf", "/etc/gdm3/custom.conf", "/etc/gdm/custom.conf"] {
+        let full = format!("{TARGET_ROOT}{f}");
+        if let Ok(content) = fs::read_to_string(&full) {
+            if content.contains(&format!("AutomaticLogin={live_user}")) {
+                let _ = fs::write(&full, strip_gdm_autologin(&content));
+            }
+        }
+    }
+    let _ = fs::remove_file(format!("{TARGET_ROOT}/var/lib/AccountsService/users/{live_user}"));
     let _ = fs::remove_file(format!("{TARGET_ROOT}/etc/skel/.config/Blue-Environment/.live"));
     Ok(())
 }
@@ -737,28 +783,158 @@ fn create_user_account(cfg: &InstallConfig) -> InstallResult<()> {
         return Err(InstallError::new("useradd_failed", "Could not set the account password").detail(String::from_utf8_lossy(&out.stderr).to_string()));
     }
 
-    // Localized XDG user directories.
+    // Localized XDG user directories (Pobrane, Pulpit, …). Created directly on
+    // the target filesystem — a failure here is reported instead of silently
+    // ignored, because the file manager relies on these folders existing.
     let home = format!("/home/{}", cfg.username);
-    for name in [&cfg.user_dirs.desktop, &cfg.user_dirs.documents, &cfg.user_dirs.downloads, &cfg.user_dirs.music, &cfg.user_dirs.pictures, &cfg.user_dirs.videos, &cfg.user_dirs.templates, &cfg.user_dirs.public] {
-        let _ = chroot_sh(&format!("mkdir -p {}/{} && chown {}:{} {}/{}", shell_quote(&home), shell_quote(name), quoted_user, quoted_user, shell_quote(&home), shell_quote(name)));
+    let home_on_target = format!("{TARGET_ROOT}{home}");
+    let names = [&cfg.user_dirs.desktop, &cfg.user_dirs.documents, &cfg.user_dirs.downloads, &cfg.user_dirs.music, &cfg.user_dirs.pictures, &cfg.user_dirs.videos, &cfg.user_dirs.templates, &cfg.user_dirs.public];
+    for name in names {
+        fs::create_dir_all(format!("{home_on_target}/{name}"))
+            .map_err(|e| InstallError::io(&format!("creating the \"{name}\" folder"), e))?;
     }
-    let user_dirs_conf = format!(
-        "XDG_DESKTOP_DIR=\"$HOME/{}\"\nXDG_DOCUMENTS_DIR=\"$HOME/{}\"\nXDG_DOWNLOAD_DIR=\"$HOME/{}\"\nXDG_MUSIC_DIR=\"$HOME/{}\"\nXDG_PICTURES_DIR=\"$HOME/{}\"\nXDG_VIDEOS_DIR=\"$HOME/{}\"\nXDG_TEMPLATES_DIR=\"$HOME/{}\"\nXDG_PUBLICSHARE_DIR=\"$HOME/{}\"\n",
-        cfg.user_dirs.desktop, cfg.user_dirs.documents, cfg.user_dirs.downloads, cfg.user_dirs.music,
-        cfg.user_dirs.pictures, cfg.user_dirs.videos, cfg.user_dirs.templates, cfg.user_dirs.public,
-    );
-    let config_dir = format!("{TARGET_ROOT}{home}/.config");
-    fs::create_dir_all(&config_dir).ok();
-    fs::write(format!("{config_dir}/user-dirs.dirs"), user_dirs_conf).ok();
+    let config_dir = format!("{home_on_target}/.config");
+    fs::create_dir_all(&config_dir).map_err(|e| InstallError::io("creating ~/.config", e))?;
+    fs::write(format!("{config_dir}/user-dirs.dirs"), user_dirs_file(&cfg.user_dirs))
+        .map_err(|e| InstallError::io("writing user-dirs.dirs", e))?;
+    // `xdg-user-dirs-update` compares this with the login locale and, if it
+    // matches, leaves the folders alone (it would otherwise re-create them).
+    let locale_stamp = cfg.locale.split('.').next().unwrap_or("").trim();
+    if !locale_stamp.is_empty() {
+        fs::write(format!("{config_dir}/user-dirs.locale"), format!("{locale_stamp}\n")).ok();
+    }
     let _ = chroot_sh(&format!("chown -R {user}:{user} {home}", user = quoted_user, home = shell_quote(&home)));
 
-    if cfg.auto_login {
-        let conf = format!("[Autologin]\nUser={}\nSession=blue-environment.desktop\nRelogin=true\n\n[General]\nNumlock=none\n", cfg.username);
-        let dir = format!("{TARGET_ROOT}/usr/lib/sddm/sddm.conf.d");
-        if Path::new(&format!("{TARGET_ROOT}/usr/lib/sddm")).exists() {
-            fs::create_dir_all(&dir).ok();
-            fs::write(format!("{dir}/autologin.conf"), conf).ok();
+    configure_display_manager(cfg)?;
+    Ok(())
+}
+
+/// Content of `~/.config/user-dirs.dirs` for the chosen folder names.
+fn user_dirs_file(d: &UserDirNames) -> String {
+    format!(
+        "XDG_DESKTOP_DIR=\"$HOME/{}\"\nXDG_DOCUMENTS_DIR=\"$HOME/{}\"\nXDG_DOWNLOAD_DIR=\"$HOME/{}\"\nXDG_MUSIC_DIR=\"$HOME/{}\"\nXDG_PICTURES_DIR=\"$HOME/{}\"\nXDG_VIDEOS_DIR=\"$HOME/{}\"\nXDG_TEMPLATES_DIR=\"$HOME/{}\"\nXDG_PUBLICSHARE_DIR=\"$HOME/{}\"\n",
+        d.desktop, d.documents, d.downloads, d.music, d.pictures, d.videos, d.templates, d.public,
+    )
+}
+
+/// Which display manager the freshly copied system boots into. The HackerOS
+/// Blue build writes its choice to `/etc/hackeros/blue-default-dm`; if that is
+/// missing (other images) fall back to Debian's `default-display-manager`, and
+/// finally to "whatever has a directory" — SDDM first, as before.
+fn detect_display_manager() -> &'static str {
+    let normalize = |raw: &str| -> Option<&'static str> {
+        let name = raw.trim().rsplit('/').next().unwrap_or("").to_lowercase();
+        match name.as_str() {
+            "sddm" => Some("sddm"),
+            "lightdm" => Some("lightdm"),
+            "gdm" | "gdm3" => Some("gdm"),
+            "hdm" => Some("hdm"),
+            _ => None,
         }
+    };
+    for f in ["/etc/hackeros/blue-default-dm", "/etc/X11/default-display-manager"] {
+        if let Ok(content) = fs::read_to_string(format!("{TARGET_ROOT}{f}")) {
+            if let Some(dm) = content.lines().next().and_then(|l| normalize(l)) {
+                return dm;
+            }
+        }
+    }
+    if Path::new(&format!("{TARGET_ROOT}/usr/lib/sddm")).exists() { return "sddm"; }
+    if Path::new(&format!("{TARGET_ROOT}/etc/lightdm")).exists() { return "lightdm"; }
+    if Path::new(&format!("{TARGET_ROOT}/etc/gdm3")).exists() || Path::new(&format!("{TARGET_ROOT}/etc/gdm")).exists() { return "gdm"; }
+    "sddm"
+}
+
+const BLUE_SESSION: &str = "blue-environment";
+
+fn lightdm_autologin_conf(user: &str) -> String {
+    format!("[Seat:*]\nautologin-user={user}\nautologin-user-timeout=0\nautologin-session={BLUE_SESSION}\nuser-session={BLUE_SESSION}\n")
+}
+
+fn gdm_daemon_conf(autologin_user: Option<&str>) -> String {
+    let login = match autologin_user {
+        Some(u) => format!("AutomaticLoginEnable=true\nAutomaticLogin={u}\n"),
+        None => String::new(),
+    };
+    format!("[daemon]\nWaylandEnable=true\n{login}\n[security]\n\n[xdmcp]\n\n[chooser]\n\n[debug]\n")
+}
+
+/// Removes the two autologin keys from a GDM config, leaving the rest intact.
+fn strip_gdm_autologin(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    for line in content.lines() {
+        let key = line.trim().split('=').next().unwrap_or("").trim();
+        if key == "AutomaticLoginEnable" || key == "AutomaticLogin" {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Sets the default session (Blue Environment) and — if the person asked for
+/// it — autologin for the new account, in the format of whichever display
+/// manager the installed system uses (SDDM, LightDM or GDM).
+fn configure_display_manager(cfg: &InstallConfig) -> InstallResult<()> {
+    let user = cfg.username.as_str();
+    match detect_display_manager() {
+        "sddm" => {
+            if cfg.auto_login {
+                let conf = format!("[Autologin]\nUser={user}\nSession={BLUE_SESSION}.desktop\nRelogin=true\n\n[General]\nNumlock=none\n");
+                let dir = format!("{TARGET_ROOT}/usr/lib/sddm/sddm.conf.d");
+                if Path::new(&format!("{TARGET_ROOT}/usr/lib/sddm")).exists() {
+                    fs::create_dir_all(&dir).ok();
+                    fs::write(format!("{dir}/autologin.conf"), conf).ok();
+                }
+            }
+        }
+        "lightdm" => {
+            let dir = format!("{TARGET_ROOT}/etc/lightdm/lightdm.conf.d");
+            fs::create_dir_all(&dir).map_err(|e| InstallError::io("creating /etc/lightdm/lightdm.conf.d", e))?;
+            if cfg.auto_login {
+                fs::write(format!("{dir}/60-blue-autologin.conf"), lightdm_autologin_conf(user))
+                    .map_err(|e| InstallError::io("writing the LightDM autologin config", e))?;
+                // Some PAM setups only allow passwordless LightDM login for
+                // members of these groups; add the user where they exist.
+                let _ = chroot_sh(&format!(
+                    "for g in nopasswdlogin autologin; do getent group $g >/dev/null 2>&1 && usermod -aG $g {} || true; done",
+                    shell_quote(user)
+                ));
+            } else {
+                let _ = fs::remove_file(format!("{dir}/60-blue-autologin.conf"));
+            }
+        }
+        "gdm" => {
+            // GDM reads the default session from AccountsService.
+            let accounts = format!("{TARGET_ROOT}/var/lib/AccountsService/users");
+            fs::create_dir_all(&accounts).map_err(|e| InstallError::io("creating the AccountsService directory", e))?;
+            let record = format!("{accounts}/{user}");
+            fs::write(&record, format!("[User]\nSession={BLUE_SESSION}\nXSession={BLUE_SESSION}\nSystemAccount=false\n"))
+                .map_err(|e| InstallError::io("writing the AccountsService session record", e))?;
+            let _ = chroot_sh(&format!("chmod 600 {}", shell_quote(&format!("/var/lib/AccountsService/users/{user}"))));
+
+            // Debian's gdm3 reads daemon.conf (older) or custom.conf (newer);
+            // upstream layout uses /etc/gdm/custom.conf. Write whichever
+            // location exists on this system.
+            let conf = gdm_daemon_conf(if cfg.auto_login { Some(user) } else { None });
+            let mut wrote = false;
+            for f in ["/etc/gdm3/daemon.conf", "/etc/gdm3/custom.conf", "/etc/gdm/custom.conf"] {
+                let full = format!("{TARGET_ROOT}{f}");
+                let dir_exists = Path::new(&full).parent().map(|d| d.exists()).unwrap_or(false);
+                if dir_exists && (Path::new(&full).exists() || f.ends_with("custom.conf")) {
+                    fs::write(&full, &conf).map_err(|e| InstallError::io("writing the GDM config", e))?;
+                    wrote = true;
+                }
+            }
+            if !wrote && cfg.auto_login {
+                fs::create_dir_all(format!("{TARGET_ROOT}/etc/gdm3")).ok();
+                fs::write(format!("{TARGET_ROOT}/etc/gdm3/custom.conf"), &conf)
+                    .map_err(|e| InstallError::io("writing the GDM config", e))?;
+            }
+        }
+        // HDM has no autologin file of its own.
+        _ => {}
     }
     Ok(())
 }
@@ -884,5 +1060,61 @@ mod tests {
         assert_eq!(mount_fstype("ext4"), "ext4");
         assert_eq!(mount_fstype("btrfs"), "btrfs");
         assert_eq!(mount_fstype("xfs"), "xfs");
+    }
+
+    fn dirs_pl() -> UserDirNames {
+        UserDirNames {
+            desktop: "Pulpit".into(), documents: "Dokumenty".into(), downloads: "Pobrane".into(),
+            music: "Muzyka".into(), pictures: "Obrazy".into(), videos: "Wideo".into(),
+            templates: "Szablony".into(), public: "Publiczny".into(),
+        }
+    }
+
+    #[test]
+    fn user_dir_names_validation() {
+        assert!(validate_user_dir_names(&dirs_pl()).is_ok());
+        for bad in ["", " x", "a/b", "..", ".", "a\"b", "$HOME", "x`y", "a\\b", "line\nbreak"] {
+            let mut d = dirs_pl();
+            d.downloads = bad.to_string();
+            assert!(validate_user_dir_names(&d).is_err(), "{bad:?} should be rejected");
+        }
+        let mut d = dirs_pl();
+        d.videos = "Video\u{2019}s".into(); // Dutch typographic apostrophe is fine
+        assert!(validate_user_dir_names(&d).is_ok());
+    }
+
+    #[test]
+    fn user_dirs_file_uses_the_chosen_names() {
+        let f = user_dirs_file(&dirs_pl());
+        assert!(f.contains("XDG_DOWNLOAD_DIR=\"$HOME/Pobrane\"\n"));
+        assert!(f.contains("XDG_DESKTOP_DIR=\"$HOME/Pulpit\"\n"));
+        assert_eq!(f.lines().count(), 8);
+    }
+
+    #[test]
+    fn gdm_conf_has_autologin_only_when_asked() {
+        let on = gdm_daemon_conf(Some("ala"));
+        assert!(on.contains("AutomaticLoginEnable=true"));
+        assert!(on.contains("AutomaticLogin=ala"));
+        assert!(on.starts_with("[daemon]"));
+        let off = gdm_daemon_conf(None);
+        assert!(!off.contains("AutomaticLogin"));
+        assert!(off.contains("WaylandEnable=true"));
+    }
+
+    #[test]
+    fn stripping_gdm_autologin_keeps_other_settings() {
+        let stripped = strip_gdm_autologin(&gdm_daemon_conf(Some("user")));
+        assert!(!stripped.contains("AutomaticLogin"));
+        assert!(stripped.contains("WaylandEnable=true"));
+        assert!(stripped.contains("[security]"));
+    }
+
+    #[test]
+    fn lightdm_autologin_conf_names_user_and_session() {
+        let c = lightdm_autologin_conf("ala");
+        assert!(c.contains("autologin-user=ala"));
+        assert!(c.contains("autologin-session=blue-environment"));
+        assert!(c.starts_with("[Seat:*]"));
     }
 }
