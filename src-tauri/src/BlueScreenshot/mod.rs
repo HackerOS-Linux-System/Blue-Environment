@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn compute_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let pics = home.join("Pictures").join("Screenshots");
+    // Localized Pictures folder (Obrazy, Bilder, …) — see user_dirs.rs.
+    dirs::home_dir()?;
+    let pics = crate::user_dirs::dir_for("pictures").join("Screenshots");
     let _ = fs::create_dir_all(&pics);
     let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
     Some(pics.join(format!("screenshot-{}.png", ts)))
