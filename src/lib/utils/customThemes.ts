@@ -23,6 +23,9 @@ interface RawCustomTheme {
   extras: {
     corner_radius_px?: number; wallpaper_blur?: number; panel_opacity?: number;
     accent_secondary?: string; font_family?: string; animation_speed?: string;
+    window_opacity?: number; window_shadow?: string; window_border_width?: number; window_border_color?: string;
+    titlebar_height?: number; ui_scale_percent?: number; scrollbar_style?: string;
+    wallpaper_brightness?: number; wallpaper_saturation?: number; panel_color?: string;
   };
 }
 
@@ -52,6 +55,16 @@ export function toShellTheme(raw: RawCustomTheme): ShellTheme {
       accentSecondary: raw.extras.accent_secondary,
       fontFamily: raw.extras.font_family,
       animationSpeed: raw.extras.animation_speed as ShellThemeExtras['animationSpeed'],
+      windowOpacity: raw.extras.window_opacity,
+      windowShadow: raw.extras.window_shadow as ShellThemeExtras['windowShadow'],
+      windowBorderWidth: raw.extras.window_border_width,
+      windowBorderColor: raw.extras.window_border_color,
+      titlebarHeight: raw.extras.titlebar_height,
+      uiScalePercent: raw.extras.ui_scale_percent,
+      scrollbarStyle: raw.extras.scrollbar_style as ShellThemeExtras['scrollbarStyle'],
+      wallpaperBrightness: raw.extras.wallpaper_brightness,
+      wallpaperSaturation: raw.extras.wallpaper_saturation,
+      panelColor: raw.extras.panel_color,
     },
   };
 }
@@ -76,6 +89,16 @@ export function fromShellTheme(theme: ShellTheme): RawCustomTheme {
       accent_secondary: theme.extras?.accentSecondary,
       font_family: theme.extras?.fontFamily,
       animation_speed: theme.extras?.animationSpeed,
+      window_opacity: theme.extras?.windowOpacity,
+      window_shadow: theme.extras?.windowShadow,
+      window_border_width: theme.extras?.windowBorderWidth,
+      window_border_color: theme.extras?.windowBorderColor,
+      titlebar_height: theme.extras?.titlebarHeight,
+      ui_scale_percent: theme.extras?.uiScalePercent,
+      scrollbar_style: theme.extras?.scrollbarStyle,
+      wallpaper_brightness: theme.extras?.wallpaperBrightness,
+      wallpaper_saturation: theme.extras?.wallpaperSaturation,
+      panel_color: theme.extras?.panelColor,
     },
   };
 }
@@ -110,7 +133,11 @@ export function blankCustomTheme(): ShellTheme {
     },
     layout: { panelPosition: 'top', windowControlsPosition: 'right', windowControlsStyle: 'windows', cornerStyle: 'rounded', iconStyle: 'outline' },
     requiresRestart: false, builtin: false, custom: true,
-    extras: { cornerRadiusPx: 12, wallpaperBlur: 0, panelOpacity: 100, animationSpeed: 'normal' },
+    extras: {
+      cornerRadiusPx: 12, wallpaperBlur: 0, panelOpacity: 100, animationSpeed: 'normal',
+      windowOpacity: 100, windowShadow: 'medium', windowBorderWidth: 1, titlebarHeight: 36,
+      uiScalePercent: 100, scrollbarStyle: 'default', wallpaperBrightness: 100, wallpaperSaturation: 100,
+    },
   };
 }
 
