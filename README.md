@@ -13,6 +13,19 @@ Production-grade Wayland desktop environment for HackerOS, built on
   manager, System Monitor, Partition Manager, Settings (including
   **Parental Controls**: PIN-protected app blocking, daily time limits,
   allowed-hours windows).
+- **Alternative shell UIs** — the same apps and window manager behind two
+  extra front ends that are **not part of a regular build** (they are only
+  compiled in when you ask for them, see *Shell UI variants* below):
+  a touch UI for **phones** (`src/phones`) and a 10-foot UI for **TVs**
+  (`src/tv`, remote / game-pad navigation).
+- **Customisable look** — shell themes control colours, corner radius,
+  window shadow / opacity / border, title-bar height, interface scale,
+  scrollbars, wallpaper tone and panel colour (Settings → Themes, with a live
+  preview); the bar can be restyled and its right-hand widgets reordered
+  (Settings → Bar).
+- **Language-aware folders** — the file manager, file picker and "Save as"
+  dialogs use the user's real XDG folders (`~/Pobrane`, `~/Pulpit`, …), and
+  the installer creates them in the chosen language.
 - **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
   openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
   Void as submission-ready templates — see `packaging/`).
@@ -75,6 +88,46 @@ npm run tauri build
 > absent, rather than failing). The shell above already runs standalone
 > today under any existing Wayland/X11 compositor (GNOME, KDE, sway,
 > ...) — it doesn't require HackerOS-Comp specifically.
+
+### Shell UI variants (default / phones / tv)
+
+One codebase, three front ends. Pick the UI at build time:
+
+| UI | What it is | Source | Build |
+|----|------------|--------|-------|
+| `default` | Desktop UI for computers (what you get without any flag) | `src/App.svelte`, `src/lib/` | `hl build.hl shell` |
+| `phones` | Touch UI: status bar, paged app grid, dock, recents, pull-down shade, Back/Home/Recents bar | `src/phones/` | `hl build.hl shell phones` |
+| `tv` | 10-foot UI: big tiles, focus ring, D-pad / game-pad / remote navigation, quick-settings side panel | `src/tv/` | `hl build.hl shell tv` |
+
+```bash
+hl build.hl shell phones            # variant + default backend
+hl build.hl shell debian tv         # variant + Blue Software backend (any order)
+hl build.hl shell --ui=tv           # same as 'hl build.hl shell tv'
+hl build.hl android                 # phone UI packaged as an Android .apk
+
+# or directly with npm
+npm run dev:phones                  # hot-reload the phone UI
+npm run dev:tv
+npm run build:tauri:phones          # full Tauri build with the phone UI
+npm run build:tauri:tv
+```
+
+Under the hood the variant is the `VITE_BLUE_UI` environment variable;
+`vite.config.ts` swaps the entry point in `index.html` (`src/main.ts` →
+`src/phones/main.ts` / `src/tv/main.ts`). The variants you did **not** pick are
+never imported, so a regular build contains none of their code. Shared pieces
+(app launcher list, spatial focus navigation, gamepad mapping, swipe gestures,
+app viewport) live in `src/lib/altShell/` and are unit-tested.
+
+TV controls: arrows / D-pad / left stick move the focus, **Enter / A**
+activates, **Esc / Backspace / B** goes back, **Home / Start / Guide** returns
+to the home screen, **Menu / Y / context-menu key** opens quick settings.
+An app can handle "back" itself by cancelling the `blue:back` window event
+(`window.addEventListener('blue:back', e => { …; e.preventDefault(); })`).
+
+In CI (`.github/workflows/build.yml`) choose the UI with the `ui` input of the
+manual run; in HackerOS' `build-blue.yml` use `blue_env_ui` together with
+`blue_env_source=source`.
 
 ### Development (hot-reload)
 
