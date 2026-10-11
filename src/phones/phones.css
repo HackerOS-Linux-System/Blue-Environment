@@ -1,0 +1,15 @@
+html, body {
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+[data-alt-shell='phones'] { user-select: none; -webkit-user-select: none; }
+/* Text stays selectable/editable inside apps and inputs. */
+[data-alt-shell='phones'] input,
+[data-alt-shell='phones'] textarea,
+[data-alt-shell='phones'] [contenteditable='true'],
+[data-alt-shell='phones'] [data-app-viewport] { user-select: text; -webkit-user-select: text; }
+.phone-safe-top    { padding-top: env(safe-area-inset-top, 0px); }
+.phone-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.phone-pager { touch-action: pan-y; }
