@@ -37,6 +37,7 @@
    * persistence, and the restart flow, which is the real foundation
    * that follow-up needs, not the rendering integration itself.
    */
+  import ThemePreview from './ThemePreview.svelte';
   import { onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
   import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Sparkles, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical, Edit2, Download, Trash2, X, AlertTriangle } from 'lucide-svelte';
@@ -457,6 +458,8 @@
           <input bind:value={editingCustom.description} placeholder="Short description (optional)"
             class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
 
+          <ThemePreview theme={editingCustom} />
+
           <div class="grid grid-cols-4 gap-2">
             {#each COLOR_FIELDS as [key, label]}
               <label class="flex flex-col items-center gap-1 text-[10px] text-slate-500">
@@ -513,6 +516,67 @@
           <label class="block text-xs text-slate-500">Font family (CSS value, optional)
             <input bind:value={editingCustom.extras.fontFamily} placeholder="'Fira Sans', sans-serif"
               class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
+          </label>
+
+          <!-- ── Windows ─────────────────────────────────────────────── -->
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Windows</div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-xs text-slate-500">Window shadow
+              <select bind:value={editingCustom.extras.windowShadow} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="none">None</option><option value="soft">Soft</option><option value="medium">Medium</option><option value="strong">Strong</option><option value="glow">Accent glow</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">Scrollbars
+              <select bind:value={editingCustom.extras.scrollbarStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="default">Default</option><option value="thin">Thin</option><option value="accent">Thick, accent</option><option value="hidden">Hidden</option>
+              </select>
+            </label>
+          </div>
+          <label class="block text-xs text-slate-500">Window opacity: {editingCustom.extras.windowOpacity ?? 100}%
+            <input type="range" min="60" max="100" bind:value={editingCustom.extras.windowOpacity} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Title bar height: {editingCustom.extras.titlebarHeight ?? 36}px
+            <input type="range" min="28" max="56" bind:value={editingCustom.extras.titlebarHeight} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Window border: {editingCustom.extras.windowBorderWidth ?? 1}px
+            <input type="range" min="0" max="4" bind:value={editingCustom.extras.windowBorderWidth} class="w-full accent-blue-500" />
+          </label>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-400">
+              <input type="checkbox" checked={!!editingCustom.extras.windowBorderColor}
+                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, windowBorderColor: e.currentTarget.checked ? (editingCustom.extras.windowBorderColor || editingCustom.colors.accent) : undefined })}
+                class="accent-blue-500" />
+              Own window border colour
+            </label>
+            {#if editingCustom.extras.windowBorderColor}
+              <input type="color" bind:value={editingCustom.extras.windowBorderColor} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+            {/if}
+          </div>
+
+          <!-- ── Wallpaper ───────────────────────────────────────────── -->
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Wallpaper</div>
+          <label class="block text-xs text-slate-500">Brightness: {editingCustom.extras.wallpaperBrightness ?? 100}%
+            <input type="range" min="30" max="130" bind:value={editingCustom.extras.wallpaperBrightness} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">Saturation: {editingCustom.extras.wallpaperSaturation ?? 100}%
+            <input type="range" min="0" max="200" bind:value={editingCustom.extras.wallpaperSaturation} class="w-full accent-blue-500" />
+          </label>
+
+          <!-- ── Panel & interface ───────────────────────────────────── -->
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Panel &amp; interface</div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-400">
+              <input type="checkbox" checked={!!editingCustom.extras.panelColor}
+                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, panelColor: e.currentTarget.checked ? (editingCustom.extras.panelColor || editingCustom.colors.surface) : undefined })}
+                class="accent-blue-500" />
+              Own panel colour
+            </label>
+            {#if editingCustom.extras.panelColor}
+              <input type="color" bind:value={editingCustom.extras.panelColor} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+            {/if}
+          </div>
+          <label class="block text-xs text-slate-500">Interface size: {editingCustom.extras.uiScalePercent ?? 100}%
+            <input type="range" min="80" max="130" step="5" bind:value={editingCustom.extras.uiScalePercent} class="w-full accent-blue-500" />
           </label>
 
           {#if customError}<p class="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{customError}</p>{/if}
