@@ -56,12 +56,16 @@
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
-  import { BOOKMARKS, TRASH_PATH } from './types';
+  import { TRASH_PATH } from './types';
+  import { userDirs, buildPlaces, ensureUserDirsLoaded } from '../../../utils/userDirs';
   import FileIcon from './FileIcon.svelte';
   import RightPane from './RightPane.svelte';
 
   const BM_ICONS: Record<string, any> = { Home, Folder, FileText, Download, Image, Music, Video };
-  const BOOKMARKS_WITH_ICONS = BOOKMARKS.map((bm) => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder }));
+  // Places come from the user's real (localized) folders — Pobrane, Pulpit, … —
+  // not from a hard-coded English list. See utils/userDirs.ts.
+  ensureUserDirsLoaded();
+  $: BOOKMARKS_WITH_ICONS = buildPlaces($userDirs).map((bm) => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder }));
 
   // --- User-defined bookmarks (zakładki użytkownika) -------------------------------------
   let customBookmarks: string[] = configStore.get().customBookmarks ?? [];
