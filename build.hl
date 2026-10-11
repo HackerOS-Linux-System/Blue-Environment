@@ -94,10 +94,17 @@ done
     ~>  hl build.hl shell fedora     Shell build — Blue Software uses DNF backend
     ~>  hl build.hl shell opensuse   Shell build — Blue Software uses Zypper backend
     ~>  hl build.hl shell rpm-ostree Shell build — Blue Software uses rpm-ostree backend
-    ~>  hl build.hl android          Build the Android / mobile shell (.apk)
+    ~>  Shell UI variant (add to any 'shell' command, in any order with the backend):
+    ~>    default                    Desktop UI for computers (what you get without a flag)
+    ~>    phones                     Touch UI for phones      (source: src/phones)
+    ~>    tv                         10-foot UI for TVs       (source: src/tv)
+    ~>                               e.g.  hl build.hl shell phones
+    ~>                                     hl build.hl shell debian tv
+    ~>                                     hl build.hl shell --ui=tv
+    ~>  hl build.hl phones           Shortcut for: shell phones
+    ~>  hl build.hl tv               Shortcut for: shell tv  (remote / gamepad navigation)
+    ~>  hl build.hl android          Build the phone UI as an Android .apk
     ~>                               Requires ANDROID_HOME or ~/Android/Sdk
-    ~>  hl build.hl tv               Build the TV / Big Picture shell
-    ~>                               10-foot UI, gamepad navigation
     ~>  hl build.hl BEDM             Build BEDM (Blue Environment Display Manager)
     ~>  hl build.hl compositor       Build only the Wayland compositor
     ~>  hl build.hl packages [fmt]   Package already-built binaries only
@@ -613,46 +620,17 @@ done
 done
 
 : cmd_build_tv def
-    -- echo_info "Building Blue Environment v@VERSION — TV / Big Picture Shell"
-    => VITE_BLUE_UI_MODE = bigpicture
-    => VITE_BLUE_ALTERNATIVE = tv
-    -- echo_build "UI mode: VITE_BLUE_UI_MODE=bigpicture, VITE_BLUE_ALTERNATIVE=tv"
+    -- cmd_build_shell tv
+done
 
-    > test -f src/alternatives/tv/main.tsx
-    ? err
-        -- echo_error "TV shell not found — see STATUS.md"
-        > exit 1
-    done
-
-    -- echo_build "npm install (if needed)"
-    > npm install --prefer-offline 2>/dev/null || npm install
-
-    -- echo_build "Copying icon assets"
-    > mkdir -p src-tauri/icons && cp images/icon.png src-tauri/icons/icon.png 2>/dev/null || true
-
-    -- echo_build "npm run build — TV shell"
-    > npm run build
-    ? err
-        -- echo_error "TV frontend build failed"
-        > exit 1
-    done
-    -- echo_success "TV frontend built"
-
-    -- echo_build "cargo build — Tauri shell binary (TV)"
-    > cd src-tauri && cargo build --release
-    ? err
-        -- echo_error "Shell binary build failed"
-        > exit 1
-    done
-    -- echo_success "Shell binary built"
-    -- echo_success "TV / Big Picture build complete"
-    -- echo_info "Binary: target/release/blue-environment"
+: cmd_build_phones def
+    -- cmd_build_shell phones
 done
 
 : cmd_build_android def
     -- echo_info "Building Blue Environment v@VERSION — Android / Mobile Shell"
-    => VITE_BLUE_UI_MODE = mobile
-    => VITE_BLUE_ALTERNATIVE = android
+    ;; The phone UI (src/phones) is what the Android build ships.
+    => VITE_BLUE_UI = phones
 
     > which npx > /dev/null 2>&1
     ? err
@@ -685,9 +663,9 @@ done
     => ANDROID_SDK_ROOT = @sdk_path
     -- echo_success "Android SDK: @sdk_path"
 
-    > test -f src/alternatives/android/main.tsx
+    > test -f src/phones/main.ts
     ? err
-        -- echo_error "Android shell not found — see STATUS.md"
+        -- echo_error "Phone UI not found (src/phones/main.ts) — cannot build the Android shell"
         > exit 1
     done
 
@@ -773,8 +751,32 @@ done
     done
 done
 
+: parse_shell_arg def
+    ;; One argument of 'build.hl shell': either a UI variant or a package-manager
+    ;; backend. Order does not matter, e.g. 'shell debian tv' == 'shell tv debian'.
+    ? switch @_1
+    | 
+        ;; empty
+    | default
+    | --ui=default
+        % ui: str = default
+    | phones
+    | --ui=phones
+        % ui: str = phones
+    | tv
+    | --ui=tv
+        % ui: str = tv
+    | *
+        % pkg_manager: str = @_1
+    done
+done
+
 : cmd_build_shell def
-    % pkg_manager: str = @_1
+    % pkg_manager: str = 
+    % ui: str = default
+    -- parse_shell_arg @_1
+    -- parse_shell_arg @_2
+
     % variant: str = 
     ? switch @pkg_manager
     | 
@@ -783,6 +785,23 @@ done
         % variant: str =  [pkg: @pkg_manager]
         => BLUE_PKG_MANAGER = @pkg_manager
         -- echo_build "Package manager backend: @pkg_manager"
+    done
+
+    ;; UI variant: VITE_BLUE_UI is read by vite.config.ts, which swaps the
+    ;; frontend entry point (src/main.ts | src/phones/main.ts | src/tv/main.ts).
+    ;; Always exported, so a stale value from the environment cannot leak in.
+    => VITE_BLUE_UI = @ui
+    ? switch @ui
+    | default
+        ;; desktop UI — nothing extra to check
+    | *
+        > test -d src/@ui
+        ? err
+            -- echo_error "UI variant '@ui' requested but src/@ui does not exist"
+            > exit 1
+        done
+        -- echo_build "UI variant: @ui (source: src/@ui)"
+        % variant: str = @variant [ui: @ui]
     done
 
     -- echo_info "Building Blue Environment v@VERSION — Shell only@variant"
@@ -1002,6 +1021,8 @@ done
     -- cmd_build_android
 | tv
     -- cmd_build_tv
+| phones
+    -- cmd_build_phones
 | BEDM
 | bedm
     -- cmd_build_bedm
@@ -1013,7 +1034,7 @@ done
 | app
     -- cmd_build_app @arg1
 | shell
-    -- cmd_build_shell @arg1
+    -- cmd_build_shell @arg1 @arg2
 | all
     -- cmd_build_all
 | install
