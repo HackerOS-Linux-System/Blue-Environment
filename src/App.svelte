@@ -665,7 +665,7 @@
        keeps the blur contained to just the background. -->
   <div
     class="absolute pointer-events-none"
-    style="inset:-40px; background-size:cover; background-position:center; background-image:{wallpaperCss ? `url('${wallpaperCss}'), ` : ''}{fallbackGradient}; filter:blur(var(--wallpaper-blur, 0px));"
+    style="inset:-40px; background-size:cover; background-position:center; background-image:{wallpaperCss ? `url('${wallpaperCss}'), ` : ''}{fallbackGradient}; filter:blur(var(--wallpaper-blur, 0px)) brightness(var(--wallpaper-brightness, 1)) saturate(var(--wallpaper-saturate, 1));"
     aria-hidden="true"
   ></div>
 
