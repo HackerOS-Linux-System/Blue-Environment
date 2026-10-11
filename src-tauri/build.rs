@@ -181,6 +181,7 @@ fn main() {
         "get_system_stats",
         "get_temp_sensors",
         "get_trash_path",
+        "get_user_dirs",
         "get_username",
         "get_wallpaper_data_url",
         "get_wallpaper_preview",
