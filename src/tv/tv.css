@@ -1,0 +1,29 @@
+:root { font-size: 125%; } /* everything is read from the sofa */
+
+[data-alt-shell='tv'] { user-select: none; -webkit-user-select: none; }
+[data-alt-shell='tv'] input,
+[data-alt-shell='tv'] textarea,
+[data-alt-shell='tv'] [contenteditable='true'],
+[data-alt-shell='tv'] [data-app-viewport] { user-select: text; -webkit-user-select: text; }
+
+/* While the remote / game pad is in use the mouse pointer is just in the way. */
+body.tv-nav-active, body.tv-nav-active * { cursor: none !important; }
+
+/* The one thing a TV UI must get right: an unmistakable focus. */
+.tv-tile {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  outline: none;
+}
+.tv-tile:focus, .tv-tile:focus-visible {
+  transform: scale(1.08);
+  background-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 4px var(--accent, #3b82f6), 0 14px 40px rgba(0, 0, 0, 0.55);
+  z-index: 5;
+}
+[data-alt-shell='tv'] button:focus-visible,
+[data-alt-shell='tv'] a:focus-visible,
+[data-alt-shell='tv'] input:focus-visible,
+[data-alt-shell='tv'] select:focus-visible {
+  outline: 3px solid var(--accent, #3b82f6);
+  outline-offset: 2px;
+}
