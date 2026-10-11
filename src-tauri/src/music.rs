@@ -61,10 +61,9 @@ fn art_dir() -> PathBuf {
 }
 
 fn expand(path: &str) -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    if path == "HOME" || path == "~" { home }
-    else if let Some(rest) = path.strip_prefix("HOME/").or_else(|| path.strip_prefix("~/")) { home.join(rest) }
-    else { PathBuf::from(path) }
+    // Same resolver as the file manager: also maps legacy `HOME/Music` onto a
+    // localized folder (`~/Muzyka`) — see user_dirs.rs.
+    crate::exploler_app::resolve_path(path)
 }
 
 fn is_audio(path: &Path) -> bool {
