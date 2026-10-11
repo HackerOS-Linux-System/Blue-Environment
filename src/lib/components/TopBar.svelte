@@ -17,7 +17,8 @@
   import { createEventDispatcher } from 'svelte';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
-  import { normalizeTopBar, formatBarClock, BLUR_CLASS, type TopBarConfig } from '../utils/topBarConfig';
+  import { normalizeTopBar, formatBarClock, BLUR_CLASS, rightItemOrder, type TopBarConfig, type BarRightItem } from '../utils/topBarConfig';
+  import { withAlpha } from '../utils/colorUtil';
   import RunningApps from './RunningApps.svelte';
   import { batteryPhase, splitMinutes, formatWatts, formatPercent, phaseColor } from '../utils/batteryInfo';
   import type { BatteryStatus } from '../utils/systemBridge';
@@ -397,6 +398,17 @@
   // Pełne dostosowanie paska (Ustawienia → Panel → Pasek) — patrz utils/topBarConfig.ts.
   let bar: TopBarConfig = normalizeTopBar(undefined);
   let barHidden = false;
+
+  // ── Extended bar options (topBarConfig.ts) ─────────────────────────────
+  // Custom background: wins over the theme's panel colour (and over Hydra's
+  // gradient) — the person chose it explicitly in Settings → Bar.
+  $: barBg = bar.backgroundMode === 'custom'
+    ? `background-color:${withAlpha(bar.backgroundColor, bar.backgroundOpacity / 100) ?? 'transparent'};`
+    : '';
+  $: barShadow = bar.shadow ? 'box-shadow:0 6px 24px rgba(0, 0, 0, 0.4);' : '';
+  /** CSS `order` for a right-hand widget (the IME badge has none → always first). */
+  const ord = (item: BarRightItem, order: BarRightItem[]) => `order:${rightItemOrder(order, item)};`;
+  $: startRadius = bar.startButtonStyle === 'pill' ? 'rounded-full' : bar.startButtonStyle === 'square' ? 'rounded-none' : 'rounded-lg';
   let barHoverTimer: ReturnType<typeof setTimeout>;
   let panelHeight = 48;
   // Settings > Panel > "App Launcher" — see systemBridge.ts's
@@ -499,9 +511,9 @@
   on:contextmenu={panelMenu} role="presentation"
   on:mouseleave={() => { if (bar.autoHide) { clearTimeout(barHoverTimer); barHoverTimer = setTimeout(() => (barHidden = true), 600); } }}
   on:mouseenter={() => { clearTimeout(barHoverTimer); }}
-  style="height:{panelHeight}px; z-index:50; {bar.floating ? `left:${bar.floatingMargin}px; right:${bar.floatingMargin}px; ${position === 'top' ? 'top' : 'bottom'}:${bar.floatingMargin}px; border-radius:${bar.cornerRadius}px;` : ''} {bar.autoHide && barHidden ? `transform:translateY(${position === 'top' ? '-' : ''}110%);` : ''} {shellThemeId === 'hydra'
+  style="height:{panelHeight}px; z-index:50; {bar.floating ? `left:${bar.floatingMargin}px; right:${bar.floatingMargin}px; ${position === 'top' ? 'top' : 'bottom'}:${bar.floatingMargin}px; border-radius:${bar.cornerRadius}px;` : ''} {bar.autoHide && barHidden ? `transform:translateY(${position === 'top' ? '-' : ''}110%);` : ''} {barShadow} {barBg ? barBg : shellThemeId === 'hydra'
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
-    : `background-color:rgba(15, 23, 42, var(--panel-opacity, ${panelOpacity}));`}"
+    : `background-color:rgba(var(--panel-rgb, 15, 23, 42), var(--panel-opacity, ${panelOpacity}));`}"
 >
   <!-- Left: Start + running apps -->
   <div class="flex items-center gap-3 w-1/3 min-w-0">
@@ -509,7 +521,7 @@
     <button
       on:contextmenu={startButtonMenu}
       on:click={handleStartClick}
-      class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
+      class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 {startRadius} transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
       title={$t('topbar.start_tooltip')}
     >
       <div class="relative">
@@ -541,7 +553,7 @@
   <!-- Center: pinned apps -->
   <div class="flex items-center justify-center w-1/3">
     {#if bar.showPinned}
-    <div class="flex items-center gap-1 bg-slate-800/60 border border-white/5 rounded-2xl px-2 py-1 shadow-lg">
+    <div class="flex items-center gap-1 px-2 py-1 {bar.pinnedStyle === 'dock' ? 'bg-slate-800/60 border border-white/5 rounded-2xl shadow-lg' : ''}">
       {#each pinnedApps as appId (appId)}
         {@const app = APPS[appId]}
         {#if app}
@@ -563,7 +575,7 @@
                 class="transition-colors duration-200 {isOpen ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-200'}" />
             {/if}
             {#if isOpen}
-              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {isActive ? 'w-3.5 bg-blue-400' : 'w-1 bg-slate-500'} {bar.accentIndicators ? '' : 'hidden'}" />
+              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {bar.indicatorStyle === 'dot' ? 'w-1 !h-1' : isActive ? 'w-3.5' : 'w-1'} {isActive ? 'bg-blue-400' : 'bg-slate-500'} {bar.indicatorStyle === 'glow' && isActive ? 'shadow-[0_0_8px_2px_rgba(96,165,250,0.7)]' : ''} {bar.accentIndicators ? '' : 'hidden'}" />
             {/if}
           </button>
         {/if}
@@ -573,13 +585,18 @@
   </div>
 
   <!-- Right -->
-  <div class="flex items-center justify-end gap-2 w-1/3">
+  <div class="flex items-center justify-end w-1/3" style="gap:{bar.itemSpacing}px;">
     {#if bar.showWorkspaces}
-    <div class="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full hover:bg-white/5 transition-colors">
+    <div class="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full hover:bg-white/5 transition-colors" style={ord('workspaces', bar.rightOrder)}>
       {#each Array.from({ length: workspaceCount }, (_, i) => i) as i (i)}
         {@const hasWins = openWindows.some((w) => w.workspace === i && !w.isMinimized)}
-        <button on:click={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
-          class="transition-all duration-200 rounded-full {i === currentWorkspace ? 'w-4 h-2 bg-blue-400' : `w-2 h-2 ${hasWins ? 'bg-slate-400' : 'bg-slate-600'} hover:bg-slate-300`}" />
+        {#if bar.workspaceStyle === 'numbers'}
+          <button on:click={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
+            class="w-5 h-5 flex items-center justify-center rounded-md text-[10px] font-semibold tabular-nums transition-colors {i === currentWorkspace ? 'bg-blue-500 text-white' : `${hasWins ? 'text-slate-200' : 'text-slate-500'} hover:bg-white/10`}">{i + 1}</button>
+        {:else}
+          <button on:click={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
+            class="transition-all duration-200 rounded-full {i === currentWorkspace ? 'w-4 h-2 bg-blue-400' : `w-2 h-2 ${hasWins ? 'bg-slate-400' : 'bg-slate-600'} hover:bg-slate-300`}" />
+        {/if}
       {/each}
     </div>
     {/if}
@@ -593,14 +610,14 @@
 
     {#if weather && bar.showWeather}
       {@const wi = weatherIconFor(weather.code)}
-      <div class="hidden lg:block relative">
+      <div class="hidden lg:block relative" style={ord('weather', bar.rightOrder)}>
         <button
           on:click={() => (showWeatherPopover = !showWeatherPopover)}
           class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors {showWeatherPopover ? 'bg-white/10' : ''}"
           title="{weather.city}: {weather.temp} — click for details"
         >
           <svelte:component this={wi.Icon} size={14} class={wi.cls} />
-          <span class="text-xs font-medium text-slate-200">{weather.temp}</span>
+          <span class="text-xs font-medium text-slate-200" style="font-size:{bar.fontSize}px">{weather.temp}</span>
         </button>
 
         {#if showWeatherPopover}
@@ -630,7 +647,7 @@
     {/if}
 
     {#if bar.showBattery && (battery?.present || powerProfiles.length > 0)}
-      <div class="relative" on:mouseenter={onBatteryEnter} on:mouseleave={onBatteryLeave} role="presentation">
+      <div class="relative" style={ord('battery', bar.rightOrder)} on:mouseenter={onBatteryEnter} on:mouseleave={onBatteryLeave} role="presentation">
         <button
           on:click={togglePowerPopover}
           class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors hover:bg-white/5 cursor-pointer {showPowerPopover ? 'bg-white/10' : ''}"
@@ -639,7 +656,9 @@
         >
           {#if battery?.present}
             <svelte:component this={batteryIconFor(battery)} size={15} class={batteryColor(battery)} />
-            <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}">{Math.round(battery.percentage)}%</span>
+            {#if bar.showBatteryPercent}
+              <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}" style="font-size:{bar.fontSize}px">{Math.round(battery.percentage)}%</span>
+            {/if}
           {/if}
           {#if activePowerProfile}
             <svelte:component this={powerIconFor(activePowerProfile.name)} size={13} class={powerColorFor(activePowerProfile.name)} />
@@ -727,7 +746,7 @@
     {/if}
 
     {#if bar.showClipboard}
-    <div class="relative" on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
+    <div class="relative" style={ord('clipboard', bar.rightOrder)} on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
       <button on:click={() => dispatch('toggleClipboard')}
         class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
         title={$t('topbar.clipboard_history')}>
@@ -753,12 +772,12 @@
     </div>
     {/if}
 
-    <div class="relative" on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
+    <div class="relative" style={ord('network', bar.rightOrder)} on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
       <button on:click={() => dispatch('toggleControlCenter')}
         class="panel-icon-btn flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
         {#if bar.showNetworkIcon}<Wifi size={13} class="text-slate-300" />{/if}
         {#if bar.showClock}
-          <span class="text-xs font-medium text-slate-200 tabular-nums">{formatBarClock(time, bar)}</span>
+          <span class="text-xs font-medium text-slate-200 tabular-nums" style="font-size:{bar.fontSize}px">{formatBarClock(time, bar)}</span>
         {:else if !bar.showNetworkIcon}
           <Command size={13} class="text-slate-300" />
         {/if}
@@ -792,7 +811,7 @@
     </div>
 
     {#if bar.showNotifications}
-    <button on:click={() => dispatch('toggleNotifications')} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
+    <button on:click={() => dispatch('toggleNotifications')} style={ord('notifications', bar.rightOrder)} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
       <Bell size={15} class="text-slate-300 group-hover:text-white" />
       <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 border border-slate-900 rounded-full" />
     </button>
