@@ -54,6 +54,32 @@ pub struct CustomThemeExtras {
     /// 'none' | 'normal' | 'fast' — maps to a CSS transition-duration
     /// custom property; see ShellThemeStyle.svelte.
     pub animation_speed: Option<String>,
+
+    // ── Added later. Every field is optional and `#[serde(default)]`-friendly
+    // (the whole struct derives `Default`), so theme files written by an older
+    // version still load, and a theme exported from a newer version imports
+    // into an older one (unknown fields are ignored).
+
+    /// Window translucency, 60-100 (percent; 100 = opaque).
+    pub window_opacity: Option<u32>,
+    /// 'none' | 'soft' | 'medium' | 'strong' | 'glow'.
+    pub window_shadow: Option<String>,
+    /// Window border thickness in px, 0-4.
+    pub window_border_width: Option<u32>,
+    /// Window border colour (any CSS colour string).
+    pub window_border_color: Option<String>,
+    /// Title-bar height in px, 28-56.
+    pub titlebar_height: Option<u32>,
+    /// Scales every size in the shell, 80-130 (percent).
+    pub ui_scale_percent: Option<u32>,
+    /// 'default' | 'thin' | 'hidden' | 'accent'.
+    pub scrollbar_style: Option<String>,
+    /// Wallpaper brightness, 30-130 (percent).
+    pub wallpaper_brightness: Option<u32>,
+    /// Wallpaper saturation, 0-200 (percent).
+    pub wallpaper_saturation: Option<u32>,
+    /// Panel background colour (any CSS colour string).
+    pub panel_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +168,40 @@ fn validate(theme: &CustomShellTheme) -> Result<(), String> {
     if let Some(a) = &theme.extras.animation_speed {
         if !["none", "normal", "fast"].contains(&a.as_str()) {
             return Err("Invalid animation speed.".to_string());
+        }
+    }
+    let x = &theme.extras;
+    if let Some(o) = x.window_opacity {
+        if !(60..=100).contains(&o) { return Err("Window opacity must be between 60 and 100.".to_string()); }
+    }
+    if let Some(s) = &x.window_shadow {
+        if !["none", "soft", "medium", "strong", "glow"].contains(&s.as_str()) {
+            return Err("Invalid window shadow.".to_string());
+        }
+    }
+    if let Some(w) = x.window_border_width {
+        if w > 4 { return Err("Window border must be 4px or less.".to_string()); }
+    }
+    if let Some(h) = x.titlebar_height {
+        if !(28..=56).contains(&h) { return Err("Title-bar height must be between 28 and 56px.".to_string()); }
+    }
+    if let Some(u) = x.ui_scale_percent {
+        if !(80..=130).contains(&u) { return Err("UI scale must be between 80 and 130 percent.".to_string()); }
+    }
+    if let Some(s) = &x.scrollbar_style {
+        if !["default", "thin", "hidden", "accent"].contains(&s.as_str()) {
+            return Err("Invalid scrollbar style.".to_string());
+        }
+    }
+    if let Some(b) = x.wallpaper_brightness {
+        if !(30..=130).contains(&b) { return Err("Wallpaper brightness must be between 30 and 130 percent.".to_string()); }
+    }
+    if let Some(s) = x.wallpaper_saturation {
+        if s > 200 { return Err("Wallpaper saturation must be between 0 and 200 percent.".to_string()); }
+    }
+    for (label, v) in [("window border colour", &x.window_border_color), ("panel colour", &x.panel_color)] {
+        if let Some(c) = v {
+            if !is_hex_or_css_color(c) { return Err(format!("The {label} needs a valid CSS colour.")); }
         }
     }
     Ok(())
@@ -245,6 +305,50 @@ mod tests {
 
         t.extras.panel_opacity = Some(150);
         assert!(validate(&t).is_err());
+    }
+
+    #[test]
+    fn validates_the_newer_extras() {
+        let mut t = sample("1", "Test");
+        t.extras.window_opacity = Some(85);
+        t.extras.window_shadow = Some("glow".into());
+        t.extras.window_border_width = Some(2);
+        t.extras.window_border_color = Some("#ff00ff".into());
+        t.extras.titlebar_height = Some(44);
+        t.extras.ui_scale_percent = Some(110);
+        t.extras.scrollbar_style = Some("thin".into());
+        t.extras.wallpaper_brightness = Some(70);
+        t.extras.wallpaper_saturation = Some(0);
+        t.extras.panel_color = Some("rgb(10,20,30)".into());
+        assert!(validate(&t).is_ok());
+
+        for bad in [
+            |t: &mut CustomShellTheme| t.extras.window_opacity = Some(10),
+            |t: &mut CustomShellTheme| t.extras.window_shadow = Some("huge".into()),
+            |t: &mut CustomShellTheme| t.extras.window_border_width = Some(9),
+            |t: &mut CustomShellTheme| t.extras.titlebar_height = Some(10),
+            |t: &mut CustomShellTheme| t.extras.ui_scale_percent = Some(300),
+            |t: &mut CustomShellTheme| t.extras.scrollbar_style = Some("wavy".into()),
+            |t: &mut CustomShellTheme| t.extras.wallpaper_brightness = Some(5),
+            |t: &mut CustomShellTheme| t.extras.wallpaper_saturation = Some(999),
+            |t: &mut CustomShellTheme| t.extras.panel_color = Some(String::new()),
+        ] {
+            let mut t = sample("1", "Test");
+            bad(&mut t);
+            assert!(validate(&t).is_err());
+        }
+    }
+
+    #[test]
+    fn old_theme_files_without_the_new_fields_still_load() {
+        let json = r##"{"id":"a","name":"Old","description":"",
+          "colors":{"accent":"#fff","background":"#000","surface":"#111","surface_elevated":"#222","text":"#fff","text_muted":"#aaa","border":"#333"},
+          "layout":{"panel_position":"top","window_controls_position":"right","window_controls_style":"windows","corner_style":"rounded","icon_style":"outline"},
+          "extras":{"corner_radius_px":8,"animation_speed":"fast"}}"##;
+        let t: CustomShellTheme = serde_json::from_str(json).unwrap();
+        assert_eq!(t.extras.corner_radius_px, Some(8));
+        assert_eq!(t.extras.window_shadow, None);
+        assert!(validate(&t).is_ok());
     }
 
     #[test]
