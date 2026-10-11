@@ -64,9 +64,26 @@ on:
         options:
           - all
           - binary
+      ui:
+        description: >-
+          Shell UI to build. "default" = desktop UI for computers (always what
+          tag pushes/nightly get). "phones" = touch UI for phones (src/phones),
+          "tv" = 10-foot UI for TVs, remote / gamepad navigation (src/tv).
+          The artifact name gets a "-phones" / "-tv" suffix.
+        required: false
+        type: choice
+        default: 'default'
+        options:
+          - default
+          - phones
+          - tv
 
 env:
   CARGO_TERM_COLOR: always
+  # Read by vite.config.ts (swaps the frontend entry point). Applies to every
+  # step, i.e. `npm run build:tauri` / `npm run build` in all jobs below.
+  # Empty on tag pushes and the nightly schedule -> default desktop UI.
+  VITE_BLUE_UI: ${{ inputs.ui || 'default' }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
@@ -239,7 +256,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }}
+          name: build-${{ matrix.arch }}-${{ needs.resolve-mode.outputs.binary_only == 'true' && 'binary' || 'all' }}${{ (inputs.ui && inputs.ui != 'default') && format('-{0}', inputs.ui) || '' }}
           path: |
             target/release/blue-environment
             dist-stage/blue-environment-${{ matrix.arch }}.tar.gz
@@ -313,7 +330,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.arch }}-binary
+          name: build-${{ matrix.arch }}-binary${{ (inputs.ui && inputs.ui != 'default') && format('-{0}', inputs.ui) || '' }}
           path: |
             target/release/blue-environment
             dist-stage/blue-environment-${{ matrix.arch }}.tar.gz
