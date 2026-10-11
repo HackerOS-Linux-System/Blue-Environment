@@ -1,62 +1,40 @@
 <script lang="ts">
   /**
-   * Applies the active shell theme (see builtinThemes.ts) to the running
-   * UI. This is the piece that was explicitly missing before — earlier
-   * revisions of the theme system had selection, persistence, and the
-   * restart-prompt flow (ThemesSection.svelte) but nothing that actually
-   * changed how anything *looked*. Mount once, near the root (App.svelte
-   * does this, right after the wallpaper/panel-position setup those also
-   * now defer to the active theme for).
+   * Applies the active shell theme (see builtinThemes.ts) to the running UI.
+   * Mount once, near the root (App.svelte does this).
    *
-   * ── What this actually does ──────────────────────────────────────────
-   * Sets `--bg-primary`/`--bg-secondary`/`--text-primary`/
-   * `--text-secondary`/`--accent`/`--accent-hover` as inline custom
-   * properties on `documentElement` whenever the active theme is a real
-   * (non-placeholder) one with `colors` — these are the *same* variable
-   * names `src/app.css`'s existing `.theme-bg-primary` /
-   * `.theme-text-primary` / etc. utility classes already read from (see
-   * that file — `Window.svelte` and others already use those classes
-   * throughout), so applying a shell theme's colors automatically
-   * reaches every component already using that established convention,
-   * with no per-component changes needed.
+   * ── How it works ─────────────────────────────────────────────────────
+   * The theme → CSS translation lives in `utils/shellThemeCss.ts` (pure,
+   * unit-tested): it returns custom properties, `data-*` attributes and an
+   * optional root font size. This component only writes that result to
+   * `document.documentElement` and removes whatever a previous theme set.
    *
-   * Deliberately *inline* `style.setProperty` on `documentElement`
-   * rather than a new `[data-shell-theme='hydra']` block in app.css the
-   * way `[data-theme='cyberpunk']` etc. already work there — those
-   * existing blocks are keyed off `data-theme`, which is bound to
-   * `UserConfig.theme` (dark/light mode), a *different* setting from
-   * `shellThemeId` (checked directly — `App.svelte`'s `data-theme={theme}`
-   * reads `cfg.theme`, never `cfg.themeName` or a shell theme id, despite
-   * `app.css` having unused-looking `[data-theme='cyberpunk']` blocks
-   * that suggest otherwise — a separate, pre-existing gap, not something
-   * this component's job to fix). Reusing `data-theme` for shell themes
-   * too would conflate two independent settings; inline properties on
-   * `documentElement` avoid that entirely without touching app.css or
-   * the dark/light mode wiring.
+   * The six base variables (`--bg-primary`, `--bg-secondary`, `--text-*`,
+   * `--accent*`) are the ones `app.css`'s `.theme-*` utility classes already
+   * read, so a theme's palette reaches every component that follows that
+   * convention without per-component changes. Everything newer — window
+   * shadow/opacity/border, title-bar height, UI scale, scrollbar style,
+   * wallpaper brightness/saturation, panel colour — is exposed through
+   * variables + `data-*` attributes that `app.css` and the shell components
+   * (`Window.svelte`, `TopBar.svelte`, `App.svelte`'s wallpaper layer) read.
    *
-   * ── What this does NOT do yet (honest scope) ─────────────────────────
-   * - Window-control button restyling (`layout.windowControlsStyle`/
-   *   `windowControlsPosition`) — `Window.svelte`'s button markup is
-   *   still hardcoded (Minimize/PiP/Maximize/Close, fixed right-aligned
-   *   order). A real follow-up, not attempted here.
-   * - `layout.cornerStyle`/`iconStyle` — read from the active theme
-   *   (exported below via `activeShellTheme` for anything that wants
-   *   them) but nothing currently consumes them.
-   * - Per-component palette beyond the 6 CSS variables above (surface/
-   *   surfaceElevated/border from `ShellThemeColors` aren't mapped to
-   *   anything — `app.css`'s existing variable set doesn't have slots
-   *   for them). Real follow-up if a theme ever needs finer-grained
-   *   control than "one background, one secondary background, one
-   *   accent" — Hydra's current look doesn't need it.
+   * Deliberately *inline* properties on `documentElement` rather than a
+   * `[data-shell-theme='…']` block per theme: `data-theme` is bound to the
+   * dark/light mode setting (a different thing), and custom themes are data,
+   * not CSS files.
+   *
+   * Still not handled here: icon glyph swapping for `iconStyle: 'filled'`
+   * (the icon set is outline-only — the attribute is set so CSS can add a
+   * soft fill, see `.panel-icon-btn` in app.css).
    */
   import { onDestroy, onMount } from 'svelte';
   import { resolveActiveShellThemeWithCustom, type ShellTheme } from '../data/builtinThemes';
   import { activeShellThemeId } from '../stores/shellTheme';
   import { customShellThemes, ensureCustomThemesLoaded } from '../utils/customThemes';
+  import { THEME_ATTRS, THEME_CSS_VARS, themeToCss } from '../utils/shellThemeCss';
 
-  // Only `shellThemeId` is ever read — a bare string prop rather than
-  // the full `UserConfig` type, so callers (App.svelte specifically)
-  // don't need to thread an entire config object through just for this.
+  // Only `shellThemeId` is ever read — a bare string prop rather than the
+  // full `UserConfig`, so callers don't need to thread a whole config through.
   export let shellThemeId: string | undefined = undefined;
 
   onMount(() => { ensureCustomThemesLoaded(); });
@@ -65,121 +43,28 @@
 
   $: applyTheme(activeShellTheme);
 
+  function clearTheme(root: HTMLElement) {
+    for (const v of THEME_CSS_VARS) root.style.removeProperty(v);
+    for (const a of THEME_ATTRS) root.removeAttribute(a);
+    root.style.removeProperty('font-size');
+  }
+
   function applyTheme(theme: ShellTheme | null) {
     activeShellThemeId.set(theme?.id);
     const root = document.documentElement;
-    if (!theme) {
-      // Reverting to default — remove our overrides so app.css's own
-      // `:root` defaults (or whatever `data-theme` block is active for
-      // dark/light mode) take back over, rather than leaving a stale
-      // inline override behind that a CSS custom-property removal is
-      // the only way to undo (setting them back to app.css's own
-      // literal default values would silently go stale the next time
-      // someone changes app.css's `:root` block).
-      root.style.removeProperty('--bg-primary');
-      root.style.removeProperty('--bg-secondary');
-      root.style.removeProperty('--text-primary');
-      root.style.removeProperty('--text-secondary');
-      root.style.removeProperty('--accent');
-      root.style.removeProperty('--accent-hover');
-      root.style.removeProperty('--shell-radius');
-      root.style.removeProperty('--wallpaper-blur');
-      root.style.removeProperty('--panel-opacity');
-      root.style.removeProperty('--accent-gradient');
-      root.style.removeProperty('--shell-font');
-      root.style.removeProperty('--shell-anim-duration');
-      root.removeAttribute('data-shell-theme');
-      root.removeAttribute('data-icon-style');
-      return;
-    }
-    root.style.setProperty('--bg-primary', theme.colors.background);
-    root.style.setProperty('--bg-secondary', theme.colors.surface);
-    root.style.setProperty('--text-primary', theme.colors.text);
-    root.style.setProperty('--text-secondary', theme.colors.textMuted);
-    root.style.setProperty('--accent', theme.colors.accent);
-    root.style.setProperty('--accent-hover', theme.colors.accent);
-    // `cornerStyle`/`iconStyle` — previously defined on every theme's
-    // `layout` and read by nothing at all. `--shell-radius` is the
-    // concrete hook: `sharp` themes set it to `0px`, `rounded` themes
-    // don't set it (falls through to whatever each component's own
-    // Tailwind class already specifies, e.g. `rounded-xl` — see
-    // Window.svelte's own use of `var(--shell-radius, ...)` for exactly
-    // this fallback pattern). `iconStyle` doesn't have an equivalent
-    // single CSS hook (Lucide icons are outline-only in this app's
-    // icon set — see this component's own module doc for why `filled`
-    // isn't wired to anything yet) but the attribute is still set below
-    // so a future per-icon check (`data-shell-theme` + `iconStyle`
-    // read from `resolveActiveShellTheme` directly, same as this
-    // component already does) has something to key off without this
-    // file changing again first.
-    if (theme.layout.cornerStyle === 'sharp') {
-      root.style.setProperty('--shell-radius', '0px');
-    } else {
-      root.style.removeProperty('--shell-radius');
-    }
-    // `extras` — the richer, opt-in knobs only a custom (user-created)
-    // theme sets (see `customThemes.ts` / `custom_shell_themes.rs`);
-    // absent on every builtin theme, in which case each of these is a
-    // harmless no-op (`removeProperty` on something never set).
-    const extras = theme.extras;
-    if (extras?.cornerRadiusPx !== undefined) {
-      // A precise pixel value always wins over the binary rounded/sharp
-      // toggle above when the person set one explicitly.
-      root.style.setProperty('--shell-radius', `${extras.cornerRadiusPx}px`);
-    }
-    if (extras?.wallpaperBlur !== undefined && extras.wallpaperBlur > 0) {
-      root.style.setProperty('--wallpaper-blur', `${extras.wallpaperBlur}px`);
-    } else {
-      root.style.removeProperty('--wallpaper-blur');
-    }
-    if (extras?.panelOpacity !== undefined) {
-      root.style.setProperty('--panel-opacity', String(extras.panelOpacity / 100));
-    } else {
-      root.style.removeProperty('--panel-opacity');
-    }
-    if (extras?.accentSecondary) {
-      root.style.setProperty('--accent-gradient', `linear-gradient(135deg, ${theme.colors.accent}, ${extras.accentSecondary})`);
-    } else {
-      // Falls back to a flat "gradient" of one color repeated, so any
-      // component using `var(--accent-gradient, var(--accent))` as a
-      // background always has *something* valid to paint even when the
-      // active theme has no second accent color.
-      root.style.setProperty('--accent-gradient', theme.colors.accent);
-    }
-    if (extras?.fontFamily) {
-      root.style.setProperty('--shell-font', extras.fontFamily);
-    } else {
-      root.style.removeProperty('--shell-font');
-    }
-    const animDuration = extras?.animationSpeed === 'fast' ? '80ms' : extras?.animationSpeed === 'none' ? '0ms' : '200ms';
-    root.style.setProperty('--shell-anim-duration', animDuration);
-    // `iconStyle` — same "was defined, nothing read it" gap as
-    // `cornerStyle` had. This app's whole icon set (lucide-svelte) is
-    // outline-only by construction — there's no separate "filled"
-    // icon asset to swap to the way a real icon font/pack with both
-    // variants would have. The real, honest hook this can offer
-    // without a second icon set: a CSS-only "soft fill" — a subtle
-    // tinted background fill behind the outline glyph — via the
-    // `data-icon-style` attribute set below, consumed by
-    // `.panel-icon-btn`'s own rule in app.css. Not equivalent to true
-    // filled icon glyphs; flagged as the honest ceiling of what's
-    // achievable without adding a second icon asset set.
-    root.setAttribute('data-icon-style', theme.layout.iconStyle);
-    // Not read by app.css today (see this component's module doc) —
-    // set anyway so any component that wants to opt into
-    // theme-specific styling beyond the 6 mapped variables can do so
-    // via `[data-shell-theme='hydra']` selectors without needing this
-    // component changed again first. TopBar.svelte's gradient panel
-    // background does exactly that (a `shellTheme` prop, not a CSS
-    // attribute selector, but same underlying id).
-    root.setAttribute('data-shell-theme', theme.id);
+    // Always start from a clean slate so a property the previous theme set
+    // (and this one doesn't) never lingers.
+    clearTheme(root);
+    if (!theme) return; // default look: app.css's own `:root` values take over
+    const css = themeToCss(theme);
+    for (const [k, v] of Object.entries(css.vars)) root.style.setProperty(k, v);
+    for (const [k, v] of Object.entries(css.attrs)) root.setAttribute(k, v);
+    if (css.rootFontSize) root.style.fontSize = css.rootFontSize;
   }
 
   onDestroy(() => {
-    // Belt-and-suspenders — if this component is ever conditionally
-    // unmounted (it isn't today, App.svelte mounts it unconditionally
-    // for the app's whole lifetime), don't leave inline style overrides
-    // stuck on documentElement forever.
-    applyTheme(null);
+    // Belt-and-suspenders — App.svelte mounts this for the app's whole
+    // lifetime, but never leave inline overrides stuck on <html>.
+    clearTheme(document.documentElement);
   });
 </script>
