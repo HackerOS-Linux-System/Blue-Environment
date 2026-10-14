@@ -1,6 +1,7 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn config_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -80,6 +81,22 @@ pub struct CustomThemeExtras {
     pub wallpaper_saturation: Option<u32>,
     /// Panel background colour (any CSS colour string).
     pub panel_color: Option<String>,
+
+    // ── Full-screen application menu (the "Start" menu in full-screen mode) ──
+    /// Menu background colour (any CSS colour string).
+    pub menu_background_color: Option<String>,
+    /// Menu background opacity, 20-100 (percent).
+    pub menu_opacity: Option<u32>,
+    /// Blur behind the menu, 0-60 px.
+    pub menu_blur: Option<u32>,
+    /// Category column: 'default' | 'transparent' | 'solid'.
+    pub menu_sidebar: Option<String>,
+    /// App tile size: 'compact' | 'normal' | 'large'.
+    pub menu_tile_size: Option<String>,
+    /// App icon shape: 'rounded' | 'circle' | 'square'.
+    pub menu_tile_shape: Option<String>,
+    /// Search field shape: 'rounded' | 'pill' | 'square'.
+    pub menu_search_shape: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +108,77 @@ pub struct CustomShellTheme {
     pub layout: CustomThemeLayout,
     #[serde(default)]
     pub extras: CustomThemeExtras,
+    /// Absolute path of a wallpaper this theme brings (optional). When the theme
+    /// is exported the image travels INSIDE the file (see `bundled_wallpaper`),
+    /// and importing writes it back to disk and points this at the new copy.
+    #[serde(default)]
+    pub wallpaper: Option<String>,
+    /// Only present in an exported theme file: the wallpaper image itself.
+    /// Never persisted — `custom_theme_parse_import` turns it into `wallpaper`.
+    #[serde(default, skip_serializing)]
+    pub bundled_wallpaper: Option<BundledWallpaper>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BundledWallpaper {
+    /// Only used to pick a harmless name for the saved file.
+    pub file_name: String,
+    /// `data:image/png|jpeg|webp;base64,…`
+    pub data_url: String,
+}
+
+/// Largest wallpaper accepted inside a theme file.
+const MAX_WALLPAPER_BYTES: usize = 25 * 1024 * 1024;
+
+/// Decodes and validates a bundled wallpaper: only PNG/JPEG/WebP, size-capped,
+/// and the bytes must really start like that format (a `data:image/png` label
+/// is not trusted on its own). Returns the bytes and the file extension.
+pub fn decode_wallpaper(data_url: &str) -> Result<(Vec<u8>, &'static str), String> {
+    let rest = data_url.strip_prefix("data:").ok_or("The wallpaper is not a data URL.")?;
+    let (meta, payload) = rest.split_once(',').ok_or("The wallpaper data URL is malformed.")?;
+    if !meta.ends_with(";base64") {
+        return Err("The wallpaper must be base64-encoded.".to_string());
+    }
+    // Reject absurd payloads before decoding (base64 is ~4/3 of the bytes).
+    if payload.len() > MAX_WALLPAPER_BYTES / 3 * 4 + 8 {
+        return Err("The wallpaper is too large.".to_string());
+    }
+    let bytes = BASE64.decode(payload.trim()).map_err(|_| "The wallpaper data is not valid base64.".to_string())?;
+    if bytes.len() > MAX_WALLPAPER_BYTES {
+        return Err("The wallpaper is too large.".to_string());
+    }
+    let ext = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else {
+        return Err("The wallpaper must be a PNG, JPEG or WebP image.".to_string());
+    };
+    Ok((bytes, ext))
+}
+
+/// Short, stable content hash (FNV-1a) for file names — same image, same file.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x100000001b3))
+}
+
+/// Writes the wallpaper into `dir` and returns its path. The name is derived
+/// from the content, never from the imported `file_name`, so a malicious file
+/// can't pick where it lands (`../`) or overwrite something else.
+pub fn save_wallpaper_to(dir: &Path, bundled: &BundledWallpaper) -> Result<PathBuf, String> {
+    let (bytes, ext) = decode_wallpaper(&bundled.data_url)?;
+    fs::create_dir_all(dir).map_err(|e| format!("Could not create the wallpaper folder: {e}"))?;
+    let path = dir.join(format!("theme-{:016x}.{ext}", fnv1a(&bytes)));
+    if !path.exists() {
+        fs::write(&path, &bytes).map_err(|e| format!("Could not save the wallpaper: {e}"))?;
+    }
+    Ok(path)
+}
+
+fn wallpaper_dir() -> PathBuf {
+    dirs::data_dir().unwrap_or_else(|| PathBuf::from("/tmp")).join("blue-environment").join("theme-wallpapers")
 }
 
 fn load_raw() -> Vec<CustomShellTheme> {
@@ -170,6 +258,11 @@ fn validate(theme: &CustomShellTheme) -> Result<(), String> {
             return Err("Invalid animation speed.".to_string());
         }
     }
+    if let Some(w) = &theme.wallpaper {
+        if w.len() > 1024 || w.contains('\0') {
+            return Err("The wallpaper path is not valid.".to_string());
+        }
+    }
     let x = &theme.extras;
     if let Some(o) = x.window_opacity {
         if !(60..=100).contains(&o) { return Err("Window opacity must be between 60 and 100.".to_string()); }
@@ -199,7 +292,23 @@ fn validate(theme: &CustomShellTheme) -> Result<(), String> {
     if let Some(s) = x.wallpaper_saturation {
         if s > 200 { return Err("Wallpaper saturation must be between 0 and 200 percent.".to_string()); }
     }
-    for (label, v) in [("window border colour", &x.window_border_color), ("panel colour", &x.panel_color)] {
+    if let Some(o) = x.menu_opacity {
+        if !(20..=100).contains(&o) { return Err("Menu opacity must be between 20 and 100.".to_string()); }
+    }
+    if let Some(b) = x.menu_blur {
+        if b > 60 { return Err("Menu blur must be 60px or less.".to_string()); }
+    }
+    for (label, v, allowed) in [
+        ("menu sidebar", &x.menu_sidebar, &["default", "transparent", "solid"][..]),
+        ("menu tile size", &x.menu_tile_size, &["compact", "normal", "large"][..]),
+        ("menu tile shape", &x.menu_tile_shape, &["rounded", "circle", "square"][..]),
+        ("menu search shape", &x.menu_search_shape, &["rounded", "pill", "square"][..]),
+    ] {
+        if let Some(val) = v {
+            if !allowed.contains(&val.as_str()) { return Err(format!("Invalid {label}.")); }
+        }
+    }
+    for (label, v) in [("window border colour", &x.window_border_color), ("panel colour", &x.panel_color), ("menu colour", &x.menu_background_color)] {
         if let Some(c) = v {
             if !is_hex_or_css_color(c) { return Err(format!("The {label} needs a valid CSS colour.")); }
         }
@@ -247,6 +356,16 @@ pub fn custom_theme_parse_import(json_text: String) -> Result<CustomShellTheme, 
     // installed) creates a new entry rather than silently overwriting
     // an existing theme of the same id.
     theme.id = format!("custom-{}", uuid_v4_ish());
+    // A theme exported together with its wallpaper: write the image to disk
+    // and point the theme at the copy. A bad image fails the import with a
+    // clear message instead of silently dropping the wallpaper.
+    if let Some(bundled) = theme.bundled_wallpaper.take() {
+        let path = save_wallpaper_to(&wallpaper_dir(), &bundled)?;
+        theme.wallpaper = Some(path.to_string_lossy().into_owned());
+    } else {
+        // Without a bundled image, a wallpaper path from someone else's machine is meaningless.
+        theme.wallpaper = None;
+    }
     Ok(theme)
 }
 
@@ -277,6 +396,8 @@ mod tests {
                 window_controls_style: "windows".into(), corner_style: "rounded".into(), icon_style: "outline".into(),
             },
             extras: CustomThemeExtras::default(),
+            wallpaper: None,
+            bundled_wallpaper: None,
         }
     }
 
@@ -381,5 +502,87 @@ mod tests {
     #[test]
     fn import_rejects_invalid_json() {
         assert!(custom_theme_parse_import("not json".to_string()).is_err());
+    }
+
+    // 1x1 PNG
+    const PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn decodes_valid_wallpapers_and_detects_the_real_format() {
+        let (bytes, ext) = decode_wallpaper(&format!("data:image/png;base64,{PNG_B64}")).unwrap();
+        assert_eq!(ext, "png");
+        assert!(bytes.starts_with(&[0x89, b'P']));
+        // The label lies: these are PNG bytes, not JPEG — the sniffed type wins.
+        let (_, ext2) = decode_wallpaper(&format!("data:image/jpeg;base64,{PNG_B64}")).unwrap();
+        assert_eq!(ext2, "png");
+    }
+
+    #[test]
+    fn rejects_bad_wallpapers() {
+        assert!(decode_wallpaper("https://example.com/a.png").is_err());
+        assert!(decode_wallpaper("data:image/png,rawtext").is_err());
+        assert!(decode_wallpaper("data:image/png;base64,!!!notbase64!!!").is_err());
+        // Valid base64, but it is a text file, not an image.
+        assert!(decode_wallpaper(&format!("data:image/png;base64,{}", BASE64.encode("<script>alert(1)</script>"))).is_err());
+        let huge = BASE64.encode(vec![0x89u8; MAX_WALLPAPER_BYTES + 10]);
+        assert!(decode_wallpaper(&format!("data:image/png;base64,{huge}")).is_err());
+    }
+
+    #[test]
+    fn saved_name_comes_from_content_not_from_the_file() {
+        let dir = std::env::temp_dir().join(format!("blue-wp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let evil = BundledWallpaper { file_name: "../../etc/passwd".into(), data_url: format!("data:image/png;base64,{PNG_B64}") };
+        let path = save_wallpaper_to(&dir, &evil).unwrap();
+        assert!(path.starts_with(&dir), "must stay inside the wallpaper folder");
+        assert_eq!(path.extension().unwrap(), "png");
+        assert!(path.is_file());
+        // Same image → same file, nothing duplicated.
+        assert_eq!(save_wallpaper_to(&dir, &evil).unwrap(), path);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_without_a_bundled_image_drops_foreign_wallpaper_paths() {
+        let mut t = sample("1", "T");
+        t.wallpaper = Some("/home/someone-else/wall.png".into());
+        let json = serde_json::to_string(&t).unwrap();
+        let imported = custom_theme_parse_import(json).unwrap();
+        assert_eq!(imported.wallpaper, None);
+    }
+
+    #[test]
+    fn bundled_wallpaper_is_never_serialized() {
+        let mut t = sample("1", "T");
+        t.bundled_wallpaper = Some(BundledWallpaper { file_name: "a.png".into(), data_url: "data:x".into() });
+        assert!(!serde_json::to_string(&t).unwrap().contains("bundled_wallpaper"));
+    }
+
+    #[test]
+    fn validates_the_app_menu_extras() {
+        let mut t = sample("1", "Test");
+        t.extras.menu_background_color = Some("#102030".into());
+        t.extras.menu_opacity = Some(55);
+        t.extras.menu_blur = Some(18);
+        t.extras.menu_sidebar = Some("transparent".into());
+        t.extras.menu_tile_size = Some("large".into());
+        t.extras.menu_tile_shape = Some("circle".into());
+        t.extras.menu_search_shape = Some("pill".into());
+        assert!(validate(&t).is_ok());
+
+        for bad in [
+            |t: &mut CustomShellTheme| t.extras.menu_opacity = Some(5),
+            |t: &mut CustomShellTheme| t.extras.menu_blur = Some(99),
+            |t: &mut CustomShellTheme| t.extras.menu_sidebar = Some("glass".into()),
+            |t: &mut CustomShellTheme| t.extras.menu_tile_size = Some("huge".into()),
+            |t: &mut CustomShellTheme| t.extras.menu_tile_shape = Some("star".into()),
+            |t: &mut CustomShellTheme| t.extras.menu_search_shape = Some("oval".into()),
+            |t: &mut CustomShellTheme| t.extras.menu_background_color = Some(String::new()),
+        ] {
+            let mut t = sample("1", "Test");
+            bad(&mut t);
+            assert!(validate(&t).is_err());
+        }
     }
 }
