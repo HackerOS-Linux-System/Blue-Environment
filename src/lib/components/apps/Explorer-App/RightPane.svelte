@@ -29,7 +29,7 @@
   {:else}
     <div class="grid gap-1" style="grid-template-columns:repeat(auto-fill, minmax(72px, 1fr));">
       {#each visible as file (file.path)}
-        <div on:dblclick={() => file.is_dir && dispatch('navigate', file.path)} class="flex flex-col items-center p-1.5 rounded-lg hover:bg-white/5 cursor-pointer">
+        <div role="button" tabindex="0" on:dblclick={() => file.is_dir && dispatch('navigate', file.path)} on:keydown={(e) => { if (e.key === 'Enter' && file.is_dir) dispatch('navigate', file.path); }} class="flex flex-col items-center p-1.5 rounded-lg hover:bg-white/5 cursor-pointer">
           {#if file.mime_type.startsWith('image/') && thumbnails[file.path]}
             <img src={thumbnails[file.path]} alt="" class="w-10 h-10 object-cover rounded" />
           {:else}
