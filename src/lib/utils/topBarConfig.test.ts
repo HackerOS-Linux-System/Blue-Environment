@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BAR_RIGHT_ITEMS, DEFAULT_TOP_BAR, moveRightItem, normalizeHexColor, normalizeRightOrder, normalizeTopBar, rightItemOrder,
+  BAR_LEFT_ITEMS, BAR_RIGHT_ITEMS, DEFAULT_TOP_BAR, moveItemTo, moveRightItem, normalizeHexColor, normalizeLeftOrder,
+  normalizeRightOrder, normalizeTopBar, rightItemOrder,
 } from './topBarConfig';
+import { BAR_PRESETS, applyBarPreset } from './barPresets';
 
 describe('topBarConfig (extended options)', () => {
   it('an empty/old saved config gets the new defaults and keeps old values', () => {
@@ -32,7 +34,7 @@ describe('topBarConfig (extended options)', () => {
 
   it('normalizes the widget order: drops junk and duplicates, appends missing ones', () => {
     expect(normalizeRightOrder(['clipboard', 'bogus', 'clipboard', 'weather']))
-      .toEqual(['clipboard', 'weather', 'workspaces', 'battery', 'network', 'notifications']);
+      .toEqual(['clipboard', 'weather', 'workspaces', 'battery', 'network', 'notifications', 'showDesktop', 'power']);
     expect(normalizeRightOrder('nope')).toEqual([...BAR_RIGHT_ITEMS]);
     expect(normalizeRightOrder([])).toEqual([...BAR_RIGHT_ITEMS]);
   });
@@ -56,5 +58,63 @@ describe('topBarConfig (extended options)', () => {
     expect(normalizeHexColor('#abc', '#000000')).toBe('#aabbcc');
     expect(normalizeHexColor('red', '#123456')).toBe('#123456');
     expect(normalizeHexColor(5, '#123456')).toBe('#123456');
+  });
+
+  it('hides the two optional widgets by default and keeps them off for old configs', () => {
+    expect(DEFAULT_TOP_BAR.showDesktopButton).toBe(false);
+    expect(DEFAULT_TOP_BAR.showPowerButton).toBe(false);
+    const old = normalizeTopBar({ rightOrder: ['clipboard', 'weather'] as any });
+    expect(old.showPowerButton).toBe(false);
+    expect(old.rightOrder.slice(-2)).toEqual(['showDesktop', 'power']);
+  });
+
+  it('normalizes the left order and survives garbage', () => {
+    expect(normalizeLeftOrder(['running'])).toEqual(['running', 'start']);
+    expect(normalizeLeftOrder(['x', 'start', 'start'])).toEqual(['start', 'running']);
+    expect(normalizeTopBar({ leftOrder: 5 as any }).leftOrder).toEqual([...BAR_LEFT_ITEMS]);
+  });
+
+  it('moves an item to an absolute position (drag and drop)', () => {
+    const o = ['a', 'b', 'c', 'd'];
+    expect(moveItemTo(o, 0, 2)).toEqual(['b', 'c', 'a', 'd']);
+    expect(moveItemTo(o, 3, 0)).toEqual(['d', 'a', 'b', 'c']);
+    expect(moveItemTo(o, 1, 1)).toBe(o);
+    expect(moveItemTo(o, -1, 2)).toBe(o);
+    expect(moveItemTo(o, 0, 9)).toBe(o);
+    expect(o).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
+describe('bar presets', () => {
+  it('every preset yields a valid, normalized config', () => {
+    for (const p of BAR_PRESETS) {
+      const out = applyBarPreset(DEFAULT_TOP_BAR, p.id);
+      expect(normalizeTopBar(out)).toEqual(out);
+    }
+  });
+
+  it('is based on the defaults, not on the current look', () => {
+    const messy = normalizeTopBar({ fontSize: 17, shadow: true, floating: true });
+    const out = applyBarPreset(messy, 'minimal');
+    expect(out.shadow).toBe(false);
+    expect(out.floating).toBe(false);
+    expect(out.fontSize).toBe(11);
+    expect(out.showWeather).toBe(false);
+  });
+
+  it('keeps personal choices: start label and clock format', () => {
+    const mine = normalizeTopBar({ startLabel: 'Ala', clock24h: false, showSeconds: true, clockStyle: 'time-date' });
+    const out = applyBarPreset(mine, 'dock');
+    expect(out.startLabel).toBe('Ala');
+    expect(out.clock24h).toBe(false);
+    expect(out.showSeconds).toBe(true);
+    expect(out.clockStyle).toBe('time-date');
+    expect(out.floating).toBe(true);
+  });
+
+  it('unknown ids change nothing; "default" restores the default look', () => {
+    const cur = normalizeTopBar({ fontSize: 15 });
+    expect(applyBarPreset(cur, 'nope')).toBe(cur);
+    expect(applyBarPreset(cur, 'default').fontSize).toBe(DEFAULT_TOP_BAR.fontSize);
   });
 });
