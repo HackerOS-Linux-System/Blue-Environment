@@ -4,7 +4,9 @@
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
     Sparkles, Puzzle, Layers, Clock, Keyboard, Copy, FileCog,
+    ChevronLeft,
   } from 'lucide-svelte';
+  import { isCompactWidth } from '../../../utils/compact';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
   import { t } from '../../../stores/language';
@@ -158,14 +160,24 @@
 
   $: resolutionList = modes.map((m) => m.resolution);
   $: rateList = modes.find((m) => m.resolution === resolution)?.rates ?? [60];
+  // ── Compact layout: list → detail ─────────────────────────────────────
+  // Narrow (phone shell / narrow window): show EITHER the list of sections OR
+  // the chosen section with a Back button — like Android/iOS Settings.
+  let rootW = 0;
+  $: compact = isCompactWidth(rootW);
+  let showDetail = false;
+  $: if (!compact) showDetail = false;
+  const openTab = (id: typeof activeTab) => { activeTab = id; showDetail = true; };
+  $: activeTabLabel = (() => { const tab = TABS.find((x) => x.id === activeTab); return tab ? (tab.label ?? $t(tab.labelKey)) : ''; })();
+
   $: filteredTabs = query.trim() ? TABS.filter((tab) => (tab.label ?? $t(tab.labelKey)).toLowerCase().includes(query.trim().toLowerCase())) : TABS;
 </script>
 
 {#if !config}
   <div class="flex h-full bg-slate-900 text-white items-center justify-center"><p class="text-slate-400 text-sm">{$t('settings.loading')}</p></div>
 {:else}
-  <div class="flex h-full bg-slate-900 text-white overflow-hidden">
-    <div class="w-56 shrink-0 bg-slate-950/60 border-r border-white/5 flex flex-col">
+  <div bind:clientWidth={rootW} class="flex h-full bg-slate-900 text-white overflow-hidden">
+    <div class="bg-slate-950/60 border-r border-white/5 flex-col {compact ? (showDetail ? 'hidden' : 'flex w-full') : 'flex w-56 shrink-0'}">
       <div class="p-3 pb-2">
         <div class="relative">
           <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -180,7 +192,7 @@
               <div class="px-2.5 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">{$t(GROUP_LABEL_KEYS[group])}</div>
               <div class="space-y-0.5">
                 {#each groupTabs as tab (tab.id)}
-                  <TabButton icon={tab.icon} label={tab.label ?? $t(tab.labelKey)} isActive={activeTab === tab.id} on:click={() => (activeTab = tab.id)} />
+                  <TabButton icon={tab.icon} label={tab.label ?? $t(tab.labelKey)} isActive={activeTab === tab.id} on:click={() => openTab(tab.id)} />
                 {/each}
               </div>
             </div>
@@ -191,7 +203,12 @@
       <div class="px-3 py-2 border-t border-white/5 text-[10px] text-slate-600">{customThemeCount} custom theme{customThemeCount === 1 ? '' : 's'} installed</div>
     </div>
 
-    <div class="flex-1 overflow-y-auto p-6">
+    <div class="flex-1 overflow-y-auto {compact ? 'p-4' : 'p-6'} {compact && !showDetail ? 'hidden' : ''}">
+      {#if compact}
+        <button class="flex items-center gap-1.5 -mt-1 mb-4 text-sm text-blue-400 active:text-blue-300" on:click={() => (showDetail = false)}>
+          <ChevronLeft size={16} /> {$t('altui.back')} <span class="text-slate-500">· {activeTabLabel}</span>
+        </button>
+      {/if}
       {#if activeTab === 'display'}
         <DisplaySection {config} {onSave} {wallpapers} {wallpaperPreviews} {wallpaperPreviewsLoading} onReloadWallpapers={loadWallpapers}
           bind:brightness bind:resolution bind:refreshRate {resolutionList} {rateList} />
