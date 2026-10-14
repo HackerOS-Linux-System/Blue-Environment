@@ -1,3 +1,4 @@
+import userDirNamesData from '../../../data/userDirNames.json';
 export type InstallStep = 'welcome' | 'language' | 'keyboard' | 'timezone' | 'disk' | 'account' | 'summary' | 'installing' | 'done' | 'error';
 
 export interface DiskInfo { path: string; model: string; sizeBytes: number; sizeLabel: string; removable: boolean; }
@@ -80,24 +81,13 @@ export interface UserDirNames {
   music: string; pictures: string; videos: string; templates: string; public: string;
 }
 
-export const USER_DIR_NAMES: Record<string, UserDirNames> = {
-  en: { desktop: 'Desktop', documents: 'Documents', downloads: 'Downloads', music: 'Music', pictures: 'Pictures', videos: 'Videos', templates: 'Templates', public: 'Public' },
-  pl: { desktop: 'Pulpit', documents: 'Dokumenty', downloads: 'Pobrane', music: 'Muzyka', pictures: 'Obrazy', videos: 'Wideo', templates: 'Szablony', public: 'Publiczny' },
-  de: { desktop: 'Schreibtisch', documents: 'Dokumente', downloads: 'Downloads', music: 'Musik', pictures: 'Bilder', videos: 'Videos', templates: 'Vorlagen', public: 'Öffentlich' },
-  fr: { desktop: 'Bureau', documents: 'Documents', downloads: 'Téléchargements', music: 'Musique', pictures: 'Images', videos: 'Vidéos', templates: 'Modèles', public: 'Public' },
-  es: { desktop: 'Escritorio', documents: 'Documentos', downloads: 'Descargas', music: 'Música', pictures: 'Imágenes', videos: 'Vídeos', templates: 'Plantillas', public: 'Público' },
-  it: { desktop: 'Scrivania', documents: 'Documenti', downloads: 'Scaricati', music: 'Musica', pictures: 'Immagini', videos: 'Video', templates: 'Modelli', public: 'Pubblici' },
-  pt: { desktop: 'Área de Trabalho', documents: 'Documentos', downloads: 'Transferências', music: 'Música', pictures: 'Imagens', videos: 'Vídeos', templates: 'Modelos', public: 'Público' },
-  nl: { desktop: 'Bureaublad', documents: 'Documenten', downloads: 'Downloads', music: 'Muziek', pictures: "Afbeeldingen", videos: 'Video\u2019s', templates: 'Sjablonen', public: 'Openbaar' },
-  sv: { desktop: 'Skrivbord', documents: 'Dokument', downloads: 'Hämtningar', music: 'Musik', pictures: 'Bilder', videos: 'Videoklipp', templates: 'Mallar', public: 'Publikt' },
-  ru: { desktop: 'Рабочий стол', documents: 'Документы', downloads: 'Загрузки', music: 'Музыка', pictures: 'Изображения', videos: 'Видео', templates: 'Шаблоны', public: 'Общедоступные' },
-  uk: { desktop: 'Стільниця', documents: 'Документи', downloads: 'Завантаження', music: 'Музика', pictures: 'Зображення', videos: 'Відео', templates: 'Шаблони', public: 'Спільнодоступні' },
-  cs: { desktop: 'Plocha', documents: 'Dokumenty', downloads: 'Stažené', music: 'Hudba', pictures: 'Obrázky', videos: 'Videa', templates: 'Šablony', public: 'Veřejné' },
-  hu: { desktop: 'Asztal', documents: 'Dokumentumok', downloads: 'Letöltések', music: 'Zene', pictures: 'Képek', videos: 'Videók', templates: 'Sablonok', public: 'Nyilvános' },
-  tr: { desktop: 'Masaüstü', documents: 'Belgeler', downloads: 'İndirilenler', music: 'Müzik', pictures: 'Resimler', videos: 'Videolar', templates: 'Şablonlar', public: 'Genel' },
-  ja: { desktop: 'デスクトップ', documents: 'ドキュメント', downloads: 'ダウンロード', music: '音楽', pictures: '画像', videos: 'ビデオ', templates: 'テンプレート', public: '公開' },
-  zh: { desktop: '桌面', documents: '文档', downloads: '下载', music: '音乐', pictures: '图片', videos: '视频', templates: '模板', public: '公共' },
-};
+// The table lives in src/lib/data/userDirNames.json — ONE file shared with the
+// backend (src-tauri/src/user_dirs.rs reads the very same JSON at compile time),
+// so the installer and the file manager can never disagree about what
+// "Pobrane" is called in a language. To add a language, edit only the JSON.
+export const USER_DIR_NAMES: Record<string, UserDirNames> = Object.fromEntries(
+  (userDirNamesData as { lang: string; names: UserDirNames }[]).map((e) => [e.lang, e.names]),
+);
 
 export function userDirNamesForLocale(locale: string): UserDirNames {
   const lang = locale.split(/[_.]/)[0]?.toLowerCase() ?? 'en';
