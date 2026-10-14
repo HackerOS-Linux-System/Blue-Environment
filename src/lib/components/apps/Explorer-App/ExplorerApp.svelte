@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusOnMount } from '../../../utils/actions';
   import { transferWithDialog, createWithDialog, renameWithDialog, describeSummary, type TransferSummary } from '../../../utils/fileTransfer';
   import { onMount, onDestroy, tick } from 'svelte';
   import {
@@ -8,9 +9,10 @@
     Grid, List, Eye, X, Edit, Search,
     SortAsc, SortDesc, Columns, Info, Check, AlertCircle, Loader2,
     Star, StarOff, Archive as ArchiveIcon, FileBox,
-    FilePlus, FolderPlus, ExternalLink, Link2, ArchiveRestore, FolderOpen, ClipboardPaste, CheckSquare, AppWindow,
+    Menu as MenuIcon, FilePlus, FolderPlus, ExternalLink, Link2, ArchiveRestore, FolderOpen, ClipboardPaste, CheckSquare, AppWindow,
   } from 'lucide-svelte';
   import { openFileWithDefaultApp } from '../../../utils/openFile';
+  import { isCompactWidth } from '../../../utils/compact';
   import { showContextMenu, type MenuItem } from '../../../stores/contextMenu';
   import { SystemBridge, shellQuote, type TrashEntry } from '../../../utils/systemBridge';
   import { dialogPrompt, dialogConfirm, activeDialog } from '../../../stores/dialog';
@@ -66,6 +68,16 @@
   // not from a hard-coded English list. See utils/userDirs.ts.
   ensureUserDirsLoaded();
   $: BOOKMARKS_WITH_ICONS = buildPlaces($userDirs).map((bm) => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder }));
+
+  // ── Compact (phone / narrow window) layout ───────────────────────────
+  // Below ~640px the sidebar becomes a slide-in drawer, the list drops its
+  // Size / Modified / Type columns and a single tap OPENS an item (double-tap
+  // is awkward on a touch screen) — unless a selection is already under way,
+  // when taps toggle selection instead. Measured on the app's own root, so a
+  // narrow desktop window behaves the same as the phone shell.
+  let rootW = 0;
+  $: compact = isCompactWidth(rootW);
+  let placesOpen = false;
 
   // --- User-defined bookmarks (zakładki użytkownika) -------------------------------------
   let customBookmarks: string[] = configStore.get().customBookmarks ?? [];
@@ -329,7 +341,9 @@
   export let initialPath: string | undefined = undefined;
   /** Provided by the window host; unused here but declared so the host's prop doesn't warn. */
   export let windowId: string = '';
-  $: void windowId;
+  // Every app is handed its window id; this one doesn't need it.
+  void windowId;
+  $: windowId;
   const startPath = initialPath && initialPath.trim() ? initialPath : 'HOME';
   let tabs: Tab[] = [{ id: 'tab-1', path: startPath, history: [startPath], historyIndex: 0 }];
   let activeTabId = 'tab-1';
@@ -720,13 +734,27 @@
   onMount(() => window.addEventListener('keydown', handleKeyDown));
   onDestroy(() => window.removeEventListener('keydown', handleKeyDown));
 
+  // Close the drawer once the person has picked a place.
+  $: { activeTab.path; if (compact) placesOpen = false; }
+
+  /** Keyboard on a grid item: Enter opens it, Space toggles its selection. */
+  function onItemKey(e: KeyboardEvent, file: FileEntry) {
+    if (e.key === 'Enter' && !renaming) handleOpen(file);
+    else if (e.key === ' ') { e.preventDefault(); toggleSelect(file.path, e as unknown as MouseEvent); }
+  }
+
+  function onItemClick(e: MouseEvent, file: FileEntry) {
+    if (compact && selected.size === 0 && !e.ctrlKey && !e.shiftKey && !e.metaKey) { handleOpen(file); return; }
+    toggleSelect(file.path, e);
+  }
+
   $: breadcrumbs = inTrash ? [{ label: 'Trash', path: TRASH_PATH }] : activeTab.path.split('/').map((part, i, arr) => ({
     label: part === 'HOME' ? '~' : part,
     path: arr.slice(0, i + 1).join('/') || '/',
   }));
 </script>
 
-<div data-drop-dir={inTrash ? undefined : activeTab.path} class="flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
+<div role="presentation" bind:clientWidth={rootW} data-drop-dir={inTrash ? undefined : activeTab.path} class="relative flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
   <div class="fixed top-16 right-4 z-50 flex flex-col gap-2 pointer-events-none">
     {#each notifs as n (n.id)}
       <div class="flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg text-sm {n.type === 'success' ? 'bg-green-600/90' : n.type === 'error' ? 'bg-red-600/90' : 'bg-slate-700/90'}">
@@ -736,7 +764,10 @@
     {/each}
   </div>
 
-  <div class="w-44 border-r flex flex-col shrink-0 {isHydra ? 'bg-[#1d0f2e]/60 border-pink-500/10' : 'bg-slate-800/50 border-white/5'}">
+  {#if compact && placesOpen}
+    <button class="absolute inset-0 z-20 bg-black/50" aria-label="Close places" on:click={() => (placesOpen = false)} />
+  {/if}
+  <div class="border-r flex flex-col {compact ? `absolute inset-y-0 left-0 z-30 w-64 shadow-2xl transition-transform duration-200 ${placesOpen ? 'translate-x-0' : '-translate-x-full'}` : 'w-44 shrink-0'} {isHydra ? 'bg-[#1d0f2e]/60 border-pink-500/10' : 'bg-slate-800/50 border-white/5'}">
     <div class="p-3 border-b border-white/5 flex items-center justify-between">
       <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Places</span>
       <button on:click={() => toggleCustomBookmark(activeTab.path)} title="Bookmark current folder" class="p-0.5 hover:text-yellow-400 text-slate-500">
@@ -764,7 +795,7 @@
         <div class="h-px bg-white/5 my-2" />
         <div class="px-2 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
         {#each customBookmarks as path (path)}
-          <div on:contextmenu={(e) => openBookmarkMenu(e, path, true)} class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          <div role="presentation" on:contextmenu={(e) => openBookmarkMenu(e, path, true)} class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
             <button on:click={() => navigateTo(path)} class="flex items-center gap-2 flex-1 min-w-0 text-left">
               <Folder size={14} class="shrink-0" /><span class="truncate">{path.split('/').pop()}</span>
             </button>
@@ -777,6 +808,9 @@
 
   <div class="flex-1 flex flex-col min-w-0">
     <div class="flex items-center bg-slate-800/80 border-b border-white/5 overflow-x-auto shrink-0">
+      {#if compact}
+        <button on:click={() => (placesOpen = !placesOpen)} class="p-2.5 text-slate-300 hover:text-white shrink-0" aria-label="Places"><MenuIcon size={16} /></button>
+      {/if}
       {#each tabs as t (t.id)}
         <div on:contextmenu={(e) => openTabMenu(e, t)} on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
           class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-r border-white/5 shrink-0 group max-w-[140px] {t.id === activeTabId ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
@@ -788,7 +822,7 @@
         </div>
       {/each}
       <button on:click={addTab} class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={12} /></button>
-      <div class="ml-auto pr-2">
+      <div class="ml-auto pr-2 {compact ? 'hidden' : ''}">
         <button on:click={() => (dualPane = !dualPane)} title="Dual pane" class="p-1.5 rounded {dualPane ? 'text-blue-400' : 'text-slate-500 hover:text-white'}"><Columns size={13} /></button>
       </div>
     </div>
@@ -852,13 +886,14 @@
               {@const isSel = selected.has(file.path)}
               {@const isDragTgt = dragOver === file.path && file.is_dir}
               {@const isCut = clipboard?.action === 'cut' && clipboard.files.includes(file.path)}
-              <div draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
+              <div role="button" tabindex="0" draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
+                on:keydown={(e) => onItemKey(e, file)}
                 on:dragstart={(e) => onDragStart(e, file)}
                 on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
                 on:drop={(e) => file.is_dir && onDrop(e, file)}
                 on:dragleave={() => (dragOver = null)}
                 class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? selClass : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassGrid : ''} {isCut ? 'opacity-50' : ''}"
-                on:click|stopPropagation={(e) => toggleSelect(file.path, e)}
+                on:click|stopPropagation={(e) => onItemClick(e, file)}
                 on:dblclick={() => !renaming && handleOpen(file)}
                 on:contextmenu|stopPropagation={(e) => openContextMenu(e, file)}>
                 <div class="mb-1.5">
@@ -871,7 +906,7 @@
                 {#if renaming === file.path}
                   <input bind:this={renameEl} bind:value={renameVal} on:blur={commitRename}
                     on:keydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
-                    class="w-full text-xs text-center bg-slate-800 border border-blue-500 rounded px-1 focus:outline-none" autofocus on:click|stopPropagation />
+                    class="w-full text-xs text-center bg-slate-800 border border-blue-500 rounded px-1 focus:outline-none" use:focusOnMount on:click|stopPropagation />
                 {:else}
                   <span class="text-xs text-center break-all line-clamp-2 leading-tight px-1">{file.name}</span>
                 {/if}
@@ -883,12 +918,12 @@
           <table class="w-full text-sm border-collapse">
             <thead class="sticky top-0 bg-slate-800 z-10 text-slate-400 text-xs">
               <tr>
-                {#each [['Name', 'name'], ['Size', 'size'], ['Modified', 'modified'], ['Type', 'type']] as [label, sk] (sk)}
+                {#each (compact ? [['Name', 'name'], ['Size', 'size']] : [['Name', 'name'], ['Size', 'size'], ['Modified', 'modified'], ['Type', 'type']]) as [label, sk] (sk)}
                   <th class="p-2 text-left cursor-pointer hover:text-white select-none whitespace-nowrap" on:click={() => toggleSortByKey(sk)}>
                     <span class="flex items-center gap-1">{label} {#if sortBy === sk}{#if sortAsc}<SortAsc size={11} />{:else}<SortDesc size={11} />{/if}{/if}</span>
                   </th>
                 {/each}
-                <th class="w-14" />
+                {#if !compact}<th class="w-14" />{/if}
               </tr>
             </thead>
             <tbody>
@@ -902,7 +937,7 @@
                   on:drop={(e) => file.is_dir && onDrop(e, file)}
                   on:dragleave={() => (dragOver = null)}
                   class="border-b border-white/5 cursor-pointer group {isSel ? selClassSubtle : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassRow : ''} {isCut ? 'opacity-50' : ''}"
-                  on:click={(e) => toggleSelect(file.path, e)}
+                  on:click={(e) => onItemClick(e, file)}
                   on:dblclick={() => handleOpen(file)}
                   on:contextmenu|preventDefault={(e) => openContextMenu(e, file)}>
                   <td class="p-2">
@@ -915,13 +950,14 @@
                       {#if renaming === file.path}
                         <input bind:this={renameEl} bind:value={renameVal} on:blur={commitRename}
                           on:keydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
-                          class="flex-1 bg-slate-800 border border-blue-500 rounded px-1 text-sm focus:outline-none" autofocus on:click|stopPropagation />
+                          class="flex-1 bg-slate-800 border border-blue-500 rounded px-1 text-sm focus:outline-none" use:focusOnMount on:click|stopPropagation />
                       {:else}
                         <span class="text-sm truncate">{file.name}</span>
                       {/if}
                     </div>
                   </td>
                   <td class="p-2 text-sm text-slate-500 whitespace-nowrap">{file.size}</td>
+                  {#if !compact}
                   <td class="p-2 text-sm text-slate-500 whitespace-nowrap">{file.modified ?? '—'}</td>
                   <td class="p-2 text-xs text-slate-600 max-w-[100px] truncate">{file.mime_type}</td>
                   <td class="p-2">
@@ -930,6 +966,7 @@
                       <button on:click|stopPropagation={() => { selected = new Set([file.path]); setTimeout(trashSelected, 0); }} class="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
                     </div>
                   </td>
+                  {/if}
                 </tr>
               {/each}
             </tbody>
@@ -995,7 +1032,7 @@
       {#if propertiesFile}
         {@const pf = propertiesFile}
         <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
-          <div class="w-80 bg-slate-800 border rounded-xl shadow-2xl p-4 {isHydra ? 'border-pink-500/20' : 'border-white/10'}" on:click|stopPropagation>
+          <div class="w-80 bg-slate-800 border rounded-xl shadow-2xl p-4 {isHydra ? 'border-pink-500/20' : 'border-white/10'}" role="presentation" on:click|stopPropagation>
             <div class="flex items-center gap-2 mb-3">
               <FileIcon file={pf} size={28} />
               <span class="font-medium truncate">{pf.name}</span>
