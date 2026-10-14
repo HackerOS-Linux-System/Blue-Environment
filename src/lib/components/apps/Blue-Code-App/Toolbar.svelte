@@ -4,6 +4,8 @@
   import { createEventDispatcher } from 'svelte';
 
   export let sidebarCollapsed: boolean;
+  // Passed by the parent for symmetry with the sidebar; the toolbar doesn't use it.
+  $: sidebarCollapsed;
   export let canSave: boolean;
   export let showTerminal: boolean;
   export let sidebarTab: SidebarTab;
