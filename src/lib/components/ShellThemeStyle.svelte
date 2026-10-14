@@ -29,7 +29,7 @@
    */
   import { onDestroy, onMount } from 'svelte';
   import { resolveActiveShellThemeWithCustom, type ShellTheme } from '../data/builtinThemes';
-  import { activeShellThemeId } from '../stores/shellTheme';
+  import { activeShellThemeId, previewShellTheme } from '../stores/shellTheme';
   import { customShellThemes, ensureCustomThemesLoaded } from '../utils/customThemes';
   import { THEME_ATTRS, THEME_CSS_VARS, themeToCss } from '../utils/shellThemeCss';
 
@@ -39,7 +39,8 @@
 
   onMount(() => { ensureCustomThemesLoaded(); });
 
-  $: activeShellTheme = resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
+  // A theme being tried from the editor (unsaved) takes precedence over the configured one.
+  $: activeShellTheme = $previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
 
   $: applyTheme(activeShellTheme);
 
