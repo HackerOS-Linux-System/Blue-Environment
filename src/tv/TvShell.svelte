@@ -30,6 +30,10 @@
   import PowerMenu from '../lib/components/PowerMenu.svelte';
   import TvHome from './TvHome.svelte';
   import TvMenu from './TvMenu.svelte';
+  import TvSettings from './TvSettings.svelte';
+  import { FocusMemory, pickRestoreIndex } from '../lib/altShell/focusMemory';
+  import { remoteAction } from '../lib/altShell/remoteKeys';
+  import { FOCUSABLE_SELECTOR } from '../lib/altShell/spatialNav';
 
   let wallpaper = '';
   let theme = 'dark';
@@ -67,6 +71,34 @@
 
   let rootEl: HTMLElement;
 
+  /** The desktop Settings app is swapped for a remote-friendly one in this shell. */
+  const overrides = { [AppId.SETTINGS]: TvSettings };
+
+  // ── Focus memory ─────────────────────────────────────────────────────
+  // Closing an app lands on the tile that launched it; coming back to an app
+  // lands on the control you left. Keyed per screen ("home", "app:<windowId>").
+  const memory = new FocusMemory();
+  const focusablesIn = (region: HTMLElement | null) =>
+    region ? Array.from(region.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => el.getBoundingClientRect().width > 0) : [];
+  const keyOf = (el: HTMLElement) => el.closest<HTMLElement>('[data-tv-key]')?.dataset.tvKey ?? null;
+
+  function rememberFocus(scope: string, region: HTMLElement | null) {
+    const active = document.activeElement as HTMLElement | null;
+    const list = focusablesIn(region);
+    const idx = active ? list.findIndex((el) => el === active || el.contains(active)) : -1;
+    if (idx >= 0) memory.remember(scope, keyOf(list[idx]), idx);
+  }
+  function restoreFocus(scope: string, region: HTMLElement | null) {
+    const list = focusablesIn(region);
+    const i = pickRestoreIndex(list.map(keyOf), memory.recall(scope));
+    if (i >= 0) list[i].focus();
+  }
+  /** Which screen is showing right now. */
+  const currentScope = () => (appOpen ? `app:${$activeWindowId}` : 'home');
+
+  // Remember continuously (cheap: one lookup per focus change).
+  function onFocusIn() { if (panel === 'none') rememberFocus(currentScope(), activeRegion()); }
+
   /** The region directional input currently acts on. */
   function activeRegion(): HTMLElement | null {
     if (!rootEl) return null;
@@ -76,12 +108,14 @@
     return rootEl.querySelector<HTMLElement>('[data-tv-home]');
   }
 
-  async function focusFirstOnHome() {
+  async function restoreFocusOnScreen() {
     await tick();
-    if (!appOpen && panel === 'none') (rootEl?.querySelector('[data-tv-home] [data-tv-focusable]') as HTMLElement | null)?.focus();
+    if (panel !== 'none') return;
+    restoreFocus(currentScope(), activeRegion());
   }
-  // Whenever the home screen comes (back) into view, put the focus on a tile.
-  $: if (!appOpen && panel === 'none') focusFirstOnHome();
+  // Whenever a screen comes (back) into view — home, or an app — put the focus
+  // where it was, or on the first control the first time.
+  $: if (panel === 'none') { void appOpen; void $activeWindowId; restoreFocusOnScreen(); }
 
   function go(dir: Dir) {
     const region = activeRegion();
@@ -125,12 +159,17 @@
   }
   function onKey(e: KeyboardEvent) {
     document.body.classList.add('tv-nav-active');
-    switch (e.key) {
-      case 'Home': case 'BrowserHome': e.preventDefault(); home(); return;
-      case 'ContextMenu': case 'F1': case 'MediaTopMenu': e.preventDefault(); toggleMenu(); return;
-      case 'Escape': e.preventDefault(); back(); return;
-      case 'Backspace': if (!isEditable(e.target)) { e.preventDefault(); back(); } return;
+    const remote = remoteAction(e);
+    if (remote === 'home') { e.preventDefault(); home(); return; }
+    if (remote === 'menu') { e.preventDefault(); toggleMenu(); return; }
+    if (remote === 'back') { e.preventDefault(); back(); return; }
+    // Media keys: handled by whichever app listens (e.g. a player); the shell
+    // just republishes them as one event so apps need no TV-specific key tables.
+    if (remote === 'play_pause' || remote === 'next' || remote === 'prev' || remote === 'stop') {
+      window.dispatchEvent(new CustomEvent('blue:media-key', { detail: remote }));
+      return;
     }
+    if (e.key === 'Backspace' && !isEditable(e.target)) { e.preventDefault(); back(); return; }
     // On the home screen and in panels the arrows move between tiles. Inside
     // an app they are left to the app (it may use them itself).
     if (appOpen && panel === 'none') return;
@@ -164,7 +203,7 @@
   function openSettings() { panel = 'none'; openApp(AppId.SETTINGS); }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window on:keydown={onKey} on:focusin={onFocusIn} />
 
 <ShellFrame variant="tv" {wallpaper} {shellThemeId} {systemThemeId} {theme} keyboardOnFocus={true} {showTransferProgress}>
   <div class="absolute inset-0" bind:this={rootEl}>
@@ -172,7 +211,7 @@
     {#if !appOpen}
       <TvHome {apps} running={runningItems} {now} {use24h} on:launch={(e) => launch(e.detail)} on:resume={(e) => resume(e.detail)} />
     {/if}
-    <AppViewport />
+    <AppViewport {overrides} />
 
     {#if !appOpen && panel === 'none'}
       <div class="absolute bottom-0 inset-x-0 z-20 px-12 py-4 flex gap-8 text-sm text-white/80 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" transition:fade={{ duration: 120 }}>
