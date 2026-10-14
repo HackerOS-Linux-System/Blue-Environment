@@ -73,6 +73,7 @@
 >
   <div
     class="relative glass-card rounded-3xl p-8 w-96 animate-scale-in"
+    role="presentation"
     on:click|stopPropagation
     style="border:1px solid {shellThemeId === 'hydra' ? 'rgba(236,72,153,0.3)' : 'rgba(59,130,246,0.2)'}; {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25);' : ''}"
   >
