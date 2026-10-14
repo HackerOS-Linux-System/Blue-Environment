@@ -29,6 +29,16 @@
   $: wall = `filter: blur(${(e.wallpaperBlur ?? 0) / 8}px) brightness(${(e.wallpaperBrightness ?? 100) / 100}) saturate(${(e.wallpaperSaturation ?? 100) / 100});`;
   $: pos = theme.layout.panelPosition;
   $: horizontal = pos === 'top' || pos === 'bottom';
+
+  // ── mini app menu ──
+  $: menuRgb = rgbTriplet(e.menuBackgroundColor) ?? '15, 23, 42';
+  $: menuOp = (e.menuOpacity ?? 70) / 100;
+  $: menuBlur = (e.menuBlur ?? 40) / 8;
+  $: sideBg = e.menuSidebar === 'transparent' ? 'transparent' : e.menuSidebar === 'solid' ? `rgba(${rgbTriplet(e.menuBackgroundColor) ?? '2, 6, 23'}, 0.9)` : 'rgba(2, 6, 23, 0.3)';
+  $: tileCount = e.menuTileSize === 'compact' ? 10 : e.menuTileSize === 'large' ? 4 : 6;
+  $: tileEdge = e.menuTileSize === 'compact' ? 9 : e.menuTileSize === 'large' ? 18 : 13;
+  $: tileRadius = e.menuTileShape === 'circle' ? '9999px' : e.menuTileShape === 'square' ? '2px' : '5px';
+  $: searchRadius = e.menuSearchShape === 'pill' ? '9999px' : e.menuSearchShape === 'square' ? '2px' : '5px';
 </script>
 
 <div class="relative w-full h-36 rounded-xl overflow-hidden border border-white/10 select-none" aria-hidden="true"
@@ -62,6 +72,26 @@
       <div class="rounded" style="height:5px;width:70%;background:{c.text};opacity:.85" />
       <div class="rounded" style="height:4px;width:50%;background:{c.textMuted}" />
       <div class="rounded" style="height:9px;width:36%;background:{c.accent}" />
+    </div>
+  </div>
+</div>
+
+<!-- The full-screen application menu, in miniature -->
+<div class="relative w-full h-24 mt-2 rounded-xl overflow-hidden border border-white/10 select-none" aria-hidden="true">
+  <div class="absolute inset-0" style="background:linear-gradient(135deg,{c.accent},{e.accentSecondary || c.background} 60%,{c.background}); {wall}" />
+  <div class="absolute inset-0 flex" style="background-color:rgba({menuRgb},{menuOp}); backdrop-filter:blur({menuBlur}px); -webkit-backdrop-filter:blur({menuBlur}px);">
+    <div class="w-1/4 h-full p-1.5 space-y-1" style="background:{sideBg}">
+      <div class="h-2 rounded" style="background:{c.accent}" />
+      <div class="h-2 rounded bg-white/15" />
+      <div class="h-2 rounded bg-white/15" />
+    </div>
+    <div class="flex-1 p-2 space-y-1.5">
+      <div class="h-3 bg-white/10 border border-white/10" style="border-radius:{searchRadius}" />
+      <div class="flex flex-wrap gap-1">
+        {#each Array(tileCount) as _, i (i)}
+          <div class="bg-white/15" style="width:{tileEdge}px;height:{tileEdge}px;border-radius:{tileRadius}" />
+        {/each}
+      </div>
     </div>
   </div>
 </div>
