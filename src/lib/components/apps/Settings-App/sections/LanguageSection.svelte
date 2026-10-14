@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Check, Languages } from 'lucide-svelte';
   import { language, t, setLanguage, SUPPORTED_LANGUAGES, type Language } from '../../../../stores/language';
+  import UserFoldersCard from './UserFoldersCard.svelte';
 </script>
 
 <div class="space-y-6">
@@ -27,4 +28,6 @@
     </div>
     <p class="text-xs text-slate-600 mt-4 pt-3 border-t border-white/5">{$t('settings.language_restart_hint')}</p>
   </div>
+
+  <UserFoldersCard />
 </div>
