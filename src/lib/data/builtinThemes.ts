@@ -85,6 +85,22 @@ export interface ShellThemeExtras {
   wallpaperSaturation?: number;
   /** Panel background colour (any CSS colour); default = the built-in dark navy. */
   panelColor?: string;
+
+  // ── Full-screen application menu (all optional; unset = the standard look) ──
+  /** Menu background colour (any CSS colour); default = the built-in dark navy. */
+  menuBackgroundColor?: string;
+  /** Menu background opacity, 20–100 (%); default 70. */
+  menuOpacity?: number;
+  /** Blur behind the menu, 0–60 px; default 40. */
+  menuBlur?: number;
+  /** The category column on the left. */
+  menuSidebar?: 'default' | 'transparent' | 'solid';
+  /** App tile size (icon box + grid density). */
+  menuTileSize?: 'compact' | 'normal' | 'large';
+  /** Shape of the app icon boxes. */
+  menuTileShape?: 'rounded' | 'circle' | 'square';
+  /** Shape of the search field. */
+  menuSearchShape?: 'rounded' | 'pill' | 'square';
 }
 
 export interface ShellTheme {
