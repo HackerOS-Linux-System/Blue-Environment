@@ -1,5 +1,6 @@
 import { derived, get, writable } from 'svelte/store';
 import { SystemBridge } from './systemBridge';
+import userDirNamesData from '../data/userDirNames.json';
 
 /**
  * Localized XDG user folders (Pulpit, Dokumenty, Pobrane, …).
@@ -33,10 +34,9 @@ export interface UserDir {
 /** Shape sent by `user_dirs.rs` (serde, snake_case). */
 interface RawUserDir { key: string; path: string; home_path: string | null; name: string; exists: boolean }
 
-const ENGLISH: Record<UserDirKey, string> = {
-  desktop: 'Desktop', documents: 'Documents', downloads: 'Downloads', music: 'Music',
-  pictures: 'Pictures', videos: 'Videos', templates: 'Templates', public: 'Public',
-};
+// English names come from the same JSON the installer and the backend use.
+const ENGLISH = (userDirNamesData as { lang: string; names: Record<UserDirKey, string> }[])
+  .find((e) => e.lang === 'en')!.names;
 
 const KEYS = Object.keys(ENGLISH) as UserDirKey[];
 
@@ -69,9 +69,28 @@ export function normalizeUserDirs(raw: unknown): UserDir[] {
 export const userDirs = writable<UserDir[]>(defaultUserDirs());
 
 let loading: Promise<void> | null = null;
+let liveListener: Promise<void> | null = null;
 
-/** Loads (once) the real folders from the backend. Safe to call from many components. */
+/**
+ * Keeps the store in sync with the disk: the backend (`user_dirs::start_watcher`)
+ * emits `user-dirs:changed` whenever user-dirs.dirs is rewritten (language
+ * switched, `xdg-user-dirs-update`), or a folder is renamed / created / removed
+ * — e.g. by the folder migration in Settings → Language. Outside Tauri this is
+ * a no-op.
+ */
+function listenForChanges(): Promise<void> {
+  if (!liveListener) {
+    liveListener = import('@tauri-apps/api/event')
+      .then((mod) => mod.listen('user-dirs:changed', (e: { payload: unknown }) => { userDirs.set(normalizeUserDirs(e.payload)); }))
+      .then(() => undefined)
+      .catch(() => undefined);
+  }
+  return liveListener;
+}
+
+/** Loads (once) the real folders from the backend and starts following changes. Safe to call from many components. */
 export function ensureUserDirsLoaded(force = false): Promise<void> {
+  void listenForChanges();
   if (loading && !force) return loading;
   loading = SystemBridge.invokeCommand<RawUserDir[]>('get_user_dirs')
     .then((raw) => { userDirs.set(normalizeUserDirs(raw)); })
