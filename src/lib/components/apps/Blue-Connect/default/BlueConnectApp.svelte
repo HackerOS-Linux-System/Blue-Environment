@@ -16,6 +16,8 @@
   import type { DiscoveredDevice, DeviceType } from './types';
 
   export let windowId: string;
+  // Every app is handed its window id; this one doesn't need it.
+  $: windowId;
 
   let devices: DiscoveredDevice[] = [];
   let discovering = false;
