@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusOnMount } from '../../../utils/actions';
   import { Command, X } from 'lucide-svelte';
   import type { CommandEntry } from './types';
   import { createEventDispatcher } from 'svelte';
@@ -14,11 +15,11 @@
 
 {#if visible}
   <div class="absolute inset-0 bg-black/50 flex items-start justify-center z-50 pt-20" on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => dispatch('close'))(); } }}>
-    <div class="bg-slate-800 rounded-xl w-96 p-4 shadow-2xl" on:click|stopPropagation>
+    <div class="bg-slate-800 rounded-xl w-96 p-4 shadow-2xl" role="presentation" on:click|stopPropagation>
       <div class="flex items-center gap-2 mb-3">
         <Command size={14} class="text-slate-500" />
         <input type="text" value={input} on:input={(e) => dispatch('input', e.currentTarget.value)}
-          placeholder="Type a command…" class="flex-1 bg-transparent text-sm text-white focus:outline-none" autofocus />
+          placeholder="Type a command…" class="flex-1 bg-transparent text-sm text-white focus:outline-none" use:focusOnMount />
         <button on:click={() => dispatch('close')} class="text-slate-500 hover:text-white"><X size={13} /></button>
       </div>
       <div class="space-y-0.5 max-h-56 overflow-y-auto">
