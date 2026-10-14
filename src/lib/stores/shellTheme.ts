@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import type { ShellTheme } from '../data/builtinThemes';
 
 /**
  * The active shell theme's id (e.g. `'hydra'`), or `undefined` when no
@@ -37,3 +38,12 @@ import { writable } from 'svelte/store';
  * isn't.
  */
 export const activeShellThemeId = writable<string | undefined>(undefined);
+
+/**
+ * A theme being tried out from the theme editor ("Try live") WITHOUT saving it.
+ * While set, `ShellThemeStyle` applies this theme's colours and extras instead
+ * of the configured one; clearing it (`set(null)`) snaps back. Layout choices
+ * that need a shell restart (panel position, window-control style) are not
+ * affected — only what is applied through CSS.
+ */
+export const previewShellTheme = writable<ShellTheme | null>(null);
