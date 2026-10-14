@@ -12,7 +12,15 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import CommunityAppHost from '../components/apps/Community-App-Host/CommunityAppHost.svelte';
 
+  /**
+   * Replaces the component of an app for this shell (appId → component). The TV
+   * shell uses it to swap the desktop Settings app for a remote-friendly one.
+   * The replacement gets the same props (`windowId`, launch args).
+   */
+  export let overrides: Record<string, any> = {};
+
   function componentFor(appId: string) {
+    if (overrides[appId]) return overrides[appId];
     if (appId.startsWith('community:')) return CommunityAppHost;
     return APPS[appId as AppId]?.component;
   }
