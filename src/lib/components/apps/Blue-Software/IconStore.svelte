@@ -15,9 +15,14 @@
   import { ArrowLeft, ArrowRight, RotateCw, Home, Palette, Check, Trash2, Loader2, ExternalLink, PackageOpen } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
   import { t } from '../../../stores/language';
+  import { isCompactWidth } from '../../../utils/compact';
   import { windows, topmostVisibleWindowId } from '../../../stores/windowManager';
   import { blockingOverlayOpen, windowInteracting } from '../../../stores/overlayState';
   import { iconThemes, isIconArchive, ICON_THEMES_CHANGED, ICON_THEME_APPLIED, type IconThemeInfo } from '../../../utils/iconThemes';
+
+  // Narrow layout: the installed-themes column shrinks so the page keeps room.
+  let rootW = 0;
+  $: compact = isCompactWidth(rootW);
 
   export let windowId: string = '';
   /** False while another Blue Software section is showing — the native page must then be hidden. */
@@ -171,7 +176,7 @@
   });
 </script>
 
-<div class="flex flex-col h-full min-h-0 bg-slate-900" class:hidden={!visible}>
+<div bind:clientWidth={rootW} class="flex flex-col h-full min-h-0 bg-slate-900" class:hidden={!visible}>
   <!-- toolbar -->
   <div class="flex items-center gap-1.5 px-3 py-2 border-b border-white/5 shrink-0">
     <button class="p-1.5 rounded-lg hover:bg-white/10 disabled:opacity-40" title={$t('iconstore.back')} disabled={!created} on:click={() => nav('web_view_history_go', { delta: -1 })}><ArrowLeft size={15} /></button>
@@ -205,7 +210,7 @@
 
     <!-- installed themes: BESIDE the page, never over it -->
     {#if showInstalled}
-      <aside class="w-64 shrink-0 border-l border-white/5 flex flex-col min-h-0 bg-slate-900">
+      <aside class="{compact ? 'w-44' : 'w-64'} shrink-0 border-l border-white/5 flex flex-col min-h-0 bg-slate-900">
         <div class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{$t('iconstore.installed')}</div>
         <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
           <button class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-white/5 {installed.every((x) => !x.active) ? 'bg-blue-600/20' : ''}" on:click={() => apply(null)}>
