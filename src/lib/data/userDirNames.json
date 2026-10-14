@@ -1,0 +1,210 @@
+[
+  {
+    "lang": "en",
+    "names": {
+      "desktop": "Desktop",
+      "documents": "Documents",
+      "downloads": "Downloads",
+      "music": "Music",
+      "pictures": "Pictures",
+      "videos": "Videos",
+      "templates": "Templates",
+      "public": "Public"
+    }
+  },
+  {
+    "lang": "pl",
+    "names": {
+      "desktop": "Pulpit",
+      "documents": "Dokumenty",
+      "downloads": "Pobrane",
+      "music": "Muzyka",
+      "pictures": "Obrazy",
+      "videos": "Wideo",
+      "templates": "Szablony",
+      "public": "Publiczny"
+    }
+  },
+  {
+    "lang": "de",
+    "names": {
+      "desktop": "Schreibtisch",
+      "documents": "Dokumente",
+      "downloads": "Downloads",
+      "music": "Musik",
+      "pictures": "Bilder",
+      "videos": "Videos",
+      "templates": "Vorlagen",
+      "public": "Öffentlich"
+    }
+  },
+  {
+    "lang": "fr",
+    "names": {
+      "desktop": "Bureau",
+      "documents": "Documents",
+      "downloads": "Téléchargements",
+      "music": "Musique",
+      "pictures": "Images",
+      "videos": "Vidéos",
+      "templates": "Modèles",
+      "public": "Public"
+    }
+  },
+  {
+    "lang": "es",
+    "names": {
+      "desktop": "Escritorio",
+      "documents": "Documentos",
+      "downloads": "Descargas",
+      "music": "Música",
+      "pictures": "Imágenes",
+      "videos": "Vídeos",
+      "templates": "Plantillas",
+      "public": "Público"
+    }
+  },
+  {
+    "lang": "it",
+    "names": {
+      "desktop": "Scrivania",
+      "documents": "Documenti",
+      "downloads": "Scaricati",
+      "music": "Musica",
+      "pictures": "Immagini",
+      "videos": "Video",
+      "templates": "Modelli",
+      "public": "Pubblici"
+    }
+  },
+  {
+    "lang": "pt",
+    "names": {
+      "desktop": "Área de Trabalho",
+      "documents": "Documentos",
+      "downloads": "Transferências",
+      "music": "Música",
+      "pictures": "Imagens",
+      "videos": "Vídeos",
+      "templates": "Modelos",
+      "public": "Público"
+    }
+  },
+  {
+    "lang": "nl",
+    "names": {
+      "desktop": "Bureaublad",
+      "documents": "Documenten",
+      "downloads": "Downloads",
+      "music": "Muziek",
+      "pictures": "Afbeeldingen",
+      "videos": "Video’s",
+      "templates": "Sjablonen",
+      "public": "Openbaar"
+    }
+  },
+  {
+    "lang": "sv",
+    "names": {
+      "desktop": "Skrivbord",
+      "documents": "Dokument",
+      "downloads": "Hämtningar",
+      "music": "Musik",
+      "pictures": "Bilder",
+      "videos": "Videoklipp",
+      "templates": "Mallar",
+      "public": "Publikt"
+    }
+  },
+  {
+    "lang": "ru",
+    "names": {
+      "desktop": "Рабочий стол",
+      "documents": "Документы",
+      "downloads": "Загрузки",
+      "music": "Музыка",
+      "pictures": "Изображения",
+      "videos": "Видео",
+      "templates": "Шаблоны",
+      "public": "Общедоступные"
+    }
+  },
+  {
+    "lang": "uk",
+    "names": {
+      "desktop": "Стільниця",
+      "documents": "Документи",
+      "downloads": "Завантаження",
+      "music": "Музика",
+      "pictures": "Зображення",
+      "videos": "Відео",
+      "templates": "Шаблони",
+      "public": "Спільнодоступні"
+    }
+  },
+  {
+    "lang": "cs",
+    "names": {
+      "desktop": "Plocha",
+      "documents": "Dokumenty",
+      "downloads": "Stažené",
+      "music": "Hudba",
+      "pictures": "Obrázky",
+      "videos": "Videa",
+      "templates": "Šablony",
+      "public": "Veřejné"
+    }
+  },
+  {
+    "lang": "hu",
+    "names": {
+      "desktop": "Asztal",
+      "documents": "Dokumentumok",
+      "downloads": "Letöltések",
+      "music": "Zene",
+      "pictures": "Képek",
+      "videos": "Videók",
+      "templates": "Sablonok",
+      "public": "Nyilvános"
+    }
+  },
+  {
+    "lang": "tr",
+    "names": {
+      "desktop": "Masaüstü",
+      "documents": "Belgeler",
+      "downloads": "İndirilenler",
+      "music": "Müzik",
+      "pictures": "Resimler",
+      "videos": "Videolar",
+      "templates": "Şablonlar",
+      "public": "Genel"
+    }
+  },
+  {
+    "lang": "ja",
+    "names": {
+      "desktop": "デスクトップ",
+      "documents": "ドキュメント",
+      "downloads": "ダウンロード",
+      "music": "音楽",
+      "pictures": "画像",
+      "videos": "ビデオ",
+      "templates": "テンプレート",
+      "public": "公開"
+    }
+  },
+  {
+    "lang": "zh",
+    "names": {
+      "desktop": "桌面",
+      "documents": "文档",
+      "downloads": "下载",
+      "music": "音乐",
+      "pictures": "图片",
+      "videos": "视频",
+      "templates": "模板",
+      "public": "公共"
+    }
+  }
+]
