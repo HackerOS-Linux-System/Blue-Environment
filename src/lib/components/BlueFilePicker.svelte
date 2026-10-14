@@ -11,6 +11,7 @@
   import { SystemBridge } from '../utils/systemBridge';
   import { transferWithDialog, createWithDialog, renameWithDialog } from '../utils/fileTransfer';
   import { configStore } from '../utils/configStore';
+  import { onKeydown } from '../utils/actions';
   import { userDirs, buildPlaces, ensureUserDirsLoaded } from '../utils/userDirs';
   import type { FileEntry } from './apps/Explorer-App/types';
   import FileIcon from './apps/Explorer-App/FileIcon.svelte';
@@ -380,8 +381,8 @@
 </script>
 
 {#if picker}
-  <div data-shell-occluder="file-picker" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
-    <div bind:this={pickerRootEl} on:keydown={handleRootKeydown} role="dialog" aria-modal="true" class="w-[760px] h-[540px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+  <div data-shell-occluder="file-picker" role="presentation" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
+    <div bind:this={pickerRootEl} use:onKeydown={handleRootKeydown} role="dialog" aria-modal="true" class="w-[760px] h-[540px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <!-- Title bar -->
       <div class="h-11 flex items-center gap-2 px-4 border-b border-white/10 shrink-0">
         <h3 class="text-sm font-semibold text-white flex-1 truncate">
@@ -444,11 +445,11 @@
             </button>
           </div>
 
-          <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
           <div
             bind:this={listEl}
+            role="listbox"
             tabindex="0"
-            on:keydown={handleListKeydown}
+            use:onKeydown={handleListKeydown}
             class="flex-1 overflow-y-auto outline-none"
           >
             {#if loading}
@@ -478,6 +479,7 @@
                       aria-checked={isSelected}
                       tabindex="-1"
                       on:click|stopPropagation={() => { activeIndex = i; toggleSelection(entry.path); }}
+                      on:keydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); activeIndex = i; toggleSelection(entry.path); } }}
                       class="w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors {isSelected ? 'bg-blue-600 border-blue-500' : 'border-white/20 hover:border-white/40'}"
                     >
                       {#if isSelected}<Check size={10} class="text-white" />{/if}
