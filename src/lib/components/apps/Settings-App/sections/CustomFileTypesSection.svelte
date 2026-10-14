@@ -82,24 +82,24 @@
       </div>
 
       <div>
-        <label class="block text-xs text-slate-500 mb-1">
+        <label for="ft-pattern" class="block text-xs text-slate-500 mb-1">
           {editing.kind === 'extension' ? $t('settings.filetypes.pattern_ext_label') : $t('settings.filetypes.pattern_mime_label')}
         </label>
-        <input bind:value={editing.pattern}
+        <input id="ft-pattern" bind:value={editing.pattern}
           placeholder={editing.kind === 'extension' ? 'blueproj' : 'application/x-mymod  (or application/*)'}
           class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500/50" />
       </div>
 
       <div>
-        <label class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.label_label')}</label>
-        <input bind:value={editing.label} placeholder={$t('settings.filetypes.label_placeholder')}
+        <label for="ft-label" class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.label_label')}</label>
+        <input id="ft-label" bind:value={editing.label} placeholder={$t('settings.filetypes.label_placeholder')}
           class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
       </div>
 
       <div class="flex gap-4">
         <div class="flex-1">
-          <label class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.icon_label')}</label>
-          <div class="grid grid-cols-8 gap-1.5 max-h-32 overflow-y-auto bg-slate-900 rounded-lg p-2 border border-white/10">
+          <span id="ft-icon-label" class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.icon_label')}</span>
+          <div role="group" aria-labelledby="ft-icon-label" class="grid grid-cols-8 gap-1.5 max-h-32 overflow-y-auto bg-slate-900 rounded-lg p-2 border border-white/10">
             {#each ICON_NAMES as name (name)}
               <button on:click={() => editing && (editing.icon = name)}
                 title={name}
@@ -111,8 +111,8 @@
           </div>
         </div>
         <div class="w-28">
-          <label class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.color_label')}</label>
-          <input type="color" bind:value={editing.color} class="w-full h-9 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+          <label for="ft-color" class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.color_label')}</label>
+          <input id="ft-color" type="color" bind:value={editing.color} class="w-full h-9 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
           <div class="mt-2 flex items-center justify-center bg-slate-900 rounded-lg py-3 border border-white/10">
             <svelte:component this={ICON_COMPONENTS[editing.icon]} size={28} style="color: {editing.color}" />
           </div>
@@ -120,8 +120,8 @@
       </div>
 
       <div>
-        <label class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.open_with_label')}</label>
-        <input bind:value={editing.open_with_command} placeholder="my-app --open {'{path}'}"
+        <label for="ft-open-with" class="block text-xs text-slate-500 mb-1">{$t('settings.filetypes.open_with_label')}</label>
+        <input id="ft-open-with" bind:value={editing.open_with_command} placeholder="my-app --open {'{path}'}"
           class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500/50" />
         <p class="text-xs text-slate-600 mt-1">{$t('settings.filetypes.open_with_hint')}</p>
       </div>
