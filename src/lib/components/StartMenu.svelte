@@ -5,7 +5,7 @@
   import { AppId } from '../types';
   import { SystemBridge } from '../utils/systemBridge';
   import {
-    Search, Power, Grid, User, Box, RefreshCcw, HardDrive, Clock,
+    Search, Minus, Power, Grid, User, Box, RefreshCcw, HardDrive, Clock,
     ChevronRight, Loader2, Globe, Video, Image, FileText, Code,
     Gamepad2, Settings, LogOut, Moon, ExternalLink, LayoutGrid, X,
   } from 'lucide-svelte';
@@ -20,6 +20,10 @@
   import { listInstalled, onStoreChanged, type Receipt } from '../utils/blueStore';
   import { openCommunityApp } from '../stores/windowManager';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
+  import { resolveActiveShellThemeWithCustom } from '../data/builtinThemes';
+  import { customShellThemes } from '../utils/customThemes';
+  import { previewShellTheme } from '../stores/shellTheme';
+  import { menuTileMetrics } from '../utils/startMenuTheme';
 
   const DEFAULT_PINNED = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS] as string[];
   const pinnedNow = () => ((configStore.get().pinnedApps as string[] | undefined)?.length ? (configStore.get().pinnedApps as string[]) : DEFAULT_PINNED);
@@ -61,6 +65,13 @@
    * same convention, just here it drives a border/glow treatment on
    * this menu's own panel rather than the taskbar's background. */
   export let shellThemeId: string | undefined = undefined;
+
+  // Themes can restyle the full-screen menu (colour/opacity/blur/sidebar/tile
+  // size & shape/search shape — see ShellThemeExtras.menu*). Colours and shapes
+  // arrive as CSS variables on <html>; the tile size also changes the glyph and
+  // the grid density, so it is resolved here.
+  $: menuTheme = $previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
+  $: tile = menuTileMetrics(menuTheme?.extras?.menuTileSize);
 
   const dispatch = createEventDispatcher<{ openApp: { appId: string; isExternal?: boolean; exec?: string }; close: void; toggleFullScreen: void }>();
 
@@ -136,6 +147,13 @@
   /** Keyboard selection (Arrow keys / Enter). -1 = nothing highlighted. */
   let selectedIndex = -1;
   let searchEl: HTMLInputElement | undefined;
+
+  /** The "×" in the search fields: wipes the text (and the active filter) and keeps typing possible. */
+  function clearSearch() {
+    searchInput = '';
+    searchTerm = '';
+    (isFullScreen ? searchEl : popupSearchEl)?.focus({ preventScroll: true });
+  }
   let popupSearchEl: HTMLInputElement | undefined;
   let gridInnerEl: HTMLDivElement | undefined;
 
@@ -172,7 +190,7 @@
    * `AppId`/`APPS` registry entry to resolve a title/size from. */
   let communityApps: Receipt[] = [];
   function loadCommunityApps() {
-    listInstalled('app').then((r) => (communityApps = r)).catch(() => {});
+    listInstalled('app').then((r) => (communityApps = Array.isArray(r) ? r : [])).catch(() => {});
   }
   loadCommunityApps();
   onStoreChanged(loadCommunityApps);
@@ -421,10 +439,16 @@
   <!-- Backdrop: a click on empty space closes. Keyboard handling deliberately lives on the
        search field (and Escape is global) — a keydown handler HERE would also receive every key
        typed into the field, which is exactly how the space bar used to close the whole menu. -->
-  <div class="absolute inset-0 bg-slate-900 flex" style="z-index:{zIndex};" data-shell-occluder="startmenu" on:click={() => dispatch('close')} role="presentation">
-    <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" on:click|stopPropagation>
+  <div class="absolute inset-0 flex" data-shell-occluder="startmenu" on:click={() => dispatch('close')} role="presentation"
+    style="z-index:{zIndex}; background-color:rgba(var(--menu-bg-rgb, 15, 23, 42), var(--menu-opacity, 0.7)); backdrop-filter:blur(var(--menu-blur, 40px)); -webkit-backdrop-filter:blur(var(--menu-blur, 40px));">
+    <!-- Top-right "–": closes the full-screen menu (Esc and a click on empty space do too). -->
+    <button on:click|stopPropagation={() => dispatch('close')} title={$t('startmenu.close')} aria-label={$t('startmenu.close')}
+      class="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/15 transition-colors">
+      <Minus size={18} />
+    </button>
+    <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" style="background-color:var(--menu-sidebar-bg, rgba(2, 6, 23, 0.3));" role="presentation" on:click|stopPropagation>
       <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
         <LayoutGrid size={18} />
         <span>{$t('startmenu.all_apps')}</span>
         <span class="ml-auto text-xs opacity-50">{allApps.length}</span>
@@ -432,7 +456,7 @@
       <div class="h-px bg-white/5 my-1.5" />
       {#each visibleCategories as cat (cat.key)}
         <button on:click={() => (activeCategory = cat.key)}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === cat.key ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === cat.key ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <svelte:component this={cat.icon} size={18} />
           <span class="truncate">{catLabel(cat.key, $t)}</span>
           <span class="ml-auto text-xs opacity-50">{groupedApps[cat.key]?.length || 0}</span>
@@ -441,26 +465,29 @@
       {#if externalAppCount > 0}
         <div class="h-px bg-white/5 my-1.5" />
         <button on:click={() => (activeCategory = 'External')}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === 'External' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === 'External' ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <ExternalLink size={18} />
           <span class="truncate">{$t('startmenu.installed_apps')}</span>
           <span class="ml-auto text-xs opacity-50">{externalAppCount}</span>
         </button>
       {/if}
     </div>
-    <div class="flex-1 flex flex-col min-w-0" on:click|stopPropagation>
+    <div class="flex-1 flex flex-col min-w-0" role="presentation" on:click|stopPropagation>
       <div class="px-8 pt-10 pb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-xl">
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input type="text" bind:this={searchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
             on:keydown={onSearchKeydown}
-            class="w-full bg-slate-800 border border-white/10 rounded-2xl py-3 pl-12 pr-4 text-white text-lg focus:outline-none focus:border-blue-500/60 transition-colors"
+            class="w-full bg-slate-800/60 backdrop-blur border border-white/10 py-3 pl-12 pr-12 text-white text-lg focus:outline-none focus:border-blue-500/60 transition-colors"
+            style="border-radius:var(--menu-search-radius, 1rem);"
             bind:value={searchInput} />
+          {#if searchInput}
+            <button on:click={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
+              class="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+              <X size={16} />
+            </button>
+          {/if}
         </div>
-        <button on:click={() => dispatch('close')} title={$t('startmenu.close')}
-          class="p-3 rounded-2xl bg-slate-800/60 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0">
-          <X size={18} />
-        </button>
       </div>
       <div class="flex-1 overflow-y-auto px-8 pb-8" bind:this={gridEl} on:scroll={onGridScroll}>
         {#if loading}
@@ -480,7 +507,7 @@
               <p class="text-sm">{searchTerm ? $t('startmenu.no_results', { q: searchTerm }) : $t('startmenu.no_results_plain')}</p>
             </div>
           {:else}
-            <div class="grid grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3" bind:this={gridInnerEl}>
+            <div class="grid {tile.gridClass} gap-3" bind:this={gridInnerEl}>
               {#each shownTiles as app, i (app.id)}
                 {@const external = !('isInternal' in app)}
                 <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
@@ -493,8 +520,9 @@
                       <ExternalLink size={9} />
                     </span>
                   {/if}
-                  <div class="w-14 h-14 bg-slate-800/60 border border-white/5 rounded-2xl flex items-center justify-center group-hover:bg-blue-600/20 group-hover:border-blue-500/30 transition-colors overflow-hidden shadow-sm">
-                    <AppIconGlyph icon={app.icon} name={app.name} size={36} />
+                  <div class="bg-slate-800/60 border border-white/5 flex items-center justify-center group-hover:bg-blue-600/20 group-hover:border-blue-500/30 transition-colors overflow-hidden shadow-sm"
+                    style="width:{tile.boxRem}rem; height:{tile.boxRem}rem; border-radius:var(--menu-tile-radius, 1rem);">
+                    <AppIconGlyph icon={app.icon} name={app.name} size={tile.glyph} />
                   </div>
                   <div class="w-full">
                     <span class="block text-xs text-slate-300 group-hover:text-white text-center leading-tight line-clamp-2">{app.name}</span>
@@ -511,7 +539,7 @@
     </div>
   </div>
 {:else if isOpen}
-  <div data-shell-occluder="startmenu" class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
+  <div data-shell-occluder="startmenu" role="presentation" class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
     <div class="p-4 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg">
@@ -548,8 +576,14 @@
         <Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
         <input type="text" bind:this={popupSearchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
           on:keydown={onSearchKeydown}
-          class="w-full bg-slate-800 border border-white/10 rounded-xl py-2 pl-8 pr-3 text-sm text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
+          class="w-full bg-slate-800 border border-white/10 rounded-xl py-2 pl-8 pr-8 text-sm text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
           bind:value={searchInput} />
+        {#if searchInput}
+          <button on:click={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-500 hover:text-white hover:bg-white/10 transition-colors">
+            <X size={12} />
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -631,3 +665,8 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* Active category: the theme accent, blue when no theme sets one. */
+  .menu-accent-bg { background-color: var(--accent, #2563eb); }
+</style>
