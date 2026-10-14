@@ -169,7 +169,7 @@
       {#if replaceStatus}<div class="text-[10px] text-green-400 mb-2">{replaceStatus}</div>{/if}
       <div class="space-y-1">
         {#each searchResults as r, i (i)}
-          <div on:click={() => editor.openFile(r.file)} class="cursor-pointer hover:bg-white/5 rounded p-1">
+          <div role="button" tabindex="0" on:click={() => editor.openFile(r.file)} on:keydown={(e) => e.key === 'Enter' && editor.openFile(r.file)} class="cursor-pointer hover:bg-white/5 rounded p-1">
             <div class="text-[10px] text-blue-400 truncate">{r.file.split('/').pop()}:{r.line}</div>
             <div class="text-[10px] text-slate-400 truncate">{r.content}</div>
           </div>
@@ -192,7 +192,7 @@
           <div class="mb-1">
             <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 truncate" title={file}>{file.split('/').pop()}</div>
             {#each diags as d, i (i)}
-              <div on:click={() => editor.openFileAtLine(file, d.line)}
+              <div role="button" tabindex="0" on:click={() => editor.openFileAtLine(file, d.line)} on:keydown={(e) => e.key === 'Enter' && editor.openFileAtLine(file, d.line)}
                 class="flex items-start gap-1.5 px-3 py-1 hover:bg-white/5 cursor-pointer rounded">
                 {#if d.severity === 'error'}
                   <AlertCircle size={11} class="text-red-400 shrink-0 mt-0.5" />
