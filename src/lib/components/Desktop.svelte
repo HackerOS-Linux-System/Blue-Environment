@@ -435,6 +435,7 @@
         on:click={(e) => iconClick(e, file)}
         on:dblclick={() => handleOpen(file)}
         on:contextmenu={(e) => openMenu(e, file)}
+        on:keydown={(e) => { if (e.key === 'Enter' && renaming !== file.path) handleOpen(file); }}
         role="button"
         tabindex="-1"
       >
@@ -472,8 +473,11 @@
   <div
     class="fixed z-[500] w-56 bg-slate-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl py-1.5 text-sm"
     style="left:{ctxMenu.x}px; top:{ctxMenu.y}px;"
+    role="menu"
+    tabindex="-1"
     on:click|stopPropagation
     on:contextmenu|preventDefault
+    on:keydown={(e) => e.key === 'Escape' && (ctxMenu = null)}
   >
     {#if ctxMenu.target}
       {@const target = ctxMenu.target}
