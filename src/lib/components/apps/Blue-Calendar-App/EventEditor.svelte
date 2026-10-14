@@ -87,8 +87,8 @@
   const field = 'w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/60';
 </script>
 
-<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={() => dispatch('close')} role="presentation">
-  <div class="w-[26rem] max-h-[90vh] overflow-y-auto bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" on:mousedown|stopPropagation role="dialog" aria-modal="true">
+<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => e.target === e.currentTarget && dispatch('close')} role="presentation">
+  <div class="w-[26rem] max-h-[90vh] overflow-y-auto bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" role="dialog" aria-modal="true">
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-sm font-semibold text-white">{isNew ? $t('cal.new_event') : $t('cal.edit_event')}</h3>
       <button on:click={() => dispatch('close')} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button>
