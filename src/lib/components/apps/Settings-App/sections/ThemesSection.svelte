@@ -38,7 +38,7 @@
    * that follow-up needs, not the rendering integration itself.
    */
   import ThemePreview from './ThemePreview.svelte';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import * as Icons from 'lucide-svelte';
   import { Check, RefreshCw, Store as StoreIcon, Sparkles as SparklesIcon, Sparkles, Clock, ExternalLink, HardDrive, Info, ArrowUp, ArrowDown, RotateCcw, GripVertical, Edit2, Download, Trash2, X, AlertTriangle } from 'lucide-svelte';
   import { DEFAULT_WINDOW_CONTROLS_ORDER, type WindowControlId } from '../../../../data/builtinThemes';
@@ -48,8 +48,10 @@
   import { SystemBridge } from '../../../../utils/systemBridge';
   import {
     customShellThemes, ensureCustomThemesLoaded, saveCustomTheme, removeCustomTheme,
-    blankCustomTheme, exportCustomThemeJson, importCustomThemeJson,
+    blankCustomTheme, exportCustomThemeBundle, importCustomThemeJson,
   } from '../../../../utils/customThemes';
+  import { previewShellTheme } from '../../../../stores/shellTheme';
+  import { themeContrastIssues } from '../../../../utils/contrast';
   import {
     fetchStoreIndex, installPackage, uninstallPackage, listInstalled, storeErrorMessage,
     type StoreIndexEntry, type Receipt,
@@ -160,9 +162,33 @@
   // cast needed at the `bind:value={editingCustom.colors[key]}` call
   // site in the template.
   const COLOR_FIELDS: [keyof ShellTheme['colors'], string][] = [
-    ['accent', 'Accent'], ['background', 'Background'], ['surface', 'Surface'],
-    ['surfaceElevated', 'Elevated'], ['text', 'Text'], ['textMuted', 'Muted text'], ['border', 'Border'],
+    ['accent', 'thm.c_accent'], ['background', 'thm.c_background'], ['surface', 'thm.c_surface'],
+    ['surfaceElevated', 'thm.c_elevated'], ['text', 'thm.c_text'], ['textMuted', 'thm.c_muted'], ['border', 'thm.c_border'],
   ];
+
+  // ── "Try live": apply the unsaved draft to the running shell ──────────
+  // Colours and extras apply instantly (see stores/shellTheme.ts); layout
+  // choices that need a restart don't. Ending the edit always ends the preview.
+  let previewing = false;
+  $: previewShellTheme.set(previewing && editingCustom ? editingCustom : null);
+  $: if (!editingCustom) previewing = false;
+  onDestroy(() => previewShellTheme.set(null));
+
+  // ── Contrast (WCAG) ───────────────────────────────────────────────────
+  $: contrastIssues = editingCustom ? themeContrastIssues(editingCustom.colors) : [];
+
+  // ── Wallpaper that travels with the theme ─────────────────────────────
+  $: wallpaperName = editingCustom?.wallpaper ? (editingCustom.wallpaper.split('/').filter(Boolean).pop() ?? '') : '';
+  function useCurrentWallpaper() {
+    if (!editingCustom || !config.wallpaper) return;
+    editingCustom.wallpaper = config.wallpaper.replace(/^file:\/\//, '');
+    editingCustom = editingCustom;
+  }
+  function clearWallpaper() {
+    if (!editingCustom) return;
+    editingCustom.wallpaper = undefined;
+    editingCustom = editingCustom;
+  }
   let customError: string | null = null;
   let customSaving = false;
   let importFileInput: HTMLInputElement;
@@ -193,8 +219,9 @@
     await removeCustomTheme(id);
   }
 
-  function exportCustom(theme: ShellTheme) {
-    const blob = new Blob([exportCustomThemeJson(theme)], { type: 'application/json' });
+  async function exportCustom(theme: ShellTheme) {
+    // The wallpaper (if the theme has one) is embedded in the file.
+    const blob = new Blob([await exportCustomThemeBundle(theme)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -318,17 +345,17 @@
 
 <div class="max-w-3xl">
   <h2 class="text-lg font-semibold text-white mb-1">{$t('settings.tab.themes') ?? 'Themes'}</h2>
-  <p class="text-xs text-slate-400 mb-4">Full shell themes — colors, panel position, window-control style. Changing one requires a shell restart.</p>
+  <p class="text-xs text-slate-400 mb-4">{$t('thm.header_desc')}</p>
 
   {#if restartPending}
     <div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
       <div class="flex items-center gap-2 text-xs text-amber-200">
         <Clock size={14} class="shrink-0" />
-        <span><strong>{stagedThemeName}</strong> selected — restart the shell to apply it.</span>
+        <span>{$t('thm.restart_selected', { name: stagedThemeName })}</span>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <button class="text-[11px] px-2.5 py-1 rounded-md bg-amber-500 text-black font-medium hover:bg-amber-400 transition-colors" on:click={restartNow}>Restart Shell Now</button>
-        <button class="text-[11px] px-2 py-1 rounded-md text-amber-200/70 hover:text-amber-100 transition-colors" on:click={dismissRestartPrompt}>Later</button>
+        <button class="text-[11px] px-2.5 py-1 rounded-md bg-amber-500 text-black font-medium hover:bg-amber-400 transition-colors" on:click={restartNow}>{$t('thm.restart_now')}</button>
+        <button class="text-[11px] px-2 py-1 rounded-md text-amber-200/70 hover:text-amber-100 transition-colors" on:click={dismissRestartPrompt}>{$t('thm.later')}</button>
       </div>
     </div>
   {/if}
@@ -336,27 +363,27 @@
   <div class="flex gap-1 mb-4 border-b border-white/5">
     <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors {tab === 'installed' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('installed')}>Installed</button>
     <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'system' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('system')}>
-      <HardDrive size={12} /> System
+      <HardDrive size={12} /> {$t('thm.tab_system')}
     </button>
     <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'store' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('store')}>
-      <StoreIcon size={12} /> Store
+      <StoreIcon size={12} /> {$t('thm.tab_store')}
     </button>
   </div>
 
   {#if tab === 'system'}
     <p class="text-[11px] text-slate-500 mb-3 flex items-start gap-1.5">
       <Info size={12} class="shrink-0 mt-0.5" />
-      Themes installed to <code class="text-slate-400">/usr/share/themes/</code> — a separate system from the app-bundled themes above. Applies instantly, no restart needed.
+      {$t('thm.system_desc')}
     </p>
     {#if systemThemesLoading}
       <div class="flex items-center gap-2 text-xs text-slate-400 py-8 justify-center">
-        <RefreshCw size={14} class="animate-spin" /> Scanning /usr/share/themes…
+        <RefreshCw size={14} class="animate-spin" /> {$t('thm.system_scanning')}
       </div>
     {:else if systemThemes.length === 0}
       <div class="flex flex-col items-center gap-2 py-12 text-center">
         <HardDrive size={28} class="text-slate-600" />
-        <p class="text-sm text-slate-300">No filesystem themes installed</p>
-        <p class="text-xs text-slate-500 max-w-sm">Install a theme package to <code class="text-slate-400">/usr/share/themes/&lt;name&gt;/</code> (config.hk + styles.css) and it will show up here.</p>
+        <p class="text-sm text-slate-300">{$t('thm.system_none')}</p>
+        <p class="text-xs text-slate-500 max-w-sm">{$t('thm.system_none_hint')}</p>
       </div>
     {:else}
       <div class="grid grid-cols-2 gap-3">
@@ -401,17 +428,17 @@
          customThemes.ts / ShellThemeStyle.svelte for how these apply. -->
     <div class="mb-5">
       <div class="flex items-center justify-between mb-2">
-        <h3 class="text-sm font-semibold text-white">Your Themes</h3>
+        <h3 class="text-sm font-semibold text-white">{$t('thm.your_themes')}</h3>
         <div class="flex gap-2">
-          <button on:click={triggerImport} class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Import…</button>
-          <button on:click={startCreateCustom} class="text-xs px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">+ Create theme</button>
+          <button on:click={triggerImport} class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">{$t('thm.import')}</button>
+          <button on:click={startCreateCustom} class="text-xs px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{$t('thm.create')}</button>
         </div>
       </div>
       <input bind:this={importFileInput} type="file" accept="application/json,.json" class="hidden" on:change={handleImportFile} />
       {#if importError}<p class="text-xs text-red-400 mb-2">{importError}</p>{/if}
 
       {#if $customShellThemes.length === 0 && !editingCustom}
-        <p class="text-xs text-slate-500 italic">No custom themes yet — create one, or import a `.blue-theme.json` someone shared with you.</p>
+        <p class="text-xs text-slate-500 italic">{$t('thm.none_yet')}</p>
       {:else}
         <div class="grid grid-cols-2 gap-3">
           {#each $customShellThemes as theme (theme.id)}
@@ -426,7 +453,7 @@
                       <span class="text-sm font-medium text-white truncate">{theme.name}</span>
                       {#if theme.id === activeId}<Check size={13} class="text-blue-400 shrink-0" />{/if}
                     </div>
-                    <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{theme.description || 'Custom theme'}</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{theme.description || $t('thm.custom_default_desc')}</p>
                     <div class="flex items-center gap-1 mt-2">
                       {#each [theme.colors.accent, theme.colors.background, theme.colors.surface, theme.colors.text] as c}
                         <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}" />
@@ -436,10 +463,10 @@
                 </div>
               </button>
               <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
-                <button on:click={() => startEditCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title="Edit"><Edit2 size={12} /></button>
-                <button on:click={() => exportCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title="Export"><Download size={12} /></button>
+                <button on:click={() => startEditCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.edit')} aria-label={$t('thm.edit')}><Edit2 size={12} /></button>
+                <button on:click={() => exportCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.export')} aria-label={$t('thm.export')}><Download size={12} /></button>
                 <button on:click={() => deleteCustom(theme.id)} disabled={theme.id === activeId}
-                  class="p-1 rounded bg-slate-900/80 hover:bg-red-500/30 text-slate-300 hover:text-red-400 disabled:opacity-30" title="Delete"><Trash2 size={12} /></button>
+                  class="p-1 rounded bg-slate-900/80 hover:bg-red-500/30 text-slate-300 hover:text-red-400 disabled:opacity-30" title={$t('thm.delete')} aria-label={$t('thm.delete')}><Trash2 size={12} /></button>
               </div>
             </div>
           {/each}
@@ -449,21 +476,37 @@
       {#if editingCustom}
         <div class="mt-3 bg-slate-800 rounded-2xl border border-white/5 p-4 space-y-3">
           <div class="flex items-center justify-between">
-            <h4 class="text-sm font-semibold text-white">{$customShellThemes.some(t => t.id === editingCustom?.id) ? 'Edit theme' : 'New theme'}</h4>
-            <button on:click={cancelCustomEdit} class="text-slate-500 hover:text-white"><X size={16} /></button>
+            <h4 class="text-sm font-semibold text-white">{$customShellThemes.some((th) => th.id === editingCustom?.id) ? $t('thm.editor_edit') : $t('thm.editor_new')}</h4>
+            <button on:click={cancelCustomEdit} class="text-slate-500 hover:text-white" aria-label={$t('thm.cancel')}><X size={16} /></button>
           </div>
 
-          <input bind:value={editingCustom.name} placeholder="Theme name"
+          <input bind:value={editingCustom.name} placeholder={$t("thm.name_ph")}
             class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
-          <input bind:value={editingCustom.description} placeholder="Short description (optional)"
+          <input bind:value={editingCustom.description} placeholder={$t("thm.desc_ph")}
             class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
 
           <ThemePreview theme={editingCustom} />
 
+          <!-- Try the unsaved draft on the real shell -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="text-xs px-2.5 py-1.5 rounded-lg {previewing ? 'bg-amber-500 text-black font-medium' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}"
+              on:click={() => (previewing = !previewing)}>{previewing ? $t('thm.preview_stop') : $t('thm.preview_try')}</button>
+            {#if previewing}<span class="text-[11px] text-amber-300">{$t('thm.preview_active')}</span>{/if}
+          </div>
+
+          {#if contrastIssues.length}
+            <div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-1" role="alert">
+              <div class="text-xs font-medium text-amber-200">{$t('thm.contrast_title')}</div>
+              {#each contrastIssues as issue (issue.pair)}
+                <div class="text-[11px] text-amber-100/80">{$t(`thm.ct_${issue.pair}`, { ratio: issue.ratio, min: issue.min })}</div>
+              {/each}
+            </div>
+          {/if}
+
           <div class="grid grid-cols-4 gap-2">
             {#each COLOR_FIELDS as [key, label]}
               <label class="flex flex-col items-center gap-1 text-[10px] text-slate-500">
-                {label}
+                {$t(label)}
                 <input type="color" bind:value={editingCustom.colors[key]} class="w-9 h-9 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
               </label>
             {/each}
@@ -474,7 +517,7 @@
               <input type="checkbox" checked={!!editingCustom.extras?.accentSecondary}
                 on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, accentSecondary: e.currentTarget.checked ? (editingCustom.extras?.accentSecondary || '#a855f7') : undefined })}
                 class="accent-blue-500" />
-              Gradient accent (2nd color)
+              {$t('thm.gradient')}
             </label>
             {#if editingCustom.extras?.accentSecondary}
               <input type="color" bind:value={editingCustom.extras.accentSecondary} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
@@ -482,63 +525,63 @@
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <label class="text-xs text-slate-500">Panel position
+            <label class="text-xs text-slate-500">{$t('thm.panel_position')}
               <select bind:value={editingCustom.layout.panelPosition} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option>
+                <option value="top">{$t('thm.pos_top')}</option><option value="bottom">{$t('thm.pos_bottom')}</option><option value="left">{$t('thm.pos_left')}</option><option value="right">{$t('thm.pos_right')}</option>
               </select>
             </label>
-            <label class="text-xs text-slate-500">Window controls style
+            <label class="text-xs text-slate-500">{$t('thm.wc_style')}
               <select bind:value={editingCustom.layout.windowControlsStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="macos">macOS</option><option value="windows">Windows</option><option value="gnome">GNOME</option><option value="minimal">Minimal</option>
+                <option value="macos">macOS</option><option value="windows">Windows</option><option value="gnome">GNOME</option><option value="minimal">{$t('thm.wc_minimal')}</option>
               </select>
             </label>
-            <label class="text-xs text-slate-500">Icon style
+            <label class="text-xs text-slate-500">{$t('thm.icon_style')}
               <select bind:value={editingCustom.layout.iconStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="outline">Outline</option><option value="filled">Filled</option>
+                <option value="outline">{$t('thm.icon_outline')}</option><option value="filled">{$t('thm.icon_filled')}</option>
               </select>
             </label>
-            <label class="text-xs text-slate-500">Animation speed
+            <label class="text-xs text-slate-500">{$t('thm.anim_speed')}
               <select bind:value={editingCustom.extras.animationSpeed} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="normal">Normal</option><option value="fast">Fast</option><option value="none">None</option>
+                <option value="normal">{$t('thm.anim_normal')}</option><option value="fast">{$t('thm.anim_fast')}</option><option value="none">{$t('thm.anim_none')}</option>
               </select>
             </label>
           </div>
 
-          <label class="block text-xs text-slate-500">Corner radius: {editingCustom.extras.cornerRadiusPx ?? 12}px
+          <label class="block text-xs text-slate-500">{$t('thm.corner_radius', { n: editingCustom.extras.cornerRadiusPx ?? 12 })}
             <input type="range" min="0" max="32" bind:value={editingCustom.extras.cornerRadiusPx} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Wallpaper blur: {editingCustom.extras.wallpaperBlur ?? 0}px
+          <label class="block text-xs text-slate-500">{$t('thm.wp_blur', { n: editingCustom.extras.wallpaperBlur ?? 0 })}
             <input type="range" min="0" max="40" bind:value={editingCustom.extras.wallpaperBlur} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Panel opacity: {editingCustom.extras.panelOpacity ?? 100}%
+          <label class="block text-xs text-slate-500">{$t('thm.panel_opacity', { n: editingCustom.extras.panelOpacity ?? 100 })}
             <input type="range" min="10" max="100" bind:value={editingCustom.extras.panelOpacity} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Font family (CSS value, optional)
+          <label class="block text-xs text-slate-500">{$t('thm.font_family')}
             <input bind:value={editingCustom.extras.fontFamily} placeholder="'Fira Sans', sans-serif"
               class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono" />
           </label>
 
           <!-- ── Windows ─────────────────────────────────────────────── -->
-          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Windows</div>
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{$t('thm.sec_windows')}</div>
           <div class="grid grid-cols-2 gap-3">
-            <label class="text-xs text-slate-500">Window shadow
+            <label class="text-xs text-slate-500">{$t('thm.window_shadow')}
               <select bind:value={editingCustom.extras.windowShadow} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="none">None</option><option value="soft">Soft</option><option value="medium">Medium</option><option value="strong">Strong</option><option value="glow">Accent glow</option>
+                <option value="none">{$t('thm.shadow_none')}</option><option value="soft">{$t('thm.shadow_soft')}</option><option value="medium">{$t('thm.shadow_medium')}</option><option value="strong">{$t('thm.shadow_strong')}</option><option value="glow">{$t('thm.shadow_glow')}</option>
               </select>
             </label>
-            <label class="text-xs text-slate-500">Scrollbars
+            <label class="text-xs text-slate-500">{$t('thm.scrollbars')}
               <select bind:value={editingCustom.extras.scrollbarStyle} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
-                <option value="default">Default</option><option value="thin">Thin</option><option value="accent">Thick, accent</option><option value="hidden">Hidden</option>
+                <option value="default">{$t('thm.sb_default')}</option><option value="thin">{$t('thm.sb_thin')}</option><option value="accent">{$t('thm.sb_accent')}</option><option value="hidden">{$t('thm.sb_hidden')}</option>
               </select>
             </label>
           </div>
-          <label class="block text-xs text-slate-500">Window opacity: {editingCustom.extras.windowOpacity ?? 100}%
+          <label class="block text-xs text-slate-500">{$t('thm.window_opacity', { n: editingCustom.extras.windowOpacity ?? 100 })}
             <input type="range" min="60" max="100" bind:value={editingCustom.extras.windowOpacity} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Title bar height: {editingCustom.extras.titlebarHeight ?? 36}px
+          <label class="block text-xs text-slate-500">{$t('thm.titlebar_height', { n: editingCustom.extras.titlebarHeight ?? 36 })}
             <input type="range" min="28" max="56" bind:value={editingCustom.extras.titlebarHeight} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Window border: {editingCustom.extras.windowBorderWidth ?? 1}px
+          <label class="block text-xs text-slate-500">{$t('thm.window_border', { n: editingCustom.extras.windowBorderWidth ?? 1 })}
             <input type="range" min="0" max="4" bind:value={editingCustom.extras.windowBorderWidth} class="w-full accent-blue-500" />
           </label>
           <div class="flex items-center gap-2">
@@ -546,7 +589,7 @@
               <input type="checkbox" checked={!!editingCustom.extras.windowBorderColor}
                 on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, windowBorderColor: e.currentTarget.checked ? (editingCustom.extras.windowBorderColor || editingCustom.colors.accent) : undefined })}
                 class="accent-blue-500" />
-              Own window border colour
+              {$t('thm.own_border_color')}
             </label>
             {#if editingCustom.extras.windowBorderColor}
               <input type="color" bind:value={editingCustom.extras.windowBorderColor} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
@@ -554,37 +597,85 @@
           </div>
 
           <!-- ── Wallpaper ───────────────────────────────────────────── -->
-          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Wallpaper</div>
-          <label class="block text-xs text-slate-500">Brightness: {editingCustom.extras.wallpaperBrightness ?? 100}%
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{$t('thm.sec_wallpaper')}</div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs text-slate-400 truncate max-w-[14rem]">{wallpaperName || $t('thm.wallpaper_none')}</span>
+            <button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-40" disabled={!config.wallpaper} on:click={useCurrentWallpaper}>{$t('thm.wallpaper_use_current')}</button>
+            {#if editingCustom.wallpaper}<button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200" on:click={clearWallpaper}>{$t('thm.wallpaper_remove')}</button>{/if}
+          </div>
+          {#if editingCustom.wallpaper}<p class="text-[11px] text-slate-500">{$t('thm.wallpaper_bundled_hint')}</p>{/if}
+          <label class="block text-xs text-slate-500">{$t('thm.wp_brightness', { n: editingCustom.extras.wallpaperBrightness ?? 100 })}
             <input type="range" min="30" max="130" bind:value={editingCustom.extras.wallpaperBrightness} class="w-full accent-blue-500" />
           </label>
-          <label class="block text-xs text-slate-500">Saturation: {editingCustom.extras.wallpaperSaturation ?? 100}%
+          <label class="block text-xs text-slate-500">{$t('thm.wp_saturation', { n: editingCustom.extras.wallpaperSaturation ?? 100 })}
             <input type="range" min="0" max="200" bind:value={editingCustom.extras.wallpaperSaturation} class="w-full accent-blue-500" />
           </label>
 
           <!-- ── Panel & interface ───────────────────────────────────── -->
-          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Panel &amp; interface</div>
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{$t('thm.sec_panel')}</div>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input type="checkbox" checked={!!editingCustom.extras.panelColor}
                 on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, panelColor: e.currentTarget.checked ? (editingCustom.extras.panelColor || editingCustom.colors.surface) : undefined })}
                 class="accent-blue-500" />
-              Own panel colour
+              {$t('thm.own_panel_color')}
             </label>
             {#if editingCustom.extras.panelColor}
               <input type="color" bind:value={editingCustom.extras.panelColor} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
             {/if}
           </div>
-          <label class="block text-xs text-slate-500">Interface size: {editingCustom.extras.uiScalePercent ?? 100}%
+          <label class="block text-xs text-slate-500">{$t('thm.ui_size', { n: editingCustom.extras.uiScalePercent ?? 100 })}
             <input type="range" min="80" max="130" step="5" bind:value={editingCustom.extras.uiScalePercent} class="w-full accent-blue-500" />
           </label>
+
+          <!-- ── Full-screen application menu ─────────────────────────── -->
+          <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{$t('thm.sec_menu')}</div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-400">
+              <input type="checkbox" checked={!!editingCustom.extras.menuBackgroundColor}
+                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, menuBackgroundColor: e.currentTarget.checked ? (editingCustom.extras.menuBackgroundColor || editingCustom.colors.background) : undefined })}
+                class="accent-blue-500" />
+              {$t('thm.own_menu_color')}
+            </label>
+            {#if editingCustom.extras.menuBackgroundColor}
+              <input type="color" bind:value={editingCustom.extras.menuBackgroundColor} class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 cursor-pointer" />
+            {/if}
+          </div>
+          <label class="block text-xs text-slate-500">{$t('thm.menu_opacity', { n: editingCustom.extras.menuOpacity ?? 70 })}
+            <input type="range" min="20" max="100" bind:value={editingCustom.extras.menuOpacity} class="w-full accent-blue-500" />
+          </label>
+          <label class="block text-xs text-slate-500">{$t('thm.menu_blur', { n: editingCustom.extras.menuBlur ?? 40 })}
+            <input type="range" min="0" max="60" bind:value={editingCustom.extras.menuBlur} class="w-full accent-blue-500" />
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-xs text-slate-500">{$t('thm.menu_sidebar')}
+              <select bind:value={editingCustom.extras.menuSidebar} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="default">{$t('thm.msb_default')}</option><option value="transparent">{$t('thm.msb_transparent')}</option><option value="solid">{$t('thm.msb_solid')}</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">{$t('thm.menu_tile_size')}
+              <select bind:value={editingCustom.extras.menuTileSize} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="compact">{$t('thm.mts_compact')}</option><option value="normal">{$t('thm.mts_normal')}</option><option value="large">{$t('thm.mts_large')}</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">{$t('thm.menu_tile_shape')}
+              <select bind:value={editingCustom.extras.menuTileShape} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="rounded">{$t('thm.shape_rounded')}</option><option value="circle">{$t('thm.shape_circle')}</option><option value="square">{$t('thm.shape_square')}</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-500">{$t('thm.menu_search_shape')}
+              <select bind:value={editingCustom.extras.menuSearchShape} class="w-full mt-1 bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white">
+                <option value="rounded">{$t('thm.shape_rounded')}</option><option value="pill">{$t('thm.shape_pill')}</option><option value="square">{$t('thm.shape_square')}</option>
+              </select>
+            </label>
+          </div>
 
           {#if customError}<p class="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{customError}</p>{/if}
 
           <div class="flex gap-2 pt-1">
             <button on:click={submitCustom} disabled={customSaving || !editingCustom.name.trim()}
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium">Save theme</button>
-            <button on:click={cancelCustomEdit} class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Cancel</button>
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium">{$t('thm.save')}</button>
+            <button on:click={cancelCustomEdit} class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">{$t('thm.cancel')}</button>
           </div>
         </div>
       {/if}
@@ -648,6 +739,7 @@
       <div class="space-y-1">
         {#each controlsOrder as id, i (id)}
           <div
+            role="presentation"
             draggable="true"
             on:dragstart={() => handleDragStart(i)}
             on:dragover={(e) => handleDragOver(e, i)}
