@@ -8,12 +8,21 @@ export type BarStartStyle = 'rounded' | 'pill' | 'square';
 export type BarPinnedStyle = 'dock' | 'flat';
 export type BarIndicatorStyle = 'line' | 'dot' | 'glow';
 export type BarWorkspaceStyle = 'dots' | 'numbers';
-/** Right-hand widgets whose order can be changed (the IME badge always stays first). */
-export type BarRightItem = 'workspaces' | 'weather' | 'battery' | 'clipboard' | 'network' | 'notifications';
+/**
+ * Right-hand widgets whose order can be changed (the IME badge always stays
+ * first). `showDesktop` and `power` are the two widgets that are OFF until the
+ * person adds them (`showDesktopButton` / `showPowerButton`).
+ */
+export type BarRightItem =
+  | 'workspaces' | 'weather' | 'battery' | 'clipboard' | 'network' | 'notifications' | 'showDesktop' | 'power';
 
 export const BAR_RIGHT_ITEMS: readonly BarRightItem[] = [
-  'workspaces', 'weather', 'battery', 'clipboard', 'network', 'notifications',
+  'workspaces', 'weather', 'battery', 'clipboard', 'network', 'notifications', 'showDesktop', 'power',
 ];
+
+/** Left-hand items whose order can be changed. */
+export type BarLeftItem = 'start' | 'running';
+export const BAR_LEFT_ITEMS: readonly BarLeftItem[] = ['start', 'running'];
 
 export interface TopBarConfig {
   // ── Elementy ───────────────────────────────────────────────
@@ -28,6 +37,10 @@ export interface TopBarConfig {
   showNotifications: boolean;
   showNetworkIcon: boolean;
   showClock: boolean;
+  /** "Show desktop" button (minimizes everything). Off by default — add it in Settings → Bar. */
+  showDesktopButton: boolean;
+  /** Power button (opens the power menu). Off by default — add it in Settings → Bar. */
+  showPowerButton: boolean;
   // ── Zegar ──────────────────────────────────────────────────
   clockStyle: BarClockStyle;
   clock24h: boolean;
@@ -57,6 +70,7 @@ export interface TopBarConfig {
   showBatteryPercent: boolean;
   shadow: boolean;          // cień pod paskiem
   rightOrder: BarRightItem[]; // kolejność widżetów po prawej stronie
+  leftOrder: BarLeftItem[];   // kolejność elementów po lewej stronie (Start, uruchomione aplikacje)
 }
 
 export const DEFAULT_TOP_BAR: TopBarConfig = {
@@ -70,6 +84,8 @@ export const DEFAULT_TOP_BAR: TopBarConfig = {
   showNotifications: true,
   showNetworkIcon: true,
   showClock: true,
+  showDesktopButton: false,
+  showPowerButton: false,
   clockStyle: 'time',
   clock24h: true,
   showSeconds: false,
@@ -96,6 +112,7 @@ export const DEFAULT_TOP_BAR: TopBarConfig = {
   showBatteryPercent: true,
   shadow: false,
   rightOrder: [...BAR_RIGHT_ITEMS],
+  leftOrder: [...BAR_LEFT_ITEMS],
 };
 
 const clamp = (v: unknown, lo: number, hi: number, d: number) =>
@@ -105,34 +122,43 @@ const oneOf = <T extends string>(v: unknown, allowed: readonly T[], d: T): T =>
   (allowed as readonly unknown[]).includes(v) ? (v as T) : d;
 
 /**
- * Cleans a saved widget order: drops unknown/duplicate entries and appends any
- * widget that is missing (e.g. one added in a later version), in default order.
+ * Cleans a saved order: drops unknown/duplicate entries and appends any item
+ * that is missing (e.g. one added in a later version), in default order.
  */
-export function normalizeRightOrder(raw: unknown): BarRightItem[] {
-  const out: BarRightItem[] = [];
+export function normalizeOrder<T extends string>(raw: unknown, all: readonly T[]): T[] {
+  const out: T[] = [];
   if (Array.isArray(raw)) {
     for (const x of raw) {
-      if ((BAR_RIGHT_ITEMS as readonly unknown[]).includes(x) && !out.includes(x as BarRightItem)) out.push(x as BarRightItem);
+      if ((all as readonly unknown[]).includes(x) && !out.includes(x as T)) out.push(x as T);
     }
   }
-  for (const item of BAR_RIGHT_ITEMS) if (!out.includes(item)) out.push(item);
+  for (const item of all) if (!out.includes(item)) out.push(item);
   return out;
 }
 
+export const normalizeRightOrder = (raw: unknown): BarRightItem[] => normalizeOrder(raw, BAR_RIGHT_ITEMS);
+export const normalizeLeftOrder = (raw: unknown): BarLeftItem[] => normalizeOrder(raw, BAR_LEFT_ITEMS);
+
 /** Returns a copy of `order` with the item at `index` moved by `delta` positions (clamped). */
-export function moveRightItem(order: BarRightItem[], index: number, delta: number): BarRightItem[] {
-  const to = index + delta;
-  if (index < 0 || index >= order.length || to < 0 || to >= order.length) return order;
+export function moveItem<T>(order: T[], index: number, delta: number): T[] {
+  return moveItemTo(order, index, index + delta);
+}
+
+/** Returns a copy of `order` with the item at `from` moved to position `to` (the drag-and-drop case). */
+export function moveItemTo<T>(order: T[], from: number, to: number): T[] {
+  if (from < 0 || from >= order.length || to < 0 || to >= order.length || from === to) return order;
   const next = [...order];
-  const [item] = next.splice(index, 1);
+  const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
 }
+export const moveRightItem = moveItem<BarRightItem>;
 
-/** CSS `order` value for a widget (the IME badge has no order = 0, so it stays first). */
-export function rightItemOrder(order: BarRightItem[], item: BarRightItem): number {
+/** CSS `order` value for an item (1-based; the IME badge has no order = 0, so it stays first). */
+export function itemOrder<T extends string>(order: readonly T[], item: T): number {
   return order.indexOf(item) + 1;
 }
+export const rightItemOrder = (order: BarRightItem[], item: BarRightItem) => itemOrder(order, item);
 
 /** `#rgb`/`#rrggbb` only — the colour input of the settings page always yields this. */
 export function normalizeHexColor(v: unknown, d: string): string {
@@ -159,6 +185,8 @@ export function normalizeTopBar(raw: Partial<TopBarConfig> | undefined | null): 
     showNotifications: bool(r.showNotifications, d.showNotifications),
     showNetworkIcon: bool(r.showNetworkIcon, d.showNetworkIcon),
     showClock: bool(r.showClock, d.showClock),
+    showDesktopButton: bool(r.showDesktopButton, d.showDesktopButton),
+    showPowerButton: bool(r.showPowerButton, d.showPowerButton),
     clockStyle: (['time', 'time-date', 'date-time'] as const).includes(r.clockStyle as any)
       ? (r.clockStyle as BarClockStyle) : d.clockStyle,
     clock24h: bool(r.clock24h, d.clock24h),
@@ -186,6 +214,7 @@ export function normalizeTopBar(raw: Partial<TopBarConfig> | undefined | null): 
     showBatteryPercent: bool(r.showBatteryPercent, d.showBatteryPercent),
     shadow: bool(r.shadow, d.shadow),
     rightOrder: normalizeRightOrder(r.rightOrder),
+    leftOrder: normalizeLeftOrder(r.leftOrder),
   };
 }
 
