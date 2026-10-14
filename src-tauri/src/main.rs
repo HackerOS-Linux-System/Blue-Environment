@@ -95,6 +95,7 @@ mod icon_store;
 mod music;
 mod music_mpris;
 mod user_dirs;
+mod tv_cec;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
 use blue_web_app::{
@@ -329,6 +330,10 @@ fn main() {
         file_type_associations::file_type_remove_association,
         file_type_associations::file_type_resolve,
         user_dirs::get_user_dirs,
+        user_dirs::plan_user_dirs_migration,
+        user_dirs::apply_user_dirs_migration,
+        tv_cec::tv_cec_status,
+        tv_cec::tv_cec_enable,
         custom_shell_themes::custom_theme_list,
         custom_shell_themes::custom_theme_upsert,
         custom_shell_themes::custom_theme_remove,
@@ -503,6 +508,13 @@ fn main() {
                 compositor_ipc_relay(app_handle);
             });
         }
+
+        // Live updates of the localized user folders (Pobrane, Pulpit, …): the UI
+        // re-reads them when user-dirs.dirs changes — e.g. after the system
+        // language was switched, or the folders were migrated. See user_dirs.rs.
+        user_dirs::start_watcher(std::time::Duration::from_secs(3), |dirs| {
+            backend::emit("user-dirs:changed", serde_json::json!(dirs));
+        });
 
         // Debug-only — verifies the web-* capability scoping
         // content_blocking.rs/the title-favicon bridge rely on actually
