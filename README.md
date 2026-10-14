@@ -22,10 +22,27 @@ Production-grade Wayland desktop environment for HackerOS, built on
   window shadow / opacity / border, title-bar height, interface scale,
   scrollbars, wallpaper tone and panel colour (Settings → Themes, with a live
   preview); the bar can be restyled and its right-hand widgets reordered
-  (Settings → Bar).
+  (Settings → Bar): colours, spacing, text size, button/indicator shapes,
+  **one-click presets** (minimal, macOS-style dock, compact, classic taskbar),
+  **drag-and-drop** reordering of the left and right items and optional
+  *Show desktop* / *Power* buttons. The theme editor is fully translated,
+  warns about low contrast (WCAG), can **try an unsaved theme live** and exports
+  a theme **together with its wallpaper**. Themes can also restyle the
+  **full-screen application menu** (background colour, opacity, blur, category
+  column, tile size and shape, search-field shape) — so community themes can
+  give it their own look; the menu has a corner **–** to close it and a **×** in
+  the search field to clear the text.
 - **Language-aware folders** — the file manager, file picker and "Save as"
-  dialogs use the user's real XDG folders (`~/Pobrane`, `~/Pulpit`, …), and
-  the installer creates them in the chosen language.
+  dialogs use the user's real XDG folders (`~/Pobrane`, `~/Pulpit`, …), follow
+  changes **live** (e.g. after the system language changes), and the installer
+  creates them in the chosen language. Systems that still have English folders
+  can be migrated in Settings → Language → *Personal folders* (files are moved,
+  never copied; folders that exist under both names are left alone). The folder
+  names for every language live in one file,
+  `src/lib/data/userDirNames.json`, shared by the installer and the backend.
+- **Responsive apps** — Settings, Files and Blue Software switch to a
+  single-column, list → detail layout when their window is narrow (and on the
+  phone UI), so they are usable on a small touch screen.
 - **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
   openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
   Void as submission-ready templates — see `packaging/`).
@@ -121,7 +138,12 @@ app viewport) live in `src/lib/altShell/` and are unit-tested.
 
 TV controls: arrows / D-pad / left stick move the focus, **Enter / A**
 activates, **Esc / Backspace / B** goes back, **Home / Start / Guide** returns
-to the home screen, **Menu / Y / context-menu key** opens quick settings.
+to the home screen, **Menu / Y / context-menu key** opens quick settings. Focus is remembered, so
+closing an app returns to the tile that launched it. The TV UI has its own
+remote-friendly **Settings** (language, Wi-Fi, Bluetooth, volume, brightness,
+theme, HDMI-CEC) and understands remote keys from HDMI-CEC / IR / smart-TV
+remotes (Back, Home, Menu, media keys). HDMI-CEC needs `cec-ctl` (package
+`v4l-utils`); enable it once in the TV Settings.
 An app can handle "back" itself by cancelling the `blue:back` window event
 (`window.addEventListener('blue:back', e => { …; e.preventDefault(); })`).
 
