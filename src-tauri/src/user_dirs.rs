@@ -23,43 +23,46 @@ fn xdg_var(key: &str) -> &'static str {
     }
 }
 
-/// Domyślne (angielskie) nazwy — to, co kod powłoki zakładał dotąd na sztywno.
-pub fn english_name(key: &str) -> &'static str {
-    match key {
-        "desktop" => "Desktop",
-        "documents" => "Documents",
-        "downloads" => "Downloads",
-        "music" => "Music",
-        "pictures" => "Pictures",
-        "videos" => "Videos",
-        "templates" => "Templates",
-        "public" => "Public",
-        _ => "",
-    }
+/// Tabela nazw katalogów dla wszystkich języków — JEDEN plik JSON współdzielony
+/// z frontendem (`src/lib/data/userDirNames.json`, z którego korzysta też
+/// instalator). Wczytywany w czasie kompilacji, więc nie ma duplikatu do
+/// pilnowania: nowy język dopisujesz tylko w JSON-ie.
+const NAMES_JSON: &str = include_str!("../../src/lib/data/userDirNames.json");
+
+#[derive(serde::Deserialize)]
+struct LangEntry {
+    lang: String,
+    names: HashMap<String, String>,
 }
 
-/// Zlokalizowane nazwy: (prefiks języka, [desktop, documents, downloads,
-/// music, pictures, videos, templates, public]). Kolejność odpowiada [`KEYS`].
-/// Lustro tabeli `USER_DIRS_BY_LANG` z instalatora — przy dodawaniu języka
-/// zaktualizuj obie.
-pub const LOCALIZED: &[(&str, [&str; 8])] = &[
-    ("en", ["Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "Templates", "Public"]),
-    ("pl", ["Pulpit", "Dokumenty", "Pobrane", "Muzyka", "Obrazy", "Wideo", "Szablony", "Publiczny"]),
-    ("de", ["Schreibtisch", "Dokumente", "Downloads", "Musik", "Bilder", "Videos", "Vorlagen", "Öffentlich"]),
-    ("fr", ["Bureau", "Documents", "Téléchargements", "Musique", "Images", "Vidéos", "Modèles", "Public"]),
-    ("es", ["Escritorio", "Documentos", "Descargas", "Música", "Imágenes", "Vídeos", "Plantillas", "Público"]),
-    ("it", ["Scrivania", "Documenti", "Scaricati", "Musica", "Immagini", "Video", "Modelli", "Pubblici"]),
-    ("pt", ["Área de Trabalho", "Documentos", "Transferências", "Música", "Imagens", "Vídeos", "Modelos", "Público"]),
-    ("nl", ["Bureaublad", "Documenten", "Downloads", "Muziek", "Afbeeldingen", "Video\u{2019}s", "Sjablonen", "Openbaar"]),
-    ("sv", ["Skrivbord", "Dokument", "Hämtningar", "Musik", "Bilder", "Videoklipp", "Mallar", "Publikt"]),
-    ("ru", ["Рабочий стол", "Документы", "Загрузки", "Музыка", "Изображения", "Видео", "Шаблоны", "Общедоступные"]),
-    ("uk", ["Стільниця", "Документи", "Завантаження", "Музика", "Зображення", "Відео", "Шаблони", "Спільнодоступні"]),
-    ("cs", ["Plocha", "Dokumenty", "Stažené", "Hudba", "Obrázky", "Videa", "Šablony", "Veřejné"]),
-    ("hu", ["Asztal", "Dokumentumok", "Letöltések", "Zene", "Képek", "Videók", "Sablonok", "Nyilvános"]),
-    ("tr", ["Masaüstü", "Belgeler", "İndirilenler", "Müzik", "Resimler", "Videolar", "Şablonlar", "Genel"]),
-    ("ja", ["デスクトップ", "ドキュメント", "ダウンロード", "音楽", "画像", "ビデオ", "テンプレート", "公開"]),
-    ("zh", ["桌面", "文档", "下载", "音乐", "图片", "视频", "模板", "公共"]),
-];
+/// (prefiks języka, nazwy w kolejności [`KEYS`]) — w kolejności z pliku.
+type Table = Vec<(String, Vec<String>)>;
+
+fn table() -> &'static Table {
+    static TABLE: std::sync::OnceLock<Table> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let entries: Vec<LangEntry> =
+            serde_json::from_str(NAMES_JSON).expect("userDirNames.json is valid (checked by a unit test)");
+        entries
+            .into_iter()
+            .map(|e| {
+                let names = KEYS.iter().map(|k| e.names.get(*k).cloned().unwrap_or_default()).collect();
+                (e.lang, names)
+            })
+            .collect()
+    })
+}
+
+/// Zlokalizowane nazwy dla języka (`pl`) w kolejności [`KEYS`], jeśli znany.
+pub fn names_for_lang(lang: &str) -> Option<&'static [String]> {
+    table().iter().find(|(l, _)| l == lang).map(|(_, n)| n.as_slice())
+}
+
+/// Domyślne (angielskie) nazwy — to, co kod powłoki zakładał dotąd na sztywno.
+pub fn english_name(key: &str) -> &'static str {
+    let Some(idx) = KEYS.iter().position(|k| *k == key) else { return "" };
+    names_for_lang("en").map(|n| n[idx].as_str()).unwrap_or("")
+}
 
 /// Jeden katalog użytkownika — to, co dostaje frontend.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -164,16 +167,16 @@ fn candidate_names(key: &str, lang: &str) -> Vec<&'static str> {
     let Some(idx) = KEYS.iter().position(|k| *k == key) else { return Vec::new() };
     let mut out: Vec<&'static str> = Vec::new();
     let mut push = |n: &'static str| {
-        if !out.contains(&n) {
+        if !n.is_empty() && !out.contains(&n) {
             out.push(n);
         }
     };
-    if let Some((_, names)) = LOCALIZED.iter().find(|(l, _)| *l == lang) {
-        push(names[idx]);
+    if let Some(names) = names_for_lang(lang) {
+        push(names[idx].as_str());
     }
     push(english_name(key));
-    for (_, names) in LOCALIZED {
-        push(names[idx]);
+    for (_, names) in table() {
+        push(names[idx].as_str());
     }
     out
 }
@@ -222,10 +225,8 @@ pub fn resolve_all(home: &Path, config_dir: &Path, locale: &str) -> Vec<UserDirE
                 }
             }
             // Nic nie istnieje: nazwa z języka systemu (albo angielska).
-            let fallback = LOCALIZED
-                .iter()
-                .find(|(l, _)| *l == lang)
-                .and_then(|(_, names)| KEYS.iter().position(|k| k == key).map(|i| names[i]))
+            let fallback = names_for_lang(&lang)
+                .and_then(|names| KEYS.iter().position(|k| k == key).map(|i| names[i].as_str()))
                 .unwrap_or_else(|| english_name(key));
             to_entry(key, home.join(fallback), home)
         })
@@ -284,6 +285,224 @@ pub fn dir_for(key: &str) -> PathBuf {
         .find(|e| e.key == key)
         .map(|e| PathBuf::from(e.path))
         .unwrap_or_else(|| home.join(english_name(key)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Obserwowanie zmian na żywo
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Uruchamia wątek, który co `interval` sprawdza katalogi użytkownika i woła
+/// `on_change` z nową listą, gdy cokolwiek się zmieniło: `user-dirs.dirs`
+/// został przepisany (np. przez `xdg-user-dirs-update` po zmianie języka
+/// systemu), katalog zmienił nazwę, został utworzony albo usunięty.
+///
+/// Odpytywanie zamiast `inotify`: to osiem wywołań `stat` co kilka sekund
+/// (pomijalny koszt), działa identycznie na każdym systemie plików i nie
+/// wymaga nowej zależności. Pierwsza lista jest tylko zapamiętywana (frontend
+/// i tak pobiera ją sam przy starcie).
+pub fn start_watcher<F>(interval: std::time::Duration, on_change: F)
+where
+    F: Fn(Vec<UserDirEntry>) + Send + 'static,
+{
+    let Some(home) = dirs::home_dir() else { return };
+    let config = config_home(&home);
+    watch(home, config, locale_from_env(), interval, on_change);
+}
+
+/// To samo z jawnymi ścieżkami (testowalne bez dotykania `$HOME` procesu).
+fn watch<F>(home: PathBuf, config_dir: PathBuf, locale: String, interval: std::time::Duration, on_change: F)
+where
+    F: Fn(Vec<UserDirEntry>) + Send + 'static,
+{
+    let _ = std::thread::Builder::new().name("user-dirs-watch".into()).spawn(move || {
+        let mut last = resolve_all(&home, &config_dir, &locale);
+        loop {
+            std::thread::sleep(interval);
+            let now = resolve_all(&home, &config_dir, &locale);
+            if now != last {
+                last = now.clone();
+                on_change(now);
+            }
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Migracja istniejącego systemu na nazwy zlokalizowane
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Co zrobić z jednym katalogiem.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationAction {
+    /// Nazwa już jest docelowa — nic do roboty.
+    Keep,
+    /// Katalog istnieje pod starą nazwą, docelowa jest wolna → zmieniamy nazwę.
+    Rename,
+    /// Żaden z nich nie istnieje → tworzymy katalog o nazwie docelowej.
+    Create,
+    /// Istnieją OBA (stary i docelowy) — nie scalamy automatycznie, bo można
+    /// by coś nadpisać. Zostaje po staremu; człowiek decyduje.
+    Conflict,
+    /// Katalog leży poza katalogiem domowym (np. osobna partycja) — nie ruszamy.
+    External,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MigrationItem {
+    pub key: String,
+    pub from: String,
+    pub to: String,
+    pub action: MigrationAction,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MigrationPlan {
+    pub lang: String,
+    pub items: Vec<MigrationItem>,
+}
+
+impl MigrationPlan {
+    /// Czy jest cokolwiek do zrobienia (poza `Keep`/`Conflict`/`External`).
+    pub fn has_work(&self) -> bool {
+        self.items.iter().any(|i| matches!(i.action, MigrationAction::Rename | MigrationAction::Create))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MigrationResult {
+    pub renamed: usize,
+    pub created: usize,
+    pub skipped: usize,
+    /// Komunikaty o błędach pojedynczych katalogów (reszta migracji idzie dalej).
+    pub errors: Vec<String>,
+}
+
+/// Plan migracji do nazw języka `lang` (np. `pl`). `None`, gdy język nieznany.
+pub fn plan_migration(home: &Path, config_dir: &Path, locale: &str, lang: &str) -> Option<MigrationPlan> {
+    let target = names_for_lang(lang)?;
+    let current = resolve_all(home, config_dir, locale);
+    let items = KEYS
+        .iter()
+        .enumerate()
+        .map(|(i, key)| {
+            let cur = current.iter().find(|e| e.key == *key).expect("resolve_all returns every key");
+            let to_path = home.join(&target[i]);
+            let from = cur.path.clone();
+            let to = to_path.to_string_lossy().into_owned();
+            let action = if cur.home_path.is_none() {
+                MigrationAction::External
+            } else if PathBuf::from(&cur.path) == to_path {
+                MigrationAction::Keep
+            } else if cur.exists && to_path.is_dir() {
+                MigrationAction::Conflict
+            } else if cur.exists {
+                MigrationAction::Rename
+            } else if to_path.exists() {
+                // Brak starego, ale docelowa nazwa jest zajęta czymś, co nie jest katalogiem.
+                MigrationAction::Conflict
+            } else {
+                MigrationAction::Create
+            };
+            MigrationItem { key: (*key).to_string(), from, to, action }
+        })
+        .collect();
+    Some(MigrationPlan { lang: lang.to_string(), items })
+}
+
+/// Zwraca treść `user-dirs.dirs` z podmienionymi wpisami `updates`
+/// (klucz → bezwzględna ścieżka). Inne linie (komentarze, nieznane zmienne)
+/// zostają nietknięte; brakujące wpisy są dopisywane. Ścieżki wewnątrz
+/// katalogu domowego zapisujemy jako `$HOME/...`, tak jak `xdg-user-dirs`.
+pub fn render_user_dirs(existing: &str, updates: &[(String, PathBuf)], home: &Path) -> String {
+    let value = |p: &Path| -> String {
+        match p.strip_prefix(home) {
+            Ok(rel) => format!("\"$HOME/{}\"", rel.to_string_lossy()),
+            Err(_) => format!("\"{}\"", p.to_string_lossy()),
+        }
+    };
+    let mut remaining: Vec<&(String, PathBuf)> = updates.iter().collect();
+    let mut out = String::new();
+    for line in existing.lines() {
+        let name = line.trim().split('=').next().unwrap_or("").trim();
+        if let Some(pos) = remaining.iter().position(|(k, _)| xdg_var(k) == name) {
+            let (k, p) = remaining.remove(pos);
+            out.push_str(&format!("{}={}\n", xdg_var(k), value(p)));
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    for (k, p) in remaining {
+        out.push_str(&format!("{}={}\n", xdg_var(k), value(p)));
+    }
+    out
+}
+
+/// Wykonuje plan: zmienia nazwy / tworzy katalogi, potem atomowo (plik
+/// tymczasowy + `rename`) przepisuje `user-dirs.dirs` i `user-dirs.locale`.
+/// Katalogi z konfliktem i zewnętrzne zostają, z dotychczasowym wpisem.
+pub fn apply_migration(home: &Path, config_dir: &Path, plan: &MigrationPlan) -> MigrationResult {
+    let mut res = MigrationResult { renamed: 0, created: 0, skipped: 0, errors: Vec::new() };
+    let mut updates: Vec<(String, PathBuf)> = Vec::new();
+
+    for item in &plan.items {
+        let to = PathBuf::from(&item.to);
+        match item.action {
+            MigrationAction::Rename => match std::fs::rename(&item.from, &to) {
+                Ok(()) => { res.renamed += 1; updates.push((item.key.clone(), to)); }
+                Err(e) => res.errors.push(format!("{} → {}: {e}", item.from, item.to)),
+            },
+            MigrationAction::Create => match std::fs::create_dir_all(&to) {
+                Ok(()) => { res.created += 1; updates.push((item.key.clone(), to)); }
+                Err(e) => res.errors.push(format!("{}: {e}", item.to)),
+            },
+            MigrationAction::Keep => updates.push((item.key.clone(), to)),
+            MigrationAction::Conflict | MigrationAction::External => res.skipped += 1,
+        }
+    }
+
+    if !updates.is_empty() {
+        let file = config_dir.join("user-dirs.dirs");
+        let existing = std::fs::read_to_string(&file).unwrap_or_default();
+        let body = render_user_dirs(&existing, &updates, home);
+        let write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(config_dir)?;
+            let tmp = config_dir.join(".user-dirs.dirs.blue-tmp");
+            std::fs::write(&tmp, body)?;
+            std::fs::rename(&tmp, &file)?;
+            // Zgodne z `xdg-user-dirs-update`: zapamiętany język, żeby nie
+            // "naprawiał" katalogów przy następnym logowaniu.
+            std::fs::write(config_dir.join("user-dirs.locale"), format!("{}\n", plan.lang))
+        };
+        if let Err(e) = write() {
+            res.errors.push(format!("user-dirs.dirs: {e}"));
+        }
+    }
+    res
+}
+
+/// Plan migracji dla frontendu. `lang` = prefiks języka (`pl`); `None` →
+/// język z locale systemu.
+#[tauri::command(async)]
+pub fn plan_user_dirs_migration(lang: Option<String>) -> Result<MigrationPlan, String> {
+    let home = dirs::home_dir().ok_or("No home directory")?;
+    let locale = locale_from_env();
+    let lang = lang.map(|l| lang_prefix(&l)).filter(|l| !l.is_empty()).unwrap_or_else(|| lang_prefix(&locale));
+    plan_migration(&home, &config_home(&home), &locale, &lang)
+        .ok_or_else(|| format!("Unsupported language: {lang}"))
+}
+
+/// Wykonuje migrację. Plan jest liczony od nowa po stronie backendu (frontend
+/// podaje tylko język), więc nie da się go podsunąć spreparowanego.
+#[tauri::command(async)]
+pub fn apply_user_dirs_migration(lang: String) -> Result<MigrationResult, String> {
+    let home = dirs::home_dir().ok_or("No home directory")?;
+    let locale = locale_from_env();
+    let lang = lang_prefix(&lang);
+    let plan = plan_migration(&home, &config_home(&home), &locale, &lang)
+        .ok_or_else(|| format!("Unsupported language: {lang}"))?;
+    Ok(apply_migration(&home, &config_home(&home), &plan))
 }
 
 /// Zwraca wszystkie katalogi użytkownika dla frontendu (Eksplorator, okno
@@ -412,10 +631,111 @@ mod tests {
     }
 
     #[test]
-    fn localized_table_has_eight_names_and_matches_keys() {
-        for (lang, names) in LOCALIZED {
-            assert_eq!(names.len(), KEYS.len(), "{lang}");
-            assert!(names.iter().all(|n| !n.is_empty() && !n.contains('/')), "{lang}");
+    fn shared_table_is_complete_and_sane() {
+        let entries: Vec<LangEntry> = serde_json::from_str(NAMES_JSON).unwrap();
+        assert!(entries.len() >= 16);
+        assert_eq!(entries[0].lang, "en");
+        for e in &entries {
+            for key in KEYS {
+                let n = e.names.get(key).unwrap_or_else(|| panic!("{}: missing {key}", e.lang));
+                assert!(!n.is_empty() && !n.contains('/') && !n.contains('"') && !n.contains('$'), "{}: {key}", e.lang);
+            }
+            assert_eq!(e.names.len(), KEYS.len(), "{}: extra keys", e.lang);
         }
+        assert_eq!(english_name("downloads"), "Downloads");
+        assert_eq!(names_for_lang("pl").unwrap()[2], "Pobrane");
+    }
+
+    #[test]
+    fn plans_rename_create_conflict_and_keep() {
+        let home = tmp("plan");
+        let cfg = home.join(".config");
+        fs::create_dir_all(&cfg).unwrap();
+        fs::create_dir_all(home.join("Downloads")).unwrap();
+        fs::create_dir_all(home.join("Documents")).unwrap();
+        fs::create_dir_all(home.join("Dokumenty")).unwrap(); // conflict
+        fs::create_dir_all(home.join("Pulpit")).unwrap();
+        fs::write(cfg.join("user-dirs.dirs"), "XDG_DESKTOP_DIR=\"$HOME/Pulpit\"\nXDG_DOCUMENTS_DIR=\"$HOME/Documents\"\nXDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\nXDG_MUSIC_DIR=\"/mnt/dane/Music\"\n").unwrap();
+        let plan = plan_migration(&home, &cfg, "en_US.UTF-8", "pl").unwrap();
+        let act = |k: &str| plan.items.iter().find(|i| i.key == k).unwrap().action.clone();
+        assert_eq!(act("desktop"), MigrationAction::Keep);
+        assert_eq!(act("documents"), MigrationAction::Conflict);
+        assert_eq!(act("downloads"), MigrationAction::Rename);
+        assert_eq!(act("music"), MigrationAction::External);
+        assert_eq!(act("videos"), MigrationAction::Create);
+        assert!(plan.has_work());
+        assert!(plan_migration(&home, &cfg, "en", "xx").is_none());
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn render_replaces_adds_and_keeps_other_lines() {
+        let home = PathBuf::from("/home/ala");
+        let existing = "# my comment\nXDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\nFOO=\"bar\"\n";
+        let out = render_user_dirs(existing, &[
+            ("downloads".into(), home.join("Pobrane")),
+            ("music".into(), PathBuf::from("/mnt/x/Muzyka")),
+        ], &home);
+        assert!(out.contains("# my comment\n"));
+        assert!(out.contains("FOO=\"bar\"\n"));
+        assert!(out.contains("XDG_DOWNLOAD_DIR=\"$HOME/Pobrane\"\n"));
+        assert!(!out.contains("Downloads"));
+        assert!(out.contains("XDG_MUSIC_DIR=\"/mnt/x/Muzyka\"\n"));
+    }
+
+    #[test]
+    fn apply_migrates_end_to_end_and_is_idempotent() {
+        let home = tmp("apply");
+        let cfg = home.join(".config");
+        fs::create_dir_all(&cfg).unwrap();
+        fs::create_dir_all(home.join("Downloads")).unwrap();
+        fs::write(home.join("Downloads/a.txt"), "x").unwrap();
+        fs::write(cfg.join("user-dirs.dirs"), "XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n").unwrap();
+
+        let plan = plan_migration(&home, &cfg, "en_US.UTF-8", "pl").unwrap();
+        let res = apply_migration(&home, &cfg, &plan);
+        assert!(res.errors.is_empty(), "{:?}", res.errors);
+        assert_eq!(res.renamed, 1);
+        assert!(home.join("Pobrane/a.txt").is_file(), "files must survive the rename");
+        assert!(!home.join("Downloads").exists());
+        assert!(home.join("Wideo").is_dir(), "missing folders are created");
+        let conf = fs::read_to_string(cfg.join("user-dirs.dirs")).unwrap();
+        assert!(conf.contains("XDG_DOWNLOAD_DIR=\"$HOME/Pobrane\""));
+        assert_eq!(fs::read_to_string(cfg.join("user-dirs.locale")).unwrap().trim(), "pl");
+
+        // Second run: nothing left to do.
+        let again = plan_migration(&home, &cfg, "en_US.UTF-8", "pl").unwrap();
+        assert!(!again.has_work());
+        // The file manager now resolves the localized folder.
+        let dl = resolve_all(&home, &cfg, "en_US.UTF-8").into_iter().find(|e| e.key == "downloads").unwrap();
+        assert_eq!(dl.name, "Pobrane");
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn apply_leaves_conflicts_untouched() {
+        let home = tmp("conflict");
+        let cfg = home.join(".config");
+        fs::create_dir_all(home.join("Documents")).unwrap();
+        fs::create_dir_all(home.join("Dokumenty")).unwrap();
+        fs::write(home.join("Documents/keep.txt"), "x").unwrap();
+        let plan = plan_migration(&home, &cfg, "en_US.UTF-8", "pl").unwrap();
+        let res = apply_migration(&home, &cfg, &plan);
+        assert!(res.skipped >= 1);
+        assert!(home.join("Documents/keep.txt").is_file());
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn watcher_reports_changes() {
+        use std::sync::mpsc;
+        let home = tmp("watch");
+        let (tx, rx) = mpsc::channel();
+        watch(home.clone(), home.join(".config"), String::new(), std::time::Duration::from_millis(30), move |d| { let _ = tx.send(d); });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        fs::create_dir_all(home.join("Downloads")).unwrap();
+        let got = rx.recv_timeout(std::time::Duration::from_secs(3)).expect("a change event");
+        assert!(got.iter().any(|e| e.key == "downloads" && e.exists));
+        let _ = fs::remove_dir_all(&home);
     }
 }
