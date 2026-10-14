@@ -13,6 +13,8 @@
   import { pickPaths } from '../../../stores/filePicker';
 
   export let windowId: string;
+  // Every app is handed its window id; this one doesn't need it.
+  $: windowId;
 
   const store = createCalendarStore();
   const { loading, error, subscriptions, allEvents } = store;
