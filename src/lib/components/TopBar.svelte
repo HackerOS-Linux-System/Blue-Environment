@@ -6,7 +6,7 @@
     Wifi, Bell, CloudSun, Cloud, CloudRain, CloudSnow, Sun, Clipboard,
     Droplets, Wind, Gauge, ArrowDown, ArrowUp, Clock, Globe2, Copy, X, Languages,
     Battery, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, BatteryWarning,
-    Zap, Check, Command, Plug, HeartPulse,
+    Zap, Check, Command, Plug, HeartPulse, Power, MonitorUp,
   } from 'lucide-svelte';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
@@ -17,7 +17,7 @@
   import { createEventDispatcher } from 'svelte';
   import { showContextMenu, type MenuItem } from '../stores/contextMenu';
   import { closeWindow } from '../stores/windowManager';
-  import { normalizeTopBar, formatBarClock, BLUR_CLASS, rightItemOrder, type TopBarConfig, type BarRightItem } from '../utils/topBarConfig';
+  import { normalizeTopBar, formatBarClock, BLUR_CLASS, itemOrder, type TopBarConfig, type BarRightItem, type BarLeftItem } from '../utils/topBarConfig';
   import { withAlpha } from '../utils/colorUtil';
   import RunningApps from './RunningApps.svelte';
   import { batteryPhase, splitMinutes, formatWatts, formatPercent, phaseColor } from '../utils/batteryInfo';
@@ -53,6 +53,7 @@
     toggleNotifications: void;
     switchWorkspace: number;
     toggleClipboard: void;
+    power: void;
   }>();
 
   // --- Right-click menus ----------------------------------------------------
@@ -407,7 +408,7 @@
     : '';
   $: barShadow = bar.shadow ? 'box-shadow:0 6px 24px rgba(0, 0, 0, 0.4);' : '';
   /** CSS `order` for a right-hand widget (the IME badge has none → always first). */
-  const ord = (item: BarRightItem, order: BarRightItem[]) => `order:${rightItemOrder(order, item)};`;
+  const ord = (item: BarRightItem | BarLeftItem, order: readonly (BarRightItem | BarLeftItem)[]) => `order:${itemOrder(order, item)};`;
   $: startRadius = bar.startButtonStyle === 'pill' ? 'rounded-full' : bar.startButtonStyle === 'square' ? 'rounded-none' : 'rounded-lg';
   let barHoverTimer: ReturnType<typeof setTimeout>;
   let panelHeight = 48;
@@ -521,6 +522,7 @@
     <button
       on:contextmenu={startButtonMenu}
       on:click={handleStartClick}
+      style={ord('start', bar.leftOrder)}
       class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 {startRadius} transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
       title={$t('topbar.start_tooltip')}
     >
@@ -538,15 +540,17 @@
     </button>
     {/if}
     {#if bar.showRunningApps}
-      <RunningApps
-        items={runningItems}
-        {currentWorkspace}
-        max={bar.runningAppsMax}
-        showLabels={bar.runningAppsLabels}
-        {position}
-        on:activate={(e) => dispatch('activateRunning', e.detail)}
-        on:close={(e) => dispatch('closeRunning', e.detail)}
-      />
+      <div class="flex items-center min-w-0" style={ord('running', bar.leftOrder)}>
+        <RunningApps
+          items={runningItems}
+          {currentWorkspace}
+          max={bar.runningAppsMax}
+          showLabels={bar.runningAppsLabels}
+          {position}
+          on:activate={(e) => dispatch('activateRunning', e.detail)}
+          on:close={(e) => dispatch('closeRunning', e.detail)}
+        />
+      </div>
     {/if}
   </div>
 
@@ -746,7 +750,7 @@
     {/if}
 
     {#if bar.showClipboard}
-    <div class="relative" style={ord('clipboard', bar.rightOrder)} on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
+    <div class="relative" role="presentation" style={ord('clipboard', bar.rightOrder)} on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
       <button on:click={() => dispatch('toggleClipboard')}
         class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
         title={$t('topbar.clipboard_history')}>
@@ -772,7 +776,7 @@
     </div>
     {/if}
 
-    <div class="relative" style={ord('network', bar.rightOrder)} on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
+    <div class="relative" role="presentation" style={ord('network', bar.rightOrder)} on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
       <button on:click={() => dispatch('toggleControlCenter')}
         class="panel-icon-btn flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
         {#if bar.showNetworkIcon}<Wifi size={13} class="text-slate-300" />{/if}
@@ -814,6 +818,19 @@
     <button on:click={() => dispatch('toggleNotifications')} style={ord('notifications', bar.rightOrder)} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
       <Bell size={15} class="text-slate-300 group-hover:text-white" />
       <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 border border-slate-900 rounded-full" />
+    </button>
+    {/if}
+
+    {#if bar.showDesktopButton}
+    <button on:click={() => window.dispatchEvent(new Event('blue:show-desktop'))} style={ord('showDesktop', bar.rightOrder)}
+      class="p-2 rounded-full hover:bg-white/10 transition-colors group" title={$t('sbar.show_desktop')} aria-label={$t('sbar.show_desktop')}>
+      <MonitorUp size={15} class="text-slate-300 group-hover:text-white" />
+    </button>
+    {/if}
+    {#if bar.showPowerButton}
+    <button on:click={() => dispatch('power')} style={ord('power', bar.rightOrder)}
+      class="p-2 rounded-full hover:bg-white/10 transition-colors group" title={$t('startmenu.power')} aria-label={$t('startmenu.power')}>
+      <Power size={15} class="text-slate-300 group-hover:text-white" />
     </button>
     {/if}
   </div>
