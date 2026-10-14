@@ -12,6 +12,10 @@ interface RawCustomTheme {
   id: string;
   name: string;
   description: string;
+  /** Absolute path of the theme's wallpaper on this machine (optional). */
+  wallpaper?: string | null;
+  /** Only in exported files: the wallpaper image itself (see custom_shell_themes.rs). */
+  bundled_wallpaper?: { file_name: string; data_url: string };
   colors: {
     accent: string; background: string; surface: string; surface_elevated: string;
     text: string; text_muted: string; border: string;
@@ -26,12 +30,15 @@ interface RawCustomTheme {
     window_opacity?: number; window_shadow?: string; window_border_width?: number; window_border_color?: string;
     titlebar_height?: number; ui_scale_percent?: number; scrollbar_style?: string;
     wallpaper_brightness?: number; wallpaper_saturation?: number; panel_color?: string;
+    menu_background_color?: string; menu_opacity?: number; menu_blur?: number; menu_sidebar?: string;
+    menu_tile_size?: string; menu_tile_shape?: string; menu_search_shape?: string;
   };
 }
 
 export function toShellTheme(raw: RawCustomTheme): ShellTheme {
   return {
     id: raw.id, name: raw.name, description: raw.description,
+    wallpaper: raw.wallpaper || undefined,
     author: 'You', version: '1.0.0', previewIcon: 'Palette',
     colors: {
       accent: raw.colors.accent, background: raw.colors.background, surface: raw.colors.surface,
@@ -65,6 +72,13 @@ export function toShellTheme(raw: RawCustomTheme): ShellTheme {
       wallpaperBrightness: raw.extras.wallpaper_brightness,
       wallpaperSaturation: raw.extras.wallpaper_saturation,
       panelColor: raw.extras.panel_color,
+      menuBackgroundColor: raw.extras.menu_background_color,
+      menuOpacity: raw.extras.menu_opacity,
+      menuBlur: raw.extras.menu_blur,
+      menuSidebar: raw.extras.menu_sidebar as ShellThemeExtras['menuSidebar'],
+      menuTileSize: raw.extras.menu_tile_size as ShellThemeExtras['menuTileSize'],
+      menuTileShape: raw.extras.menu_tile_shape as ShellThemeExtras['menuTileShape'],
+      menuSearchShape: raw.extras.menu_search_shape as ShellThemeExtras['menuSearchShape'],
     },
   };
 }
@@ -72,6 +86,7 @@ export function toShellTheme(raw: RawCustomTheme): ShellTheme {
 export function fromShellTheme(theme: ShellTheme): RawCustomTheme {
   return {
     id: theme.id, name: theme.name, description: theme.description,
+    wallpaper: theme.wallpaper || null,
     colors: {
       accent: theme.colors.accent, background: theme.colors.background, surface: theme.colors.surface,
       surface_elevated: theme.colors.surfaceElevated, text: theme.colors.text, text_muted: theme.colors.textMuted,
@@ -99,6 +114,13 @@ export function fromShellTheme(theme: ShellTheme): RawCustomTheme {
       wallpaper_brightness: theme.extras?.wallpaperBrightness,
       wallpaper_saturation: theme.extras?.wallpaperSaturation,
       panel_color: theme.extras?.panelColor,
+      menu_background_color: theme.extras?.menuBackgroundColor,
+      menu_opacity: theme.extras?.menuOpacity,
+      menu_blur: theme.extras?.menuBlur,
+      menu_sidebar: theme.extras?.menuSidebar,
+      menu_tile_size: theme.extras?.menuTileSize,
+      menu_tile_shape: theme.extras?.menuTileShape,
+      menu_search_shape: theme.extras?.menuSearchShape,
     },
   };
 }
@@ -158,6 +180,24 @@ export async function removeCustomTheme(id: string): Promise<void> {
 
 export function exportCustomThemeJson(theme: ShellTheme): string {
   return JSON.stringify(fromShellTheme(theme), null, 2);
+}
+
+/**
+ * Export WITH the wallpaper: the image is read through the backend and embedded
+ * in the file as a data URL, so the theme looks the same on another machine.
+ * If the theme has no wallpaper (or it can't be read) the file is just the
+ * plain theme. The bundled image is re-validated by the backend on import.
+ */
+export async function exportCustomThemeBundle(theme: ShellTheme): Promise<string> {
+  const raw = fromShellTheme(theme);
+  if (theme.wallpaper) {
+    const dataUrl = await SystemBridge.getWallpaperDataUrl(theme.wallpaper).catch(() => null);
+    if (dataUrl) {
+      const file_name = theme.wallpaper.split('/').filter(Boolean).pop() ?? 'wallpaper';
+      raw.bundled_wallpaper = { file_name, data_url: dataUrl };
+    }
+  }
+  return JSON.stringify(raw, null, 2);
 }
 
 export async function importCustomThemeJson(jsonText: string): Promise<{ ok: true; theme: ShellTheme } | { ok: false; error: string }> {
