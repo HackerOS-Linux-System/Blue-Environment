@@ -18,6 +18,7 @@ export const THEME_CSS_VARS = [
   '--shell-radius', '--wallpaper-blur', '--wallpaper-brightness', '--wallpaper-saturate',
   '--panel-opacity', '--panel-rgb', '--accent-gradient', '--shell-font', '--shell-anim-duration',
   '--window-shadow', '--window-opacity', '--window-border-width', '--window-border-color', '--titlebar-height',
+  '--menu-bg-rgb', '--menu-opacity', '--menu-blur', '--menu-sidebar-bg', '--menu-tile-radius', '--menu-search-radius',
 ] as const;
 
 export const THEME_ATTRS = [
@@ -101,6 +102,18 @@ export function themeToCss(theme: ShellTheme): ThemeCss {
   }
 
   if (e.scrollbarStyle && e.scrollbarStyle !== 'default') attrs['data-scrollbar'] = e.scrollbarStyle;
+
+  // ── Full-screen application menu (read by StartMenu.svelte with fallbacks) ──
+  const menuRgb = rgbTriplet(e.menuBackgroundColor);
+  if (menuRgb) vars['--menu-bg-rgb'] = menuRgb;
+  if (num(e.menuOpacity)) vars['--menu-opacity'] = String(clamp(e.menuOpacity, 20, 100) / 100);
+  if (num(e.menuBlur)) vars['--menu-blur'] = `${clamp(e.menuBlur, 0, 60)}px`;
+  if (e.menuSidebar === 'transparent') vars['--menu-sidebar-bg'] = 'transparent';
+  else if (e.menuSidebar === 'solid') vars['--menu-sidebar-bg'] = `rgba(${menuRgb ?? '2, 6, 23'}, 0.9)`;
+  if (e.menuTileShape === 'circle') vars['--menu-tile-radius'] = '9999px';
+  else if (e.menuTileShape === 'square') vars['--menu-tile-radius'] = '0.25rem';
+  if (e.menuSearchShape === 'pill') vars['--menu-search-radius'] = '9999px';
+  else if (e.menuSearchShape === 'square') vars['--menu-search-radius'] = '0.375rem';
 
   attrs['data-icon-style'] = theme.layout.iconStyle;
   attrs['data-shell-theme'] = theme.id;
