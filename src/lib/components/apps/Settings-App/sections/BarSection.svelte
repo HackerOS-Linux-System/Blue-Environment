@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { UserConfig } from '../../../../types';
   import { t } from '../../../../stores/language';
-  import { normalizeTopBar, DEFAULT_TOP_BAR, moveRightItem, type TopBarConfig, type BarRightItem } from '../../../../utils/topBarConfig';
-  import { ChevronUp, ChevronDown } from 'lucide-svelte';
+  import { normalizeTopBar, DEFAULT_TOP_BAR, type TopBarConfig, type BarRightItem, type BarLeftItem } from '../../../../utils/topBarConfig';
+  import { BAR_PRESETS, applyBarPreset } from '../../../../utils/barPresets';
+  import ReorderList from './ReorderList.svelte';
 
   export let config: UserConfig;
   export let onSave: (p: Partial<UserConfig>) => Promise<void>;
@@ -15,22 +16,39 @@
   const isOn = (b: TopBarConfig, k: keyof TopBarConfig) => b[k] === true;
   const reset = () => onSave({ topBar: { ...DEFAULT_TOP_BAR } } as Partial<UserConfig>);
 
-  const ORDER_LABELS: Record<BarRightItem, string> = {
-    workspaces: 'sbar.workspaces', weather: 'sbar.weather', battery: 'sbar.battery',
-    clipboard: 'sbar.clipboard', network: 'sbar.network', notifications: 'sbar.notifications',
+  // Widgets that can be reordered AND switched on/off from the lists below.
+  const RIGHT: Record<BarRightItem, { label: string; flag: keyof TopBarConfig }> = {
+    workspaces:    { label: 'sbar.workspaces',    flag: 'showWorkspaces' },
+    weather:       { label: 'sbar.weather',       flag: 'showWeather' },
+    battery:       { label: 'sbar.battery',       flag: 'showBattery' },
+    clipboard:     { label: 'sbar.clipboard',     flag: 'showClipboard' },
+    network:       { label: 'sbar.network',       flag: 'showNetworkIcon' },
+    notifications: { label: 'sbar.notifications', flag: 'showNotifications' },
+    showDesktop:   { label: 'sbar.show_desktop',  flag: 'showDesktopButton' },
+    power:         { label: 'startmenu.power',    flag: 'showPowerButton' },
   };
-  const move = (index: number, delta: number) => save({ rightOrder: moveRightItem(bar.rightOrder, index, delta) });
+  const LEFT: Record<BarLeftItem, { label: string; flag: keyof TopBarConfig }> = {
+    start:   { label: 'sbar.start',        flag: 'showStartButton' },
+    running: { label: 'sbar.running_apps', flag: 'showRunningApps' },
+  };
+  // ReorderList speaks plain strings; these narrow them back to the item unions.
+  const rightOf = (id: string) => RIGHT[id as BarRightItem];
+  const leftOf = (id: string) => LEFT[id as BarLeftItem];
+  const reorderLeft = (e: CustomEvent<string[]>) => save({ leftOrder: e.detail as BarLeftItem[] });
+  const reorderRight = (e: CustomEvent<string[]>) => save({ rightOrder: e.detail as BarRightItem[] });
+  const toggleFlag = (flag: keyof TopBarConfig) => save({ [flag]: !bar[flag] } as Partial<TopBarConfig>);
+
+  // Presets: a bar look in one click. Some also move the bar to a screen edge.
+  function applyPreset(id: string) {
+    const preset = BAR_PRESETS.find((p) => p.id === id);
+    if (!preset) return;
+    const patch: Partial<UserConfig> = { topBar: applyBarPreset(bar, id) } as Partial<UserConfig>;
+    if (preset.panelPosition) (patch as Record<string, unknown>).panelPosition = preset.panelPosition;
+    return onSave(patch);
+  }
 
   const TOGGLES: { key: keyof TopBarConfig; labelKey: string }[] = [
-    { key: 'showStartButton', labelKey: 'sbar.start' },
-    { key: 'showRunningApps', labelKey: 'sbar.running_apps' },
     { key: 'showPinned', labelKey: 'sbar.pinned' },
-    { key: 'showWorkspaces', labelKey: 'sbar.workspaces' },
-    { key: 'showWeather', labelKey: 'sbar.weather' },
-    { key: 'showBattery', labelKey: 'sbar.battery' },
-    { key: 'showClipboard', labelKey: 'sbar.clipboard' },
-    { key: 'showNotifications', labelKey: 'sbar.notifications' },
-    { key: 'showNetworkIcon', labelKey: 'sbar.network' },
     { key: 'showClock', labelKey: 'sbar.clock' },
     { key: 'showBatteryPercent', labelKey: 'sbar.battery_percent' },
     { key: 'accentIndicators', labelKey: 'sbar.indicators' },
@@ -39,6 +57,18 @@
 
 <div class="space-y-6">
   <h2 class="text-2xl font-bold text-white">{$t('sbar.title')}</h2>
+
+  <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
+    <div class="text-sm font-medium text-slate-400">{$t('sbar.presets_title')}</div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {#each BAR_PRESETS as preset (preset.id)}
+        <button class="text-left px-3 py-2.5 rounded-xl border border-white/5 bg-slate-900/40 hover:bg-white/5 transition-colors" on:click={() => applyPreset(preset.id)}>
+          <div class="text-sm text-slate-200">{$t(preset.labelKey)}</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">{$t(preset.descKey)}</div>
+        </button>
+      {/each}
+    </div>
+  </div>
 
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
     <div class="text-sm font-medium text-slate-400">{$t('sbar.elements')}</div>
@@ -135,17 +165,17 @@
   </div>
 
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-2">
+    <div class="text-sm font-medium text-slate-400">{$t('sbar.order_left_title')}</div>
+    <p class="text-xs text-slate-500">{$t('sbar.order_hint')}</p>
+    <ReorderList items={bar.leftOrder} labelFor={(id) => $t(leftOf(id).label)} isOn={(id) => bar[leftOf(id).flag] === true}
+      on:reorder={reorderLeft} on:toggle={(e) => toggleFlag(leftOf(e.detail).flag)} />
+  </div>
+
+  <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-2">
     <div class="text-sm font-medium text-slate-400">{$t('sbar.order_title')}</div>
     <p class="text-xs text-slate-500">{$t('sbar.order_hint')}</p>
-    {#each bar.rightOrder as item, i (item)}
-      <div class="flex items-center justify-between text-sm text-slate-200 bg-slate-700/40 rounded-lg px-3 py-1.5">
-        <span>{$t(ORDER_LABELS[item])}</span>
-        <span class="flex gap-1">
-          <button class="p-1 rounded hover:bg-white/10 disabled:opacity-30" disabled={i === 0} title={$t('sbar.order_up')} aria-label={$t('sbar.order_up')} on:click={() => move(i, -1)}><ChevronUp size={14} /></button>
-          <button class="p-1 rounded hover:bg-white/10 disabled:opacity-30" disabled={i === bar.rightOrder.length - 1} title={$t('sbar.order_down')} aria-label={$t('sbar.order_down')} on:click={() => move(i, 1)}><ChevronDown size={14} /></button>
-        </span>
-      </div>
-    {/each}
+    <ReorderList items={bar.rightOrder} labelFor={(id) => $t(rightOf(id).label)} isOn={(id) => bar[rightOf(id).flag] === true}
+      on:reorder={reorderRight} on:toggle={(e) => toggleFlag(rightOf(e.detail).flag)} />
   </div>
 
   <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
