@@ -648,6 +648,7 @@
 <SystemThemeStyle {systemThemeId} />
 <div
   class="relative w-full h-full overflow-hidden select-none"
+  role="presentation"
   data-theme={theme}
   data-backend={backendActive}
   style="background-color:{fallbackBgColor}; font-family:var(--shell-font, inherit);"
@@ -691,6 +692,7 @@
     on:toggleNotifications={() => (isNotificationsOpen = !isNotificationsOpen)}
     on:switchWorkspace={(e) => switchWorkspace(e.detail)}
     on:toggleClipboard={() => (isClipboardOpen = !isClipboardOpen)}
+    on:power={() => (showPowerMenu = true)}
   />
 
   <StartMenu
