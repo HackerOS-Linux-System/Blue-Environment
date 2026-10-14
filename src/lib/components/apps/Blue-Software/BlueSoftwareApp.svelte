@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isCompactWidth } from '../../../utils/compact';
   import { onMount } from 'svelte';
   import { Package, RefreshCw, Search, LayoutGrid, List, AlertCircle, Loader2, X } from 'lucide-svelte';
   import type { SoftwareTab, ViewMode, PackageInfo } from './types';
@@ -65,6 +66,10 @@
     return matchSearch;
   });
 
+  // Compact layout (phone shell / narrow window): one card per row, scrollable tab rows.
+  let rootW = 0;
+  $: compact = isCompactWidth(rootW);
+
   $: installed = $packages.filter((p) => p.installed).length;
   $: updates = $packages.filter((p) => p.installed && p.update_available).length;
 
@@ -75,8 +80,8 @@
   ];
 </script>
 
-<div class="flex flex-col h-full bg-slate-900 text-white">
-  <div class="p-4 border-b border-white/5 shrink-0">
+<div bind:clientWidth={rootW} class="flex flex-col h-full bg-slate-900 text-white">
+  <div class="{compact ? 'p-3' : 'p-4'} border-b border-white/5 shrink-0">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
         <Package size={26} class="text-blue-400" />
@@ -87,14 +92,14 @@
       </button>
     </div>
 
-    <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit">
+    <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit max-w-full overflow-x-auto">
       {#each sections as sec (sec.id)}
         <button on:click={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
       {/each}
     </div>
 
     {#if section === 'system'}
-    <div class="flex gap-0 border-b border-white/10 mb-3">
+    <div class="flex gap-0 border-b border-white/10 mb-3 overflow-x-auto whitespace-nowrap">
       {#each tabs as t (t.id)}
         <button on:click={() => (activeTab = t.id)}
           class="px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px {activeTab === t.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}">
@@ -128,7 +133,7 @@
   {:else if section !== 'system'}
     <div class="flex-1 min-h-0"><CommunityStore kind={section} /></div>
   {:else}
-  <div class="flex-1 overflow-y-auto p-4">
+  <div class="flex-1 overflow-y-auto {compact ? 'p-3' : 'p-4'}">
     {#if $error}
       <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4 flex items-center gap-2 text-red-400 text-sm">
         <AlertCircle size={15} /> {$error}
@@ -148,7 +153,7 @@
         {/if}
       </div>
     {:else if viewMode === 'grid'}
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <div class="grid gap-3 {compact ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}">
         {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
           <div on:contextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
         {/each}
