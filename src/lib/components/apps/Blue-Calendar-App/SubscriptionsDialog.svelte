@@ -29,8 +29,8 @@
   }
 </script>
 
-<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={() => dispatch('close')} role="presentation">
-  <div class="w-[30rem] max-h-[90vh] flex flex-col bg-slate-800 border border-white/10 rounded-2xl shadow-2xl" on:mousedown|stopPropagation role="dialog" aria-modal="true">
+<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => e.target === e.currentTarget && dispatch('close')} role="presentation">
+  <div class="w-[30rem] max-h-[90vh] flex flex-col bg-slate-800 border border-white/10 rounded-2xl shadow-2xl" role="dialog" aria-modal="true">
     <div class="flex items-center justify-between px-5 pt-5 pb-3">
       <h3 class="text-sm font-semibold text-white flex items-center gap-2"><Globe size={15} class="text-blue-400" /> {$t('cal.subs.title')}</h3>
       <button on:click={() => dispatch('close')} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button>
