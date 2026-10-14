@@ -185,6 +185,7 @@
 
   <div
     data-window-root={win.id}
+    role="presentation"
     class="absolute flex flex-col overflow-hidden shadow-2xl border transition-shadow duration-150 theme-bg-primary
       {isActive ? 'border-blue-500/60 shadow-blue-500/20' : 'theme-border shadow-black/60'}
       {isDragging ? 'cursor-grabbing select-none' : ''}
@@ -195,6 +196,7 @@
     <div
       class="h-9 flex items-center justify-between px-3 select-none shrink-0 theme-bg-secondary theme-border border-b {win.isMaximized ? '' : 'cursor-default'}"
       data-window-id={win.id} data-window-titlebar
+      role="presentation"
       on:mousedown={handleTitleMouseDown}
       on:dblclick={() => dispatch('maximize', win.id)}
     >
@@ -205,7 +207,7 @@
           <span class="text-[10px] text-slate-500 bg-slate-700/50 px-1.5 rounded">ext</span>
         {/if}
       </div>
-      <div class="shrink-0 {controlsPosition === 'left' ? 'order-first' : 'order-last'}" on:mousedown={(e) => e.stopPropagation()}>
+      <div class="shrink-0 {controlsPosition === 'left' ? 'order-first' : 'order-last'}" role="presentation" on:mousedown={(e) => e.stopPropagation()}>
         <WindowControls
           isMaximized={win.isMaximized}
           isPiP={win.isPiP}
@@ -241,7 +243,7 @@
     </div>
 
     {#if !win.isMaximized}
-      <div class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-10 group" on:mousedown={handleResizeMouseDown}>
+      <div class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-10 group" role="presentation" on:mousedown={handleResizeMouseDown}>
         <svg width="12" height="12" viewBox="0 0 12 12" class="absolute bottom-1 right-1 opacity-30 group-hover:opacity-70 transition-opacity">
           <path d="M0 12 L12 0 M4 12 L12 4 M8 12 L12 8" stroke="currentColor" stroke-width="1.5" />
         </svg>
