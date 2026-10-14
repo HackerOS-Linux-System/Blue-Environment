@@ -28,6 +28,8 @@
   }
 
   export let windowId: string;
+  // Every app is handed its window id; this one doesn't need it.
+  $: windowId;
 
   type Screen = 'loading' | 'create' | 'unlock' | 'vault';
   let screen: Screen = 'loading';
