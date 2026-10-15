@@ -640,6 +640,14 @@ pub fn exec_native(kind: BackendKind, binary: &Path, cfg: &BackendConfig, args: 
             if cfg.generate_config {
                 let generated = labwc_config::ensure_default_config(cfg.config_dir.as_deref());
                 log_generated(&generated.files);
+                // A pre-existing rc.xml (labwc used before Blue, a copied
+                // skeleton, an older generated file) is never regenerated —
+                // but without Blue's keybinds Win / Win+Win / Alt+Tab do
+                // nothing. Merge them in (backed up, idempotent) before
+                // labwc reads the file.
+                if let Some(report) = labwc_config::ensure_keybinds(cfg.config_dir.as_deref()) {
+                    eprintln!("[blue-backend] {}", report.message);
+                }
             }
             if let Some(dir) = &cfg.config_dir {
                 cmd.arg("-C").arg(dir);
