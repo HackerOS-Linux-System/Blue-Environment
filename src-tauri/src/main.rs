@@ -92,6 +92,7 @@ mod privileged;
 mod themes;
 mod legacy_migration;
 mod icon_store;
+mod icon_store_ocs;
 mod music;
 mod music_mpris;
 mod user_dirs;
@@ -102,7 +103,7 @@ use blue_web_app::{
     web_open_native, web_fetch_site_info,
     web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
     web_view_set_visible, web_view_close, WebViewRegistry, web_view_set_interactive, web_view_history_go,
-    web_view_set_zoom, web_view_find, web_view_clear_find,
+    web_view_set_zoom, web_view_find, web_view_clear_find, web_view_set_clip,
     web_downloads_list, web_download_remove, web_download_reveal, DownloadRegistry,
     web_set_blocklist, BlockList, web_report_meta, web_view_snapshot,
 };
@@ -367,6 +368,8 @@ fn main() {
         blue_play_app::bpg_detect_runtimes, blue_play_app::bpg_launch_native, blue_play_app::bpg_launch_windows,
         list_icon_themes, set_icon_theme, list_cursor_themes, set_cursor_theme,
         icon_store::icon_store_install, icon_store::icon_store_list, icon_store::icon_store_remove,
+        icon_store_ocs::icon_store_search, icon_store_ocs::icon_store_details, icon_store_ocs::icon_store_thumbnail,
+        icon_store_ocs::icon_store_install_remote, icon_store_ocs::icon_store_installed_map,
         music::music_scan, music::music_cover,
         music_mpris::music_mpris_start, music_mpris::music_mpris_update, music_mpris::music_mpris_stop,
         has_cellular_modem, get_cellular_status, set_cellular_enabled,
@@ -374,7 +377,7 @@ fn main() {
         camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video,
         web_open_native, web_fetch_site_info,
         web_view_create, web_view_navigate, web_view_reload, web_view_set_bounds,
-        web_view_set_visible, web_view_close, web_view_set_interactive, web_view_history_go,
+        web_view_set_visible, web_view_set_clip, web_view_close, web_view_set_interactive, web_view_history_go,
         web_view_set_zoom, web_view_find, web_view_clear_find,
         web_downloads_list, web_download_remove, web_download_reveal,
         web_set_blocklist, web_report_meta,
