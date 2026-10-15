@@ -318,9 +318,23 @@
     // Win: pierwszy tap otwiera/zamyka menu; DRUGI tap w oknie czasowym
     // (domyślnie 350 ms) rozwija je do pełnego ekranu ("Win + Win").
     // Brak opóźnienia przy pierwszym tapie — menu pokazuje się od razu.
-    const superTap = () => {
+    //
+    // Dwa źródła tego samego naciśnięcia: zdarzenie DOM (gdy powłoka ma fokus i
+    // kompozytor przepuścił klawisz) oraz `--ctl super-tap` z keybindu
+    // kompozytora. `--ctl` niesie znacznik z zegara monotonicznego klienta, więc
+    // odstęp między tapami nie zależy od czasu startu procesu ani od IPC.
+    const SUPER_DEDUPE_MS = 90;
+    let lastSuperSource: 'dom' | 'ctl' | null = null;
+    let lastSuperMono: number | null = null;
+    const superTap = (monoStamp?: number) => {
       const now = Date.now();
-      if (isStartMenuOpen && !isStartMenuFullScreen && now - lastSuperTap <= superDoubleTapMs) {
+      const source: 'dom' | 'ctl' = monoStamp === undefined ? 'dom' : 'ctl';
+      // To samo fizyczne naciśnięcie dotarło dwiema drogami — policz raz.
+      if (lastSuperSource && lastSuperSource !== source && now - lastSuperTap < SUPER_DEDUPE_MS) return;
+      const sinceLast = source === 'ctl' && lastSuperSource === 'ctl' && lastSuperMono !== null
+        ? monoStamp! - lastSuperMono
+        : now - lastSuperTap;
+      if (isStartMenuOpen && !isStartMenuFullScreen && sinceLast >= 0 && sinceLast <= superDoubleTapMs) {
         isStartMenuFullScreen = true;
       } else if (isStartMenuOpen) {
         isStartMenuOpen = false;
@@ -330,6 +344,8 @@
         isStartMenuFullScreen = false;
       }
       lastSuperTap = now;
+      lastSuperSource = source;
+      lastSuperMono = monoStamp ?? null;
     };
     const runCornerAction = (slot: HotCornerSlot) => {
       switch (slot.action) {
@@ -372,6 +388,10 @@
       } else {
         switcherIndex = (switcherIndex + dir + wins.length) % wins.length;
       }
+      // Szybkie Alt+Tab: `--ctl` dociera później niż puszczenie Alt, więc
+      // zdarzenie keyup już minęło i przełącznik zostałby otwarty na zawsze.
+      // Jeśli Alt nie jest wciśnięty — zatwierdź wybór od razu.
+      window.dispatchEvent(new CustomEvent('blue:switcher-altcheck'));
     };
     const takeScreenshot = async () => {
       const path = await takeScreenshotUnified('full').catch(() => null);
@@ -408,7 +428,7 @@
     const unlistenShell = CompositorBridge.onShellCommand((cmd, arg) => {
       switch (cmd) {
         case 'toggle-start-menu': isStartMenuOpen = !isStartMenuOpen; if (!isStartMenuOpen) isStartMenuFullScreen = false; break;
-        case 'super-tap': superTap(); break;
+        case 'super-tap': { const n = Number(arg); superTap(Number.isFinite(n) && arg ? n : undefined); break; }
         case 'workspace-sync': if (arg) syncWorkspaceFromCompositor(arg); break;
         case 'workspace-next': switchWorkspace(get(currentWorkspace) + 1); break;
         case 'workspace-prev': switchWorkspace(get(currentWorkspace) - 1); break;
