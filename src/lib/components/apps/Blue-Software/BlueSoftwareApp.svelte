@@ -23,8 +23,9 @@
     { id: 'plugin', label: 'Plugins' }, { id: 'theme', label: 'Themes' },
     { id: 'icons', labelKey: 'software.section.icons' },
   ];
-  /** Blue Software gets its window id from the host; the icon store needs it to hide its native page. */
+  /** Window id handed in by the host. (The icon store used to need it to hide an embedded native page; it is now drawn natively.) */
   export let windowId: string = '';
+  $: void windowId; // accepted for the host's sake; nothing here needs it any more
   // The store page is created lazily on first visit, then kept alive (just hidden) when switching sections.
   let iconsOpened = false;
   $: if (section === 'icons') iconsOpened = true;
@@ -126,7 +127,7 @@
   </div>
 
   {#if iconsOpened}
-    <div class="flex-1 min-h-0" class:hidden={section !== 'icons'}><IconStore {windowId} visible={section === 'icons'} /></div>
+    <div class="flex-1 min-h-0" class:hidden={section !== 'icons'}><IconStore visible={section === 'icons'} /></div>
   {/if}
   {#if section === 'icons'}
     <!-- rendered by IconStore above -->
