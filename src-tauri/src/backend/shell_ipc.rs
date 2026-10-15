@@ -6,7 +6,15 @@ use std::time::Duration;
 /// Commands accepted over the socket. Anything else is rejected.
 pub const COMMANDS: &[&str] = &[
     "toggle-start-menu",
+    // Win tapped on its own (labwc `Super_L`/`Super_R` onRelease). The shell
+    // decides menu / full-screen menu (Win+Win) itself. Optional argument:
+    // the client's CLOCK_MONOTONIC milliseconds.
+    "super-tap",
     "fullscreen-menu",
+    // Compositor desktop changed (W-Tab, W-1..9): `next` | `prev` | `<n>`.
+    "workspace-sync",
+    "workspace-next",
+    "workspace-prev",
     "toggle-control-center",
     "toggle-notifications",
     "toggle-clipboard",
@@ -95,6 +103,14 @@ where
     });
 }
 
+/// Milliseconds on `CLOCK_MONOTONIC` — comparable across processes.
+pub fn monotonic_ms() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid, writable timespec.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    (ts.tv_sec as u64) * 1000 + (ts.tv_nsec as u64) / 1_000_000
+}
+
 pub fn cleanup() {
     let _ = std::fs::remove_file(socket_path());
 }
@@ -105,6 +121,15 @@ pub fn run_cli(args: &[String]) -> i32 {
     if args.is_empty() {
         eprintln!("usage: blue-environment --ctl <command> [argument]\ncommands: {}", COMMANDS.join(", "));
         return 2;
+    }
+    // Time-critical commands carry the moment the *key* was handled, taken
+    // from the system-wide monotonic clock before any socket round-trip.
+    // Starting this binary takes a variable 50-300 ms (dynamic linking of the
+    // webview stack), so judging "double tap" by when the shell receives each
+    // message made Win+Win flaky; both taps now share the same time base.
+    let mut args = args.to_vec();
+    if args.len() == 1 && args[0] == "super-tap" {
+        args.push(monotonic_ms().to_string());
     }
     let request = args.join(" ");
     if parse(&request).is_none() {
@@ -143,5 +168,31 @@ mod tests {
         assert_eq!(parse("open-app firefox"), Some(("open-app".into(), Some("firefox".into()))));
         assert_eq!(parse("rm -rf /"), None);
         assert_eq!(parse(""), None);
+    }
+
+    /// Every command that the generated labwc/sway/wayfire configs call via
+    /// `--ctl` must be accepted, otherwise that key silently does nothing
+    /// (`super-tap` and `workspace-sync` were once missing from the list).
+    #[test]
+    fn every_ctl_command_used_by_the_shipped_configs_is_known() {
+        let rc = include_str!("../../resources/labwc/rc.xml");
+        for part in rc.split("--ctl ").skip(1) {
+            let cmd = part.split(|c: char| c.is_whitespace() || c == '"').next().unwrap();
+            assert!(COMMANDS.contains(&cmd), "rc.xml uses unknown --ctl command '{cmd}'");
+        }
+    }
+
+    #[test]
+    fn super_tap_accepts_a_monotonic_stamp() {
+        let (cmd, arg) = parse("super-tap 123456").unwrap();
+        assert_eq!(cmd, "super-tap");
+        assert_eq!(arg.as_deref(), Some("123456"));
+    }
+
+    #[test]
+    fn monotonic_clock_advances() {
+        let a = monotonic_ms();
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(monotonic_ms() >= a);
     }
 }
