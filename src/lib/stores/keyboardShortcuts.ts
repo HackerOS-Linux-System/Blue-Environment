@@ -36,6 +36,16 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
     cb.setSwitcherVisible(false);
   }
 
+  // `blue:switcher-altcheck` (App.svelte → stepSwitcher, after Alt+Tab arrived
+  // via the compositor's `--ctl switcher-next`): if Alt was already released
+  // by the time the command got here, the keyup that normally commits the
+  // choice is gone — commit now instead of leaving the switcher stuck open.
+  const onAltCheck = () => {
+    if (cb.isSwitcherVisible() && !heldKeys.has('Alt')) commitSwitcher();
+  };
+  // Focus loss swallows key releases; forget held keys so none stays "stuck".
+  const onBlur = () => heldKeys.clear();
+
   function handleKeyDown(e: KeyboardEvent) {
     // A modal (DialogHost's prompt/confirm/alert — "Nowy plik tekstowy",
     // "New Folder", etc.) is currently open and owns keyboard focus.
@@ -146,8 +156,12 @@ export function initKeyboardShortcuts(cb: ShortcutCallbacks): () => void {
 
   window.addEventListener('keydown', handleKeyDown, { capture: true });
   window.addEventListener('keyup', handleKeyUp, { capture: true });
+  window.addEventListener('blue:switcher-altcheck', onAltCheck);
+  window.addEventListener('blur', onBlur);
 
   return () => {
+    window.removeEventListener('blue:switcher-altcheck', onAltCheck);
+    window.removeEventListener('blur', onBlur);
     window.removeEventListener('keydown', handleKeyDown, { capture: true });
     window.removeEventListener('keyup', handleKeyUp, { capture: true });
   };
