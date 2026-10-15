@@ -183,12 +183,38 @@ pub fn ensure_default_config(custom_dir: Option<&Path>) -> Generated {
     out
 }
 
-/// Marker comment written around Blue's merged-in keybind block, so a
-/// re-run of [`install_keybinds_into_existing`] is idempotent (it checks
-/// for this marker before touching the file again) instead of
-/// duplicating the block on every call.
-const MERGED_KEYBINDS_MARKER_START: &str = "<!-- BLUE-ENVIRONMENT:MERGED-KEYBINDS:START (safe to remove this block) -->";
+/// Marker comments written around Blue's merged-in keybind block, so a
+/// re-run is idempotent. The START marker carries a *version*
+/// (`KEYBINDS_BLOCK_VERSION`): when a newer Blue ships a changed block, the
+/// old one is replaced in place instead of being left stale (or duplicated).
+const MERGED_KEYBINDS_MARKER_START: &str = "<!-- BLUE-ENVIRONMENT:MERGED-KEYBINDS:START";
 const MERGED_KEYBINDS_MARKER_END: &str = "<!-- BLUE-ENVIRONMENT:MERGED-KEYBINDS:END -->";
+/// Bump whenever [`keybinds_snippet`] changes.
+const KEYBINDS_BLOCK_VERSION: u32 = 2;
+
+fn block_start_line() -> String {
+    format!("{MERGED_KEYBINDS_MARKER_START} v{KEYBINDS_BLOCK_VERSION} (safe to remove this block) -->")
+}
+
+/// The shell commands a labwc config must be able to reach for Win, Win+Win
+/// and Alt+Tab to work at all. Detecting these *functional* strings (not the
+/// mere words "Blue Environment", which also show up in a theme name or an
+/// old generated header) is what decides whether a pre-existing `rc.xml`
+/// needs the merge.
+const REQUIRED_CTL_COMMANDS: [&str; 4] = ["super-tap", "switcher-next", "switcher-prev", "toggle-start-menu"];
+
+fn has_required_keybinds(text: &str) -> bool {
+    REQUIRED_CTL_COMMANDS.iter().all(|c| text.contains(&format!("--ctl {c}")))
+}
+
+/// `Some(version)` if the file carries Blue's merged block (`0` when the
+/// marker has no parsable version — i.e. the pre-versioning v1 block).
+fn merged_block_version(text: &str) -> Option<u32> {
+    let i = text.find(MERGED_KEYBINDS_MARKER_START)?;
+    let line = text[i + MERGED_KEYBINDS_MARKER_START.len()..].lines().next().unwrap_or("");
+    let v = line.trim_start().strip_prefix('v').and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse().ok());
+    Some(v.unwrap_or(0))
+}
 
 /// The subset of `RC_XML`'s `<keybind>` entries that Blue actually needs
 /// to function as a shell layered on top of an existing labwc session —
@@ -225,7 +251,7 @@ fn keybinds_snippet(params: &Params) -> String {
     <keybind key="Print"><action name="Execute" command="@CTL@ --ctl screenshot"/></keybind>
     <keybind key="W-l"><action name="Execute" command="@CTL@ --ctl lock"/></keybind>
     <keybind key="W-d"><action name="Execute" command="@CTL@ --ctl show-desktop"/></keybind>"#;
-    format!("{MERGED_KEYBINDS_MARKER_START}\n{}\n{MERGED_KEYBINDS_MARKER_END}", render(block, params))
+    format!("{}\n{}\n{MERGED_KEYBINDS_MARKER_END}", block_start_line(), render(block, params))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -240,15 +266,18 @@ pub struct IntegrationStatus {
 
 /// Reports whether the *current* user's `rc.xml` already has what Blue
 /// needs, without changing anything — what a "Repair labwc Integration"
-/// button in Settings checks before showing itself as actionable. See
-/// `install_keybinds_into_existing`'s doc comment for why this needs to
-/// exist as its own step distinct from `ensure_default_config`.
+/// button in Settings checks before showing itself as actionable.
+///
+/// "Has what Blue needs" means the rc.xml really reaches the shell for
+/// Win / Win+Win / Alt+Tab (see [`has_required_keybinds`]) or carries an
+/// up-to-date merged block — not merely that the text mentions Blue.
 pub fn check_integration(custom_dir: Option<&Path>) -> IntegrationStatus {
     let path = user_config_dir(custom_dir).join("rc.xml");
     let text = fs::read_to_string(&path).unwrap_or_default();
-    let keybinds_present = text.contains("Blue Environment")
-        || text.contains("Blue-Environment")
-        || text.contains(MERGED_KEYBINDS_MARKER_START);
+    let keybinds_present = match merged_block_version(&text) {
+        Some(v) => v >= KEYBINDS_BLOCK_VERSION,
+        None => has_required_keybinds(&text),
+    };
     IntegrationStatus {
         config_path: path.to_string_lossy().to_string(),
         config_exists: path.exists(),
@@ -263,34 +292,61 @@ pub struct InstallReport {
     pub message: String,
 }
 
-/// Merges Blue's required keybinds into the user's *existing* `rc.xml`,
-/// rather than only ever writing a config from scratch.
+/// Inserts (or refreshes) Blue's keybind block in `original`; `None` when
+/// the text is not something we can safely edit.
+fn merge_block(original: &str, snippet: &str) -> Option<String> {
+    // Refresh an older merged block in place.
+    if let Some(i) = original.find(MERGED_KEYBINDS_MARKER_START) {
+        let end_rel = original[i..].find(MERGED_KEYBINDS_MARKER_END)?;
+        let end = i + end_rel + MERGED_KEYBINDS_MARKER_END.len();
+        return Some(format!("{}{}{}", &original[..i], snippet, &original[end..]));
+    }
+    // Inserted right before `</keyboard>` so it is the LAST definition of
+    // these keys: labwc lets a later identical keybind replace an earlier
+    // one, so a stale/foreign bind for e.g. A-Tab cannot shadow Blue's.
+    if let Some(idx) = original.rfind("</keyboard>") {
+        let mut s = original.to_string();
+        s.insert_str(idx, &format!("{snippet}\n  "));
+        return Some(s);
+    }
+    for empty in ["<keyboard/>", "<keyboard />"] {
+        if let Some(idx) = original.find(empty) {
+            let mut s = original.to_string();
+            s.replace_range(idx..idx + empty.len(), &format!("<keyboard>\n{snippet}\n  </keyboard>"));
+            return Some(s);
+        }
+    }
+    if let Some(idx) = original.find("</labwc_config>") {
+        let mut s = original.to_string();
+        s.insert_str(idx, &format!("  <keyboard>\n{snippet}\n  </keyboard>\n"));
+        return Some(s);
+    }
+    None
+}
+
+fn backup_then_write(path: &Path, merged: &str) -> Result<PathBuf, String> {
+    let backup_path = path.with_extension(format!("xml.bak-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+    fs::copy(path, &backup_path).map_err(|e| format!("could not create backup at {}: {e}", backup_path.display()))?;
+    fs::write(path, merged).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(backup_path)
+}
+
+/// Makes sure the user's *existing* `rc.xml` reaches the Blue shell for
+/// Win, Win+Win and Alt+Tab, merging (or refreshing) Blue's keybind block
+/// when it does not. Called automatically on every labwc start by
+/// [`ensure_keybinds`], and on demand by Settings → "Repair labwc".
 ///
-/// WHY THIS EXISTS: `ensure_default_config` (above) only ever calls
-/// `write_new`, which does nothing if `rc.xml` already exists — by
-/// design, so Blue never clobbers a hand-tuned config. But that design
-/// means someone who already ran labwc before installing Blue
-/// Environment (an extremely common on-ramp — labwc as a daily-driver
-/// WM, Blue layered on top later) ends up with an `rc.xml` that has
-/// none of Blue's keybinds: no Alt-Tab hookup, no Super-key start menu,
-/// nothing. Every symptom of that ("I click an app and nothing
-/// happens", "Alt-Tab does nothing") looks identical to the backend
-/// misdetection bug fixed in `active()` above, but has a completely
-/// different fix — better backend *detection* can't inject keybindings
-/// into a config file Blue never touched. This is the other half of the
-/// real fix: an explicit, user-triggered, idempotent, backed-up merge.
+/// WHY THIS EXISTS: `ensure_default_config` only ever *creates* files, so
+/// anyone whose `rc.xml` predates Blue (labwc used before, a copied
+/// skeleton, an older Blue-generated file without the Alt+Tab/Win binds)
+/// ended up with a config where those keys silently did nothing — and the
+/// old "already Blue" check, which looked for the *words* "Blue
+/// Environment", happily reported such a file as fine.
 ///
-/// - If `rc.xml` doesn't exist at all, delegates to
-///   `ensure_default_config` instead (nothing to merge into).
-/// - If it exists and already has the marker (or looks like a
-///   Blue-generated file already), does nothing and reports
-///   `changed: false`.
-/// - Otherwise: copies the current file to `rc.xml.bak-<unix-seconds>`,
-///   then inserts the keybinds block right before the first
-///   `</keyboard>` it finds. If there's no `<keyboard>` section at all
-///   (a very stripped-down custom config), inserts a whole new
-///   `<keyboard>…</keyboard>` section right before `</labwc_config>`
-///   instead, so this still works even then.
+/// - No `rc.xml` → delegates to `ensure_default_config`.
+/// - Block present and current / required binds already there → no-op.
+/// - Older merged block → replaced in place.
+/// - Otherwise → backup `rc.xml.bak-<unix-seconds>`, then merge.
 pub fn install_keybinds_into_existing(custom_dir: Option<&Path>) -> Result<InstallReport, String> {
     let path = user_config_dir(custom_dir).join("rc.xml");
     if !path.exists() {
@@ -303,7 +359,11 @@ pub fn install_keybinds_into_existing(custom_dir: Option<&Path>) -> Result<Insta
     }
 
     let original = fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    if original.contains(MERGED_KEYBINDS_MARKER_START) || original.contains("Blue Environment") || original.contains("Blue-Environment") {
+    let up_to_date = match merged_block_version(&original) {
+        Some(v) => v >= KEYBINDS_BLOCK_VERSION,
+        None => has_required_keybinds(&original),
+    };
+    if up_to_date {
         return Ok(InstallReport {
             changed: false,
             backup_path: None,
@@ -313,28 +373,34 @@ pub fn install_keybinds_into_existing(custom_dir: Option<&Path>) -> Result<Insta
 
     let params = params_from_user_settings();
     let snippet = keybinds_snippet(&params);
-
-    let merged = if let Some(idx) = original.find("</keyboard>") {
-        let mut s = original.clone();
-        s.insert_str(idx, &format!("{snippet}\n  "));
-        s
-    } else if let Some(idx) = original.find("</labwc_config>") {
-        let mut s = original.clone();
-        s.insert_str(idx, &format!("  <keyboard>\n{snippet}\n  </keyboard>\n"));
-        s
-    } else {
-        return Err("rc.xml doesn't look like a labwc config (no </keyboard> or </labwc_config> found) — not touching it.".to_string());
-    };
-
-    let backup_path = path.with_extension(format!("xml.bak-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
-    fs::copy(&path, &backup_path).map_err(|e| format!("could not create backup at {}: {e}", backup_path.display()))?;
-    fs::write(&path, &merged).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    let merged = merge_block(&original, &snippet)
+        .ok_or_else(|| "rc.xml doesn't look like a labwc config (no <keyboard> or </labwc_config> found) — not touching it.".to_string())?;
+    let backup_path = backup_then_write(&path, &merged)?;
 
     Ok(InstallReport {
         changed: true,
         backup_path: Some(backup_path.to_string_lossy().to_string()),
         message: "Merged Blue's keybinds into your existing rc.xml. Reload labwc's config (or log out/in) for it to take effect.".to_string(),
     })
+}
+
+/// Start-up hook (see `backend::exec_native`): repairs a pre-existing
+/// `rc.xml` that lacks Blue's keybinds *before* labwc reads it, so Win,
+/// Win+Win and Alt+Tab work on the very first session — no manual repair
+/// step. Never fails the launch: a file we cannot safely edit is left alone.
+pub fn ensure_keybinds(custom_dir: Option<&Path>) -> Option<InstallReport> {
+    let path = user_config_dir(custom_dir).join("rc.xml");
+    if !path.exists() {
+        return None;
+    }
+    match install_keybinds_into_existing(custom_dir) {
+        Ok(r) if r.changed => Some(r),
+        Ok(_) => None,
+        Err(e) => {
+            eprintln!("[blue-backend] could not merge Blue's keybinds into {}: {e}", path.display());
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -476,5 +542,68 @@ mod tests {
         assert!(report.changed);
         assert!(dir.join("rc.xml").exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rc_xml_that_merely_mentions_blue_is_still_repaired() {
+        // An old Blue-generated header / theme name, but none of the binds.
+        let dir = temp_dir("mentions-blue");
+        let old = "<?xml version=\"1.0\"?>\n<!-- Blue Environment — old default -->\n<labwc_config>\n  <theme><name>Blue-Environment</name></theme>\n  <keyboard>\n  </keyboard>\n</labwc_config>\n";
+        fs::write(dir.join("rc.xml"), old).unwrap();
+        assert!(!check_integration(Some(&dir)).keybinds_present);
+        let r = install_keybinds_into_existing(Some(&dir)).unwrap();
+        assert!(r.changed);
+        let merged = fs::read_to_string(dir.join("rc.xml")).unwrap();
+        for c in REQUIRED_CTL_COMMANDS {
+            assert!(merged.contains(&format!("--ctl {c}")), "missing {c}");
+        }
+        assert!(check_integration(Some(&dir)).keybinds_present);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stale_merged_block_is_replaced_not_duplicated() {
+        let dir = temp_dir("stale-block");
+        let v1 = format!(
+            "<labwc_config>\n  <keyboard>\n    <keybind key=\"W-e\"><action name=\"Execute\" command=\"fm\"/></keybind>\n    {MERGED_KEYBINDS_MARKER_START} (safe to remove this block) -->\n    <keybind key=\"A-Tab\"><action name=\"NextWindow\"/></keybind>\n    {MERGED_KEYBINDS_MARKER_END}\n  </keyboard>\n</labwc_config>\n"
+        );
+        fs::write(dir.join("rc.xml"), &v1).unwrap();
+        assert!(!check_integration(Some(&dir)).keybinds_present, "v1 block lacking binds must read as outdated");
+        let r = install_keybinds_into_existing(Some(&dir)).unwrap();
+        assert!(r.changed);
+        let out = fs::read_to_string(dir.join("rc.xml")).unwrap();
+        assert_eq!(out.matches(MERGED_KEYBINDS_MARKER_START).count(), 1);
+        assert_eq!(out.matches(MERGED_KEYBINDS_MARKER_END).count(), 1);
+        assert!(out.contains("fm"), "user's own keybind must survive");
+        assert!(out.contains("--ctl super-tap"));
+        assert!(out.contains(&format!(" v{KEYBINDS_BLOCK_VERSION} ")));
+        // Second run: nothing left to do.
+        assert!(!install_keybinds_into_existing(Some(&dir)).unwrap().changed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_keybinds_is_silent_when_fine_or_absent() {
+        let dir = temp_dir("ensure-noop");
+        assert!(ensure_keybinds(Some(&dir)).is_none(), "no rc.xml: nothing to merge into");
+        fs::write(dir.join("rc.xml"), render(RC_XML, &Params::default())).unwrap();
+        assert!(ensure_keybinds(Some(&dir)).is_none(), "Blue's own full config needs nothing");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_keybinds_repairs_a_foreign_config_and_handles_self_closing_keyboard() {
+        let dir = temp_dir("ensure-repair");
+        fs::write(dir.join("rc.xml"), "<labwc_config>\n  <keyboard/>\n</labwc_config>\n").unwrap();
+        let r = ensure_keybinds(Some(&dir)).expect("should have merged");
+        assert!(r.changed);
+        let out = fs::read_to_string(dir.join("rc.xml")).unwrap();
+        assert!(out.contains("<keyboard>") && out.contains("</keyboard>") && !out.contains("<keyboard/>"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rc_xml_template_has_every_required_bind() {
+        assert!(has_required_keybinds(&render(RC_XML, &Params::default())));
     }
 }
