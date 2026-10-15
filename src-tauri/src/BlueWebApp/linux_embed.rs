@@ -1,12 +1,57 @@
 use gtk::prelude::*;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebView, WebViewExt};
 
+use super::clip::{resolve, IRect};
 use super::snapshot::RawSnapshot;
+
+/// Where a page lives and which part of it may be seen (see `clip.rs`).
+#[derive(Default, Clone, Copy)]
+struct Placed {
+    page: Option<IRect>,
+    clip: Option<IRect>,
+}
 
 thread_local! {
     /// Overlay okna powłoki. Dostępny tylko z głównego wątku GTK.
     static OVERLAY: RefCell<Option<gtk::Overlay>> = const { RefCell::new(None) };
+    /// Per-page placement, keyed by the webview's widget pointer (main GTK thread only).
+    static PLACED: RefCell<HashMap<usize, Placed>> = RefCell::new(HashMap::new());
+}
+
+fn key(w: &WebView) -> usize {
+    w.upcast_ref::<gtk::Widget>().as_ptr() as usize
+}
+
+/// `BLUE_WEB_NO_CLIP=1` restores the plain (unwrapped) embedding: pages are then
+/// only ever shown or hidden as a whole.
+fn clipping_enabled() -> bool {
+    std::env::var_os("BLUE_WEB_NO_CLIP").is_none()
+}
+
+/// The widget that sits in the overlay for this page: the clipping holder
+/// (`GtkViewport`) when there is one, otherwise the webview itself.
+fn top_of(child: &WebView) -> gtk::Widget {
+    match child.parent() {
+        Some(p) if p.is::<gtk::Viewport>() => p,
+        _ => child.clone().upcast(),
+    }
+}
+
+fn holder_of(child: &WebView) -> Option<gtk::Viewport> {
+    child.parent().and_then(|p| p.downcast::<gtk::Viewport>().ok())
+}
+
+fn new_holder() -> gtk::Viewport {
+    let vp = gtk::Viewport::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    vp.set_shadow_type(gtk::ShadowType::None);
+    vp.set_halign(gtk::Align::Start);
+    vp.set_valign(gtk::Align::Start);
+    vp.set_hexpand(false);
+    vp.set_vexpand(false);
+    vp.set_can_focus(false);
+    vp
 }
 
 /// Zwraca overlay powłoki, tworząc go przy pierwszym użyciu.
@@ -73,22 +118,55 @@ fn clamp_i32(v: f64, min: i32, max: i32) -> i32 {
     (v.round() as i64).clamp(min as i64, max as i64) as i32
 }
 
-fn apply_bounds(webview: &WebView, x: f64, y: f64, width: f64, height: f64) {
-    let x = clamp_i32(x, 0, 32767);
-    let y = clamp_i32(y, 0, 32767);
-    let w = clamp_i32(width, 1, 32767);
-    let h = clamp_i32(height, 1, 32767);
+/// Pushes the stored page rectangle + clip into GTK.
+///
+/// With a holder: the holder is the visible window (position via its margins,
+/// size via `size_request`), the page keeps its FULL size inside it and is
+/// scrolled so the right part shows — the page never reflows, it is only cut.
+/// Without one (clipping disabled) the webview is placed directly, as before.
+fn apply_placement(child: &WebView) {
+    let placed = PLACED.with(|m| m.borrow().get(&key(child)).copied().unwrap_or_default());
+    let Some(page) = placed.page else { return };
+    let top = top_of(child);
 
-    if webview.margin_start() != x {
-        webview.set_margin_start(x);
+    if let Some(holder) = holder_of(child) {
+        let pl = resolve(page, placed.clip);
+        set_margins(&top, pl.holder.x, pl.holder.y);
+        set_request(&top, pl.holder.w, pl.holder.h);
+        // The page itself: full size, no margins of its own.
+        set_margins(child.upcast_ref(), 0, 0);
+        set_request(child.upcast_ref(), page.w, page.h);
+        if let Some(h) = holder.hadjustment() {
+            h.configure(pl.offset_x as f64, 0.0, page.w as f64, 1.0, 10.0, pl.holder.w as f64);
+        }
+        if let Some(v) = holder.vadjustment() {
+            v.configure(pl.offset_y as f64, 0.0, page.h as f64, 1.0, 10.0, pl.holder.h as f64);
+        }
+    } else {
+        set_margins(&top, page.x, page.y);
+        set_request(&top, page.w, page.h);
     }
-    if webview.margin_top() != y {
-        webview.set_margin_top(y);
+}
+
+fn set_margins(w: &gtk::Widget, x: i32, y: i32) {
+    if w.margin_start() != x {
+        w.set_margin_start(x);
     }
-    let (cw, ch) = webview.size_request();
-    if cw != w || ch != h {
-        webview.set_size_request(w, h);
+    if w.margin_top() != y {
+        w.set_margin_top(y);
     }
+}
+
+fn set_request(w: &gtk::Widget, width: i32, height: i32) {
+    let (cw, ch) = w.size_request();
+    if cw != width || ch != height {
+        w.set_size_request(width, height);
+    }
+}
+
+fn store_page(child: &WebView, x: f64, y: f64, width: f64, height: f64) {
+    let rect = IRect::new(clamp_i32(x, 0, 32767), clamp_i32(y, 0, 32767), clamp_i32(width, 1, 32767), clamp_i32(height, 1, 32767));
+    PLACED.with(|m| m.borrow_mut().entry(key(child)).or_default().page = Some(rect));
 }
 
 /// Przenosi świeżo utworzony webview-dziecko z `GtkBox` do overlaya i ustawia
@@ -105,41 +183,85 @@ pub fn attach_child(child: &WebView, x: f64, y: f64, width: f64, height: f64) {
         }
     };
 
-    // Już w overlayu? (np. podwójne wywołanie) — tylko zaktualizuj bounds.
-    let already_in_overlay = child
-        .parent()
-        .map(|p| p == overlay.clone().upcast::<gtk::Widget>())
-        .unwrap_or(false);
+    // Już w overlayu (jako holder albo bezpośrednio)? — tylko zaktualizuj bounds.
+    let already_in_overlay = top_of(child).parent().map(|p| p == overlay.clone().upcast::<gtk::Widget>()).unwrap_or(false);
 
     if !already_in_overlay {
         let keep = child.clone();
-        if let Some(parent) = keep
-            .parent()
-            .and_then(|p| p.downcast::<gtk::Container>().ok())
-        {
+        if let Some(parent) = keep.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
             parent.remove(&keep);
         }
-        overlay.add_overlay(&keep);
+        if clipping_enabled() {
+            let holder = new_holder();
+            holder.add(&keep);
+            overlay.add_overlay(&holder);
+        } else {
+            overlay.add_overlay(&keep);
+        }
     }
 
     child.set_halign(gtk::Align::Start);
     child.set_valign(gtk::Align::Start);
     child.set_hexpand(false);
     child.set_vexpand(false);
-    overlay.set_overlay_pass_through(child, false);
+    let top = top_of(child);
+    overlay.set_overlay_pass_through(&top, false);
     // Najnowsze dziecko na wierzch (nad ewentualnymi starszymi kartami).
-    overlay.reorder_overlay(child, -1);
+    overlay.reorder_overlay(&top, -1);
 
-    apply_bounds(child, x, y, width, height);
-    child.show_all();
+    store_page(child, x, y, width, height);
+    apply_placement(child);
+    top.show_all();
     overlay.queue_resize();
 }
 
 /// Aktualizuje pozycję i rozmiar webview-dziecka. Główny wątek GTK.
 pub fn set_bounds(child: &WebView, x: f64, y: f64, width: f64, height: f64) {
-    apply_bounds(child, x, y, width, height);
+    store_page(child, x, y, width, height);
+    apply_placement(child);
     if let Some(overlay) = OVERLAY.with(|c| c.borrow().clone()) {
         overlay.queue_resize();
+    }
+}
+
+/// Cuts the live page to `clip` (shell coordinates), or shows it whole for
+/// `None`. Returns `false` when this page has no clipping holder, so the
+/// caller can fall back to hiding it.
+pub fn set_clip(child: &WebView, clip: Option<(f64, f64, f64, f64)>) -> bool {
+    if holder_of(child).is_none() {
+        return false;
+    }
+    let rect = clip.map(|(x, y, w, h)| IRect::new(clamp_i32(x, 0, 32767), clamp_i32(y, 0, 32767), clamp_i32(w, 1, 32767), clamp_i32(h, 1, 32767)));
+    PLACED.with(|m| m.borrow_mut().entry(key(child)).or_default().clip = rect);
+    apply_placement(child);
+    if let Some(overlay) = OVERLAY.with(|c| c.borrow().clone()) {
+        overlay.queue_resize();
+    }
+    true
+}
+
+/// Shows / hides the page together with its holder (an empty but visible
+/// holder would still swallow clicks meant for the shell underneath).
+pub fn set_visible(child: &WebView, visible: bool) {
+    let top = top_of(child);
+    if visible {
+        top.show();
+        child.show();
+    } else {
+        top.hide();
+    }
+}
+
+/// Takes the page out of its holder and the overlay before it is closed, so
+/// nothing is left behind (an empty holder would keep catching clicks).
+pub fn detach(child: &WebView) {
+    PLACED.with(|m| m.borrow_mut().remove(&key(child)));
+    if let Some(holder) = holder_of(child) {
+        let keep = child.clone();
+        holder.remove(&keep);
+        if let Some(parent) = holder.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
+            parent.remove(&holder);
+        }
     }
 }
 
@@ -147,7 +269,7 @@ pub fn set_bounds(child: &WebView, x: f64, y: f64, width: f64, height: f64) {
 /// do DOM-u powłoki (używane na czas przeciągania/zmiany rozmiaru okna).
 pub fn set_interactive(child: &WebView, interactive: bool) {
     if let Some(overlay) = OVERLAY.with(|c| c.borrow().clone()) {
-        overlay.set_overlay_pass_through(child, !interactive);
+        overlay.set_overlay_pass_through(&top_of(child), !interactive);
     }
 }
 
