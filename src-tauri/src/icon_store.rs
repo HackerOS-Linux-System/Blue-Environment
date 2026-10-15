@@ -19,6 +19,11 @@ fn archive_kind(file_name: &str) -> Option<Kind> {
     None
 }
 
+/// Can [`install_archive_into`] unpack a file with this name?
+pub(crate) fn is_supported_archive_name(file_name: &str) -> bool {
+    archive_kind(file_name).is_some()
+}
+
 /// A single archive member path is acceptable only if it stays inside the extraction root.
 fn is_safe_member(name: &str) -> bool {
     if name.is_empty() || name.contains('\0') { return false; }
@@ -222,7 +227,7 @@ pub fn install_archive_into(archive: &Path, icons_root: &Path) -> Result<Vec<Str
 
 // ── Tauri commands ──────────────────────────────────────────────────────
 
-fn user_icon_roots() -> Vec<PathBuf> {
+pub(crate) fn user_icon_roots() -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_default();
     vec![home.join(".local/share/icons"), home.join(".icons")]
 }
@@ -243,13 +248,20 @@ pub struct IconThemeInfo {
     pub active: bool,
 }
 
-/// Installs an icon-theme archive (as downloaded from the KDE Store) for the current user.
-#[tauri::command(async)]
-pub fn icon_store_install(path: String) -> Result<Vec<String>, String> {
+/// Unpacks `archive` into `~/.local/share/icons` and refreshes the icon caches —
+/// the single place "an icon theme gets installed", shared by the file-based
+/// command below and the Blue Software store (`icon_store_ocs`).
+pub(crate) fn install_into_user_icons(archive: &Path) -> Result<Vec<String>, String> {
     let root = user_icon_roots().remove(0);
-    let installed = install_archive_into(Path::new(&path), &root)?;
+    let installed = install_archive_into(archive, &root)?;
     refresh_icon_caches();
     Ok(installed)
+}
+
+/// Installs an icon-theme archive (e.g. one already on disk) for the current user.
+#[tauri::command(async)]
+pub fn icon_store_install(path: String) -> Result<Vec<String>, String> {
+    install_into_user_icons(Path::new(&path))
 }
 
 /// Every installed icon theme (system + user), with whether it can be removed.
