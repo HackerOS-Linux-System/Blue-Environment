@@ -31,19 +31,18 @@
   // cannot be partially occluded by DOM, so the only correct way to let
   // something cover it is to HIDE it (`web_view_set_visible`).
   //
-  // Hiding used to leave an empty "in the background" placeholder where
-  // the page had been — whenever another window was on top, or the person
-  // so much as opened a menu. Now:
-  //   1. the page is hidden ONLY when something really overlaps its
-  //      rectangle (`occlusion.ts`: windows stacked above it, plus every
-  //      shell overlay that carries `data-shell-occluder`) — a window
-  //      elsewhere on screen, or a widget in another corner, changes nothing,
-  //      and the page stays live (video keeps playing, links stay clickable);
-  //   2. right before it is hidden, a snapshot of the page is taken
-  //      (`web_view_snapshot`) and painted in the DOM placeholder, so the
-  //      page is still SEEN — just underneath whatever covers it — instead
-  //      of vanishing. When a platform can't take snapshots, a neutral card
-  //      with the page's title takes its place.
+  // Covering is handled without ever freezing the page or taking pictures of it:
+  //   1. nothing overlaps the page's rectangle (`occlusion.ts`: windows stacked
+  //      above it, plus every shell overlay that carries `data-shell-occluder`)
+  //      -> the page is left completely alone;
+  //   2. something overlaps only PART of it -> the native surface is CLIPPED
+  //      (`web_view_set_clip`) to the largest uncovered rectangle. The page keeps
+  //      running at its full size underneath whatever covers it - video plays,
+  //      animations move, links work - and never reflows;
+  //   3. it is covered (almost) completely -> it is hidden. Nothing visible is
+  //      lost: there is nothing left to see, so no placeholder picture is needed.
+  // Platforms that cannot clip (`clip-unsupported`) fall back to hiding the page
+  // whenever anything overlaps it, behind a neutral card with the page's title.
   // `reconcileVisibility()` below is the only place that shows/hides.
   import { onMount, onDestroy, tick } from 'svelte';
   import { Plus, X, Globe, ExternalLink, Search, ZoomIn, ZoomOut, ArrowUp, ArrowDown, EyeOff, Download } from 'lucide-svelte';
@@ -53,7 +52,7 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { windows, activeWindowId, focusWindow } from '../../../stores/windowManager';
   import { get } from 'svelte/store';
-  import { isCovered, windowsAbove, type Rect } from './occlusion';
+  import { classifyCoverage, sameRect, windowsAbove, type Rect } from './occlusion';
   import { blockingOverlayOpen, windowInteracting } from '../../../stores/overlayState';
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
@@ -110,7 +109,7 @@
 
   const {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, snapshot,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
   } = createTabs(
     handleNavigate, handleFavicon, () => $settings.searchEngine, () => $settings.defaultZoom,
     // getBounds / getShouldBeVisible — let tabs.ts measure the content area itself
@@ -142,35 +141,44 @@
   $: zoomPct = Math.round((activeTab.zoom ?? 1) * 100);
 
   // ── Visibility ──────────────────────────────────────────────────────
-  /** Something (a window above this one, a shell overlay) covers the page right now. */
+  /** The page is (almost) completely covered right now, so it is hidden. */
   let occluded = false;
   /** Whether the native page may be shown. The single input to `reconcileVisibility`. */
   $: wantVisible = !occluded && !settingsOpen;
   // Kept for tabs.ts's `getShouldBeVisible` (a freshly created webview asks right away).
   $: webviewShouldBeVisible = wantVisible;
 
-  /** What the native layer currently shows: `nativeHidden` ⇒ the DOM placeholder is on view. */
+  /** What the native layer currently shows: `nativeHidden` => the DOM placeholder is on view. */
   let nativeHidden = false;
   let shownTabId: string | null = null;
-  /** Last snapshot per tab (JPEG data URL) — what the placeholder paints while the page is covered. */
-  let snapshots: Record<string, string> = {};
-  let snapshotFailures = 0;
-  const SNAPSHOT_GIVE_UP_AFTER = 3;
-  const SNAPSHOT_WAIT_MS = 450;
+
+  /** The part of the page that should be visible (`null` = all of it). Recomputed every frame. */
+  let desiredClip: Rect | null = null;
+  /** What the backend was last told, per tab (every tab's native surface keeps its own clip). */
+  let appliedClip: Record<string, Rect | null> = {};
+  /** Flips to false the first time the platform answers `clip-unsupported`. */
+  let clipSupported = true;
+  let pushingClip = false;
 
   let reconciling = false;
   let reconcileAgain = false;
 
   const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-  /** Snapshot the shown page (bounded wait), remembering whatever arrives, even late. */
-  async function captureSnapshot(tabId: string) {
-    if (snapshotFailures >= SNAPSHOT_GIVE_UP_AFTER || !hasLiveWebview(tabId)) return;
-    const pending = snapshot(tabId).then((shot) => {
-      if (shot) { snapshots = { ...snapshots, [tabId]: shot }; snapshotFailures = 0; }
-      else snapshotFailures += 1;
-    });
-    await Promise.race([pending, new Promise<void>((r) => setTimeout(r, SNAPSHOT_WAIT_MS))]);
+  /** Tells the backend to cut tab `id`'s page to `clip` (`null` = whole page). Never throws. */
+  async function pushClip(id: string, clip: Rect | null) {
+    if (!SystemBridge.isTauri() || !hasLiveWebview(id)) return;
+    if (id in appliedClip && sameRect(appliedClip[id], clip)) return;
+    try {
+      await SystemBridge.invokeCommand('web_view_set_clip', clip ? { tabId: id, ...clip } : { tabId: id });
+      appliedClip = { ...appliedClip, [id]: clip };
+    } catch (e: any) {
+      if (String(e?.message ?? e).includes('clip-unsupported')) {
+        clipSupported = false;
+        appliedClip = { ...appliedClip, [id]: null };
+      }
+      /* anything else: retried on the next frame */
+    }
   }
 
   /**
@@ -187,6 +195,8 @@
         const id = $activeId;
         if (want) {
           if (nativeHidden || shownTabId !== id) {
+            // Cut the page BEFORE it is shown, so it never flashes above whatever covers it.
+            await pushClip(id, desiredClip);
             await setActiveWebview(id);
             shownTabId = id;
             lastRect = null; // fresh bounds push for the (re)shown page on the next frame
@@ -194,8 +204,7 @@
             nativeHidden = false;
           }
         } else if (!nativeHidden) {
-          // Capture while the page is still on screen, paint it underneath, THEN hide it.
-          if (shownTabId) await captureSnapshot(shownTabId);
+          // Fully covered (or clipping unavailable): nothing worth keeping on screen, just hide it.
           nativeHidden = true;
           await tick();
           await nextFrame();
@@ -233,12 +242,16 @@
     return { x: r.left, y: r.top, width: r.width, height: r.height };
   }
 
-  /** Per frame: is the page's rectangle covered by a window above it or by a shell overlay? */
-  function computeOccluded(): boolean {
+  /** Per frame: how much of the page's rectangle is covered by a window above it or a shell overlay? */
+  function computeCoverage(): { hide: boolean; clip: Rect | null } {
     const page = measureRect();
-    if (!page) return false; // nothing laid out, nothing to cover
+    if (!page) return { hide: false, clip: null }; // nothing laid out, nothing to cover
     const covers = coverRects();
-    return covers === null ? true : isCovered(page, covers);
+    if (covers === null) return { hide: true, clip: null }; // an overlay of unknown size: be safe
+    const c = classifyCoverage(page, covers);
+    if (c.kind === 'none') return { hide: false, clip: null };
+    if (c.kind === 'full' || !clipSupported) return { hide: true, clip: null };
+    return { hide: false, clip: c.clip };
   }
 
   function measureRect() {
@@ -325,10 +338,20 @@
   let pushingBounds = false;
   function syncLoop() {
     if (!activeTab.isNew && !settingsOpen) {
-      const covered = computeOccluded();
-      if (covered !== occluded) occluded = covered;
-    } else if (occluded) {
-      occluded = false;
+      const cov = computeCoverage();
+      if (cov.hide !== occluded) occluded = cov.hide;
+      desiredClip = cov.clip;
+    } else {
+      if (occluded) occluded = false;
+      desiredClip = null;
+    }
+    // Keep the live page cut to what is visible (one request in flight at a time).
+    if (wantVisible && !nativeHidden && !pushingClip && hasLiveWebview($activeId)) {
+      const tabId = $activeId;
+      if (!(tabId in appliedClip) ? desiredClip !== null : !sameRect(appliedClip[tabId], desiredClip)) {
+        pushingClip = true;
+        pushClip(tabId, desiredClip).finally(() => { pushingClip = false; });
+      }
     }
     if (wantVisible && !nativeHidden && !pushingBounds) {
       const rect = measureRect();
@@ -538,27 +561,22 @@
         {/if}
       </div>
       {#if nativeHidden}
-        <!-- The native page is hidden because something covers it (see the module doc). The page
-             stays visible anyway: this is the snapshot taken an instant before it was hidden,
-             painted in the DOM — i.e. underneath whatever covers it. It lines up with the
-             webview's own bounds (side panel / find bar are excluded exactly like in
-             `measureRect`) and ignores the pointer, so a click falls through to the window
-             (which focuses it). With no snapshot available a neutral card stands in. -->
+        <!-- The native page is hidden because it is (almost) completely covered, or because this
+             platform cannot clip it (see the module doc). Nothing of the page is faked: a neutral
+             card with its title stands in, aligned with the webview's bounds (side panel / find bar
+             excluded like in `measureRect`), and it ignores the pointer so a click falls through
+             to the window (which focuses it). -->
         <div class="absolute overflow-hidden bg-slate-900 pointer-events-none"
           style="left:0; bottom:0; top:{findBarOpen ? 44 : 0}px; right:{panel === 'none' ? 0 : 288}px;">
-          {#if snapshots[$activeId]}
-            <img src={snapshots[$activeId]} alt="" draggable="false" class="block w-full h-full object-cover object-left-top select-none" />
-          {:else}
-            <div class="flex flex-col items-center justify-center gap-3 h-full px-8 text-center">
-              {#if activeTab.favicon}
-                <img src={activeTab.favicon} alt="" class="w-10 h-10 rounded-lg" />
-              {:else}
-                <div class="w-12 h-12 rounded-2xl bg-slate-800 border border-white/5 flex items-center justify-center"><Globe size={22} class="text-slate-500" /></div>
-              {/if}
-              <p class="text-sm text-slate-300 font-medium max-w-md truncate">{activeTab.title}</p>
-              <p class="text-xs text-slate-600 font-mono max-w-md truncate">{activeTab.url}</p>
-            </div>
-          {/if}
+          <div class="flex flex-col items-center justify-center gap-3 h-full px-8 text-center">
+            {#if activeTab.favicon}
+              <img src={activeTab.favicon} alt="" class="w-10 h-10 rounded-lg" />
+            {:else}
+              <div class="w-12 h-12 rounded-2xl bg-slate-800 border border-white/5 flex items-center justify-center"><Globe size={22} class="text-slate-500" /></div>
+            {/if}
+            <p class="text-sm text-slate-300 font-medium max-w-md truncate">{activeTab.title}</p>
+            <p class="text-xs text-slate-600 font-mono max-w-md truncate">{activeTab.url}</p>
+          </div>
         </div>
       {/if}
     {/if}
