@@ -7,6 +7,7 @@ use tauri::webview::{DownloadEvent, NewWindowResponse};
 
 mod content_blocking;
 mod snapshot;
+mod clip;
 pub mod capability_selftest;
 // Linux-only: poprawne osadzanie webview-dzieci (GtkOverlay) — patrz
 // `linux_embed.rs` (bez tego strona renderuje się POD powłoką, a nie w oknie).
@@ -599,7 +600,54 @@ pub fn web_view_set_interactive(registry: tauri::State<WebViewRegistry>, tab_id:
 pub fn web_view_set_visible(registry: tauri::State<WebViewRegistry>, tab_id: String, visible: bool) -> Result<(), String> {
     let reg = registry.0.lock().unwrap();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
-    if visible { webview.show().map_err(|e| e.to_string()) } else { webview.hide().map_err(|e| e.to_string()) }
+    if visible { webview.show().map_err(|e| e.to_string())?; } else { webview.hide().map_err(|e| e.to_string())?; }
+    // Linux: the page sits in a clipping holder, which must follow.
+    #[cfg(target_os = "linux")]
+    webview.with_webview(move |pw| linux_embed::set_visible(&pw.inner(), visible)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Cuts the page to the part of it that is really visible — everything that
+/// overlaps it (another window, a menu) is simply not drawn, while the page
+/// itself keeps running underneath. `width`/`height` of `0` (or no rect) clears
+/// the clip. Coordinates are shell pixels, like `web_view_set_bounds`.
+///
+/// `Err("clip-unsupported")` is a normal answer (non-Linux, or clipping turned
+/// off with `BLUE_WEB_NO_CLIP`): the frontend then hides covered pages instead.
+#[tauri::command(async)]
+pub fn web_view_set_clip(
+    registry: tauri::State<WebViewRegistry>,
+    tab_id: String,
+    x: Option<f64>,
+    y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
+) -> Result<(), String> {
+    let webview = {
+        let reg = registry.0.lock().unwrap();
+        let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+        webview.clone()
+    };
+    let clip = match (x, y, width, height) {
+        (Some(x), Some(y), Some(w), Some(h)) if w >= 1.0 && h >= 1.0 && [x, y, w, h].iter().all(|v| v.is_finite()) => Some((x, y, w, h)),
+        _ => None,
+    };
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        webview
+            .with_webview(move |pw| {
+                let _ = tx.send(linux_embed::set_clip(&pw.inner(), clip));
+            })
+            .map_err(|e| e.to_string())?;
+        let ok = rx.recv_timeout(std::time::Duration::from_secs(2)).map_err(|_| "clip timed out".to_string())?;
+        return if ok { Ok(()) } else { Err("clip-unsupported".to_string()) };
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (webview, clip);
+        Err("clip-unsupported".to_string())
+    }
 }
 
 /// Renders what a tab's webview currently shows into a compact JPEG `data:` URL.
@@ -661,6 +709,8 @@ pub fn web_view_history_go(registry: tauri::State<WebViewRegistry>, tab_id: Stri
 #[tauri::command(async)]
 pub fn web_view_close(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
     if let Some(webview) = registry.0.lock().unwrap().remove(&tab_id) {
+        #[cfg(target_os = "linux")]
+        let _ = webview.with_webview(|pw| linux_embed::detach(&pw.inner()));
         webview.close().map_err(|e| e.to_string())?;
     }
     Ok(())
