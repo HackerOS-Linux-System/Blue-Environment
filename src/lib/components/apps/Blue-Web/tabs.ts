@@ -311,22 +311,6 @@ export function createTabs(
     }
   }
 
-  /**
-   * A JPEG `data:` URL of what tab `id`'s page currently shows, or `null` when that
-   * isn't possible (not Tauri, no live webview, a platform without snapshot support,
-   * a render WebKit couldn't read back). Must be called while the webview is still
-   * shown — a hidden webview can't be rendered.
-   */
-  async function snapshot(id: string): Promise<string | null> {
-    if (!SystemBridge.isTauri() || !liveWebviews.has(id)) return null;
-    try {
-      const shot = await SystemBridge.invokeCommand<string>('web_view_snapshot', { tabId: id });
-      return typeof shot === 'string' && shot.startsWith('data:image/') ? shot : null;
-    } catch {
-      return null;
-    }
-  }
-
   /** Click-through toggle for every live webview (window drag/resize guard). */
   async function setInteractive(interactive: boolean) {
     if (!SystemBridge.isTauri()) return;
@@ -380,6 +364,6 @@ export function createTabs(
 
   return {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, snapshot,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
   };
 }
