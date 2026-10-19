@@ -15,6 +15,8 @@ import {
   Download,
   ShieldCheck,
   LifeBuoy,
+  HardDriveDownload,
+  History,
 } from 'lucide-svelte';
 import type { AppDefinition } from './types';
 import { AppId } from './types';
@@ -37,6 +39,9 @@ import BlueNewsAppLazy from './components/apps/Blue-News-App/BlueNewsAppLazy.sve
 import BlueAI from './components/apps/Blue-AI/BlueAI.svelte';
 import BlueVideoApp from './components/apps/Blue-Video/BlueVideoApp.svelte';
 import BlueArchiveApp from './components/apps/Blue-Archive-App/BlueArchiveApp.svelte';
+import BlueMediaWriterApp from './components/apps/Blue-Media-Writer-App/BlueMediaWriterApp.svelte';
+import BluePdfApp from './components/apps/Blue-Pdf-App/BluePdfApp.svelte';
+import BlueBackupApp from './components/apps/Blue-Backup-App/BlueBackupApp.svelte';
 import BlueDownloaderApp from './components/apps/Blue-Downloader-App/BlueDownloaderApp.svelte';
 import BlueSoftwareApp from './components/apps/Blue-Software/BlueSoftwareApp.svelte';
 import BlueWebApp from './components/apps/Blue-Web/BlueWebApp.svelte';
@@ -115,9 +120,12 @@ export const APPS: Record<AppId, AppDefinition> = {
   [AppId.BLUE_PARTITION_MANAGER]: { id: AppId.BLUE_PARTITION_MANAGER, title: 'Blue Partition Manager', icon: HardDrive, component: BluePartitionManager, defaultWidth: 820, defaultHeight: 600 },
   [AppId.BLUE_PLAY]: { id: AppId.BLUE_PLAY, title: 'Blue Play', icon: Gamepad2, component: BluePlay, defaultWidth: 780, defaultHeight: 640 },
   [AppId.BLUE_MESSAGES]: { id: AppId.BLUE_MESSAGES, title: 'Blue Messages', icon: MessageSquare, component: BlueMessagesAppLazy, defaultWidth: 880, defaultHeight: 640 },
-  [AppId.BLUE_CONNECT]: { id: AppId.BLUE_CONNECT, title: 'Blue Connect', icon: Radio, component: BlueConnectAppLazy, defaultWidth: 720, defaultHeight: 560 },
+  [AppId.BLUE_CONNECT]: { id: AppId.BLUE_CONNECT, title: 'Blue Connect', icon: Radio, component: BlueConnectAppLazy, defaultWidth: 980, defaultHeight: 680 },
   [AppId.BLUE_ACCOUNTS]: { id: AppId.BLUE_ACCOUNTS, title: 'Blue Accounts', icon: KeyRound, component: BlueAccountsAppLazy, defaultWidth: 820, defaultHeight: 600 },
   [AppId.BLUE_VIRT]: { id: AppId.BLUE_VIRT, title: 'Blue Virt', icon: MonitorPlay, component: BlueVirtAppLazy, defaultWidth: 900, defaultHeight: 640 },
   [AppId.BLUE_SECURITY]: { id: AppId.BLUE_SECURITY, title: 'Blue Security and Privacy', icon: ShieldCheck, component: BlueSecurityAppLazy, defaultWidth: 480, defaultHeight: 680 },
   [AppId.BLUE_HELP]: { id: AppId.BLUE_HELP, title: 'Blue Help', icon: LifeBuoy, component: BlueHelpAppLazy, defaultWidth: 880, defaultHeight: 620 },
+  [AppId.BLUE_MEDIA_WRITER]: { id: AppId.BLUE_MEDIA_WRITER, title: 'Blue Media Writer', icon: HardDriveDownload, component: BlueMediaWriterApp, defaultWidth: 640, defaultHeight: 560 },
+  [AppId.BLUE_PDF]: { id: AppId.BLUE_PDF, title: 'Blue PDF', icon: FileText, component: BluePdfApp, defaultWidth: 960, defaultHeight: 700 },
+  [AppId.BLUE_BACKUP]: { id: AppId.BLUE_BACKUP, title: 'Blue Backup', icon: History, component: BlueBackupApp, defaultWidth: 720, defaultHeight: 580 },
 };
