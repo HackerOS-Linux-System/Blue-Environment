@@ -12,7 +12,8 @@ import { configStore } from './configStore';
  * `xdg-open`, i.e. to whatever the host distro had registered — never to
  * Blue Images / Blue Archive / Blue Video / Blue Music. Now the shell's own
  * apps are the defaults, and `xdg-open` is only the last resort for formats
- * the shell has no app for (PDF, office documents…).
+ * the shell has no app for (office documents…). PDFs open in Blue PDF and
+ * disk images (.iso/.img) in Blue Media Writer.
  */
 export interface OpenableFile { path: string; name: string; mime_type?: string; }
 
@@ -21,16 +22,22 @@ const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'a
 const VIDEO_EXT = new Set(['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'm4v', 'ogv']);
 const AUDIO_EXT = new Set(['mp3', 'flac', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'wma']);
 const ARCHIVE_EXT = new Set(['zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar', 'zst', 'lz4', 'tgz', 'tbz2', 'txz']);
+const PDF_EXT = new Set(['pdf']);
+/** Raw disk images → Blue Media Writer (also compressed: .img.xz, .raw.gz …). */
+const DISK_IMAGE_RE = /\.(iso|img|raw)(\.(xz|gz|zst|bz2))?$/i;
 const HACKER_EXT = new Set(['h#', 'hl', 'hcs', 'hk', 'hacker']);
 const ARCHIVE_MIME = /(zip|x-tar|x-7z|x-rar|gzip|x-bzip|x-xz|zstd|x-compressed)/;
 
-export type FileKind = 'image' | 'video' | 'audio' | 'archive' | 'text' | 'hacker' | 'blue' | 'other';
+export type FileKind = 'image' | 'video' | 'audio' | 'archive' | 'pdf' | 'diskimage' | 'text' | 'hacker' | 'blue' | 'other';
 
 export function classifyFile(f: OpenableFile): FileKind {
   const e = ext(f.name);
   const m = f.mime_type ?? '';
   if (e === 'blue') return 'blue';
   if (HACKER_EXT.has(e)) return 'hacker';
+  // Disk images first: `.img.xz` would otherwise be taken for a generic archive.
+  if (DISK_IMAGE_RE.test(f.name)) return 'diskimage';
+  if (PDF_EXT.has(e) || m === 'application/pdf') return 'pdf';
   // `.ts` is ambiguous (TypeScript vs MPEG transport stream): trust the MIME type.
   if (m.startsWith('image/') || IMAGE_EXT.has(e)) return 'image';
   if (m.startsWith('video/') || (VIDEO_EXT.has(e))) return 'video';
@@ -52,6 +59,8 @@ export async function openFileWithDefaultApp(f: OpenableFile, openBlueManifest?:
     case 'video': launch(AppId.BLUE_VIDEOS); return true;
     case 'audio': launch(AppId.BLUE_MUSIC); return true;
     case 'archive': launch(AppId.BLUE_ARCHIVE); return true;
+    case 'pdf': launch(AppId.BLUE_PDF); return true;
+    case 'diskimage': launch(AppId.BLUE_MEDIA_WRITER); return true;
     case 'text':
     case 'hacker': openApp(textEditorApp(), false, undefined, { openPath: f.path }); return true;
     case 'blue':
