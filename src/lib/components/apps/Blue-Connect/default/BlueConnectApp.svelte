@@ -14,6 +14,15 @@
   import { SystemBridge } from '../../../../utils/systemBridge';
   import LoadingSpinner from '../../../LoadingSpinner.svelte';
   import type { DiscoveredDevice, DeviceType } from './types';
+  import PhonePanel from './PhonePanel.svelte';
+  import KdeConnectPanel from './KdeConnectPanel.svelte';
+  import RemotePanel from './RemotePanel.svelte';
+
+  // Tabs: the original LAN pairing view, the Android phone (adb) view and the KDE Connect bridge.
+  type ConnectTab = 'devices' | 'phone' | 'remote' | 'kde';
+  // On the TV UI the Remote tab (pair a phone as a remote) is the point of Blue Connect.
+  let tab: ConnectTab = typeof document !== 'undefined' && document.querySelector('[data-alt-shell="tv"]') ? 'remote' : 'phone';
+  const setConnectTab = (id: string) => { tab = id as ConnectTab; };
 
   export let windowId: string;
   // Every app is handed its window id; this one doesn't need it.
@@ -170,6 +179,14 @@
     </div>
   </div>
 
+  <div class="px-4 pt-2 border-b border-white/10 flex gap-1 text-xs" role="tablist">
+    {#each [['phone', 'blueconnect.tab.phone'], ['remote', 'blueconnect.tab.remote'], ['devices', 'blueconnect.tab.devices'], ['kde', 'blueconnect.tab.kde']] as [id, label]}
+      <button role="tab" aria-selected={tab === id} on:click={() => setConnectTab(id)}
+        class="px-3 py-1.5 rounded-t-lg border-b-2 transition-colors {tab === id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}">{$t(label)}</button>
+    {/each}
+  </div>
+
+  {#if tab === 'devices'}
   <div class="px-4 py-2 border-b border-white/5 flex items-start gap-1.5 text-[11px] text-slate-500">
     <Info class="w-3 h-3 shrink-0 mt-0.5" />
     {$t('blueconnect.security_note')}
@@ -218,6 +235,13 @@
       </div>
     {/if}
   </div>
+  {:else if tab === 'phone'}
+    <PhonePanel />
+  {:else if tab === 'remote'}
+    <RemotePanel />
+  {:else}
+    <KdeConnectPanel />
+  {/if}
 
   {#if sasDialog}
     <div class="absolute inset-0 bg-black/60 flex items-center justify-center z-20">
