@@ -3,6 +3,7 @@
   import { ShieldCheck, Lock, Clock, Ban, KeyRound } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
   import { t } from '../../../../stores/language';
+  import ParentalSystemCard from './ParentalSystemCard.svelte';
 
   // Same static app list used by AppsSection.svelte, for a consistent
   // set of "known apps" across both sections rather than inventing a
@@ -21,6 +22,7 @@
     usage_minutes_today: Record<string, number>;
     allowed_hours_start: string | null;
     allowed_hours_end: string | null;
+    daily_total_limit_minutes?: number | null;
   }
 
   let pinSet = false;
@@ -242,6 +244,10 @@
         </div>
       {/if}
     </div>
+
+    <!-- System-level enforcement: a root service that applies hours / limits per user id,
+         whatever session or TTY the account is on (see parental_enforcer.rs). -->
+    <ParentalSystemCard pin={sessionPin} totalLimit={cfg.daily_total_limit_minutes ?? null} on:changed={refresh} />
 
     <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-3">
       <h3 class="text-white font-medium">{$t('settings.parental.change_pin')}</h3>
