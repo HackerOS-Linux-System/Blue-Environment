@@ -6,6 +6,8 @@ use std::time::Duration;
 /// Commands accepted over the socket. Anything else is rejected.
 pub const COMMANDS: &[&str] = &[
     "toggle-start-menu",
+    // Spotlight search overlay (files, apps, settings, calendar, mail, calculator).
+    "toggle-spotlight",
     // Win tapped on its own (labwc `Super_L`/`Super_R` onRelease). The shell
     // decides menu / full-screen menu (Win+Win) itself. Optional argument:
     // the client's CLOCK_MONOTONIC milliseconds.
