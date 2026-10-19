@@ -4,4 +4,5 @@ export type SettingsTab =
   | 'apps' | 'default_apps' | 'monitors' | 'printers' | 'users'
   | 'accounts' | 'about' | 'security' | 'parental_controls'
   | 'screen_time' | 'cloned_apps' | 'keyboard' | 'file_types'
-  | 'bar' | 'hotCorners' | 'shellUpdates' | 'devices';
+  | 'bar' | 'hotCorners' | 'shellUpdates' | 'devices'
+  | 'accessibility' | 'dnd';
