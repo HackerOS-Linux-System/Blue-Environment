@@ -1,0 +1,14 @@
+[Unit]
+Description=Blue Environment parental-controls enforcement
+After=systemd-logind.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/blue-environment --parental-enforce
+Restart=always
+RestartSec=5
+# The service reads /proc, calls loginctl and signals the child's processes, so it must
+# stay root (do not add User= here). It is identical to the unit the app writes itself.
+
+[Install]
+WantedBy=multi-user.target
