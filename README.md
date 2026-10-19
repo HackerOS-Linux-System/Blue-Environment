@@ -43,6 +43,21 @@ Production-grade Wayland desktop environment for HackerOS, built on
 - **Responsive apps** — Settings, Files and Blue Software switch to a
   single-column, list → detail layout when their window is narrow (and on the
   phone UI), so they are usable on a small touch screen.
+- **Blue Connect — phone, remote and KDE Connect** — besides LAN discovery and
+  pairing, Blue Connect now shows and controls an **Android phone inside the
+  shell** (live screen, touch / keyboard, apps, unlock, files, notifications,
+  calls & SMS, screenshots), turns a phone into a **remote control** for a Blue
+  Environment **TV** (or any Blue Environment), and bridges to **KDE Connect**.
+- **Blue Media Writer** — writes `.iso` / `.img` (also `.xz`/`.gz`/`.zst`/`.bz2`)
+  to USB sticks and SD cards, with a download catalog, checksum check,
+  verify-after-write and a "restore drive" mode (inspired by Fedora Media Writer).
+- **Blue Backup** — incremental, browsable snapshots (rsync hard links) with
+  retention, restore and a systemd user timer. **Blue PDF** — built-in PDF reader.
+- **Spotlight search** (apps, files, Settings, calendar, mail, calculator),
+  **printer management** (CUPS), a **multi-monitor layout editor** (wlroots),
+  **accessibility** (high contrast, text size, magnifier, Orca) and **Do Not Disturb**.
+- **System-level Parental Controls** — a root service enforces hours and limits
+  per user id on every session and TTY (see *Features in depth*).
 - **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
   openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
   Void as submission-ready templates — see `packaging/`).
@@ -52,16 +67,13 @@ Production-grade Wayland desktop environment for HackerOS, built on
 ### Prerequisites
 
 ```bash
-# System packages (Debian/Ubuntu/HackerOS)
+# System packages (Debian/Ubuntu/HackerOS) — the Tauri 2 build dependencies.
+# (Same list the CI uses in .github/workflows/test.yml.)
 sudo apt install \
-    build-essential curl git \
-    libssl-dev libgbm-dev libseat-dev \
-    libinput-dev libxkbcommon-dev \
-    libudev-dev libdrm-dev \
-    libgtk-3-dev libwebkit2gtk-4.0-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev pkg-config \
-    seatd
+    build-essential curl git pkg-config \
+    libssl-dev libudev-dev \
+    libgtk-3-dev libwebkit2gtk-4.1-dev \
+    libayatana-appindicator3-dev librsvg2-dev
 
 # wmctrl/xdotool are OPTIONAL — only used as a fallback when the shell
 # isn't actually running under HackerOS-Comp (e.g. a nested dev session
@@ -79,13 +91,14 @@ sudo apt install nodejs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
-# Tauri CLI v1
-cargo install tauri-cli --version "^1"
+# Tauri CLI v2 (matches `tauri = "2"` in src-tauri/Cargo.toml; `npm install`
+# also provides it as `npx tauri`)
+cargo install tauri-cli --version "^2" --locked
 
-# Enable seatd (needed for DRM/bare-metal mode)
-sudo systemctl enable --now seatd
-sudo usermod -aG seat $USER
-# (re-login after this)
+# Only if you start a compositor (sway / labwc / wayfire) from a bare TTY:
+# they use libseat, so seatd must be running and your user in the `seat` group.
+# Not needed to build or to run Blue Environment inside an existing session.
+# sudo apt install seatd && sudo systemctl enable --now seatd && sudo usermod -aG seat $USER
 ```
 
 ### Build the frontend + Tauri shell (the main app)
@@ -96,15 +109,12 @@ npm run tauri build
 # This runs: npm run build  →  vite build  →  tauri build
 ```
 
-> **Note:** the Wayland compositor (Smithay) described under Features
-> above is planned architecture — `compositor/` doesn't exist in this
-> tree yet, so there is currently no `npm run build:compositor` or
-> `npm run build:all` command, and the CI workflows (`test.yml`,
-> `build.yml`) don't assume it exists either (they probe for
-> `compositor/Cargo.toml` and skip compositor-specific steps when it's
-> absent, rather than failing). The shell above already runs standalone
-> today under any existing Wayland/X11 compositor (GNOME, KDE, sway,
-> ...) — it doesn't require HackerOS-Comp specifically.
+> **Note:** Blue Environment is the *shell* (panel, launcher, apps). It does not
+> ship its own compositor: it runs under an existing Wayland/X11 session (GNOME,
+> KDE, …) or becomes the desktop of HackerOS-Comp / labwc / sway / wayfire — see
+> *Compositor backends* below. (Older revisions of this README and CI described a
+> Smithay-based `compositor/` crate; it never landed in this tree, so that text and
+> the CI probe for it have been removed.)
 
 ### Shell UI variants (default / phones / tv)
 
@@ -302,6 +312,75 @@ When booted from the live image (`~/.config/Blue-Environment/.live` exists) Blue
 - **Mounted target disk**: the installer unmounts every partition of the chosen disk (and swap, stale `/mnt/blue-install` mounts, LUKS/LVM holders) by itself. It only refuses when the chosen disk is the one the live system is running from.
 - **Startup splash**: `src/index.html` + `src/splash.css` paint a loading screen instantly; `hideSplash()` (`src/lib/utils/splash.ts`) fades it out when the shell is ready.
 
+## Features in depth
+
+### Optional runtime tools
+
+Everything below degrades gracefully: when a tool is missing the UI says what to install.
+
+| Feature | Tools (Debian/Ubuntu package names) |
+|---|---|
+| Blue PDF | `poppler-utils` (`pdfinfo`, `pdftoppm`, `pdftotext`) |
+| Blue Backup | `rsync` (backup location must be ext4 / btrfs / xfs — hard links) |
+| Blue Media Writer | `util-linux` (`lsblk`, `umount`), `parted`, `dosfstools` (restore), `xz-utils` / `zstd` / `bzip2` (compressed images), `pkexec` (polkit) |
+| Printers | `cups` (`lpstat`, `lpadmin`, `lpinfo`, `lp`) |
+| Monitor layout | `wlr-randr` (wlroots compositors: labwc, sway, wayfire, HackerOS-Comp) |
+| Accessibility | `orca` (screen reader), `speech-dispatcher` (`spd-say`) |
+| Blue Connect → Phone | `adb` (`android-tools-adb`); `ffmpeg` for a smooth picture (without it: ~3 fps `screencap`); `scrcpy` for sound |
+| Blue Connect → KDE Connect | `kdeconnect` (`kdeconnect-cli`) |
+| Blue Connect → Remote | `wpctl` or `pactl` (volume), `playerctl` (media keys), `ydotool` + `ydotoold` (optional: control *native* apps) |
+
+### Blue Connect → Phone (Android)
+
+Enable *Developer options → USB debugging* on the phone (or *Wireless debugging*,
+Android 11+, and pair it from Blue Connect → Phone → Wireless). **Show screen**
+streams the phone as H.264 → MJPEG into the shell; click = tap, drag = swipe,
+wheel = scroll, typing = text, plus Back / Home / Recents / volume / power. Also:
+app launcher (launch, force-stop, uninstall, install APK), **unlock** (wake + swipe +
+optional PIN — never stored), file browser with copy to / from the phone,
+notification list, dialer / call / answer / hang up, SMS composer, quick toggles and
+screenshots. Limits: apps that set `FLAG_SECURE` (banking, some video apps) are black in
+the stream; `input text` only types ASCII; no audio in the embedded view (use the
+*scrcpy* button). All `adb` calls are argument vectors and every value that reaches the
+phone's shell is validated or single-quoted (`BlueConnect/phone.rs`, unit-tested).
+
+### Blue Connect → Remote (phone / TV remote control)
+
+On the machine to be controlled — typically the **TV UI** (`hl build.hl shell tv`),
+where Blue Connect opens on this tab — open **Blue Connect → Remote → Pair a remote**.
+The screen shows a QR code, the address and a 6-digit code; on the phone open the address
+(any browser, nothing to install), enter the code and use the D-pad, OK / Back / Home /
+Menu, media keys, volume, touchpad and keyboard. Another Blue Environment can also be the
+remote: *Use this device as a remote*. A paired remote drives the TV through the same code
+path as a game pad (`blue:remote-action` → `perform()` in `src/tv/TvShell.svelte`).
+
+Security: off until enabled; pairing is open only while shown (≤ 10 min), one code pairs
+one device, 5 wrong codes lock it for a minute; each remote gets a random 256-bit token
+(only its SHA-256 is stored, files are `0600`); cross-site `Origin` is rejected; all input is
+validated; remotes can be revoked. Traffic is plain HTTP on the LAN (no TLS) — use a network
+you trust (`BlueConnect/remote.rs`, covered by unit and end-to-end socket tests).
+
+### System-level Parental Controls
+
+The in-shell controls live in the child's own `~/.config` and session, so a text console
+(Ctrl+Alt+F3), another session or editing the JSON bypasses them. *Settings → Parental
+Controls → System-level enforcement* copies the policy to `/etc/blue-environment/parental/<uid>.json`
+(root-owned) and starts `blue-parental.service` (`blue-environment --parental-enforce`), which every
+15 s enforces allowed hours and the daily total limit per uid (`loginctl terminate-user`, 5-minute
+warning), counts usage itself in `/var/lib/blue-environment/parental/`, and kills blocked / over-limit
+native apps. Changing or removing the policy needs polkit authentication **and** the PIN. Requirements and
+limits: Blue Environment must be installed in a root-owned location (e.g. `/usr/bin`) — the service
+refuses a user-writable binary; apps built into the shell cannot be killed individually (they run inside the
+shell) and are covered by hours / total limit; give the child a **standard** account — an administrator can always
+stop a root service. A reference unit is in `packaging/systemd/blue-parental.service`.
+
+### Internationalisation
+
+`node scripts/check-i18n-keys.mjs` keeps every locale in sync with `english.ts`; missing keys are filled with
+the English text under a `FIXME i18n` marker. CI runs `--check --ratchet`: every locale must have every key, and the
+number of still-untranslated keys may never exceed `scripts/i18n-baseline.json`. After translating, lower the baseline
+with `node scripts/check-i18n-keys.mjs --report-only --update-baseline`.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -322,17 +401,22 @@ When booted from the live image (`~/.config/Blue-Environment/.live` exists) Blue
 | `Ctrl+Shift+V` | Clipboard History |
 | `PrintScreen` | Screenshot |
 | `Escape` | Close Panels / Cancel |
+| `Super+S` / `Ctrl+Alt+Space` | Spotlight search (also `blue-environment --ctl toggle-spotlight`) |
+| `Ctrl+Alt+=` / `Ctrl+Alt+-` / `Ctrl+Alt+M` | Screen magnifier: zoom in / out / on-off |
 
 ## VM / VirtualBox Support
 
-When running inside VirtualBox or any VM:
-- Compositor auto-detects `WAYLAND_DISPLAY`/`DISPLAY` → uses **winit** (nested) backend
-- Full 3D rendering via host GPU
-- XWayland started automatically for X11 app support
+Inside a VM Blue Environment behaves like on any machine: it needs a Wayland or
+X11 session, which the guest's compositor provides.
 
-On bare metal (TTY, no display server):
-- Uses **DRM/KMS** backend via libseat
-- Requires seatd running and user in `seat` group
+- Use a guest with 3D acceleration enabled (VirtualBox: *VMSVGA* + *Enable 3D
+  Acceleration*) so the WebKit-based shell renders smoothly.
+- To develop or try it **nested inside your normal desktop**, start a wlroots
+  compositor in a window and run the shell in it, e.g.
+  `WLR_BACKENDS=wayland labwc` (or `sway`), then launch `blue-environment` there.
+- On bare metal from a TTY, the compositor you choose (labwc / sway / wayfire /
+  HackerOS-Comp) talks to the GPU through DRM/KMS and `libseat`, so `seatd` must be
+  running and your user in the `seat` group.
 
 ## Common Issues
 
