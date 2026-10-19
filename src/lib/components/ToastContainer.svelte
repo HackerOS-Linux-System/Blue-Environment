@@ -8,6 +8,9 @@
 <script lang="ts">
   import { X, Bell } from 'lucide-svelte';
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
+  import { dnd, shouldShowToast } from '../stores/doNotDisturb';
+  import { announce } from '../stores/accessibility';
 
   interface Toast { id: string; title: string; message: string; }
 
@@ -15,6 +18,9 @@
 
   function handler(e: Event) {
     const notif = (e as CustomEvent).detail;
+    // Do Not Disturb: the notification is already in the Notification Center, only the pop-up is held back.
+    if (!shouldShowToast(get(dnd), notif?.urgent === true || notif?.urgency === 'critical')) return;
+    announce([notif.title, notif.message].filter(Boolean).join('. '));
     toasts = [...toasts, { id: notif.id || Date.now().toString(), title: notif.title, message: notif.message }];
   }
 
