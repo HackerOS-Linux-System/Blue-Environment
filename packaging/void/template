@@ -1,18 +1,10 @@
-# Template file for 'blue-environment' — Void Linux (xbps-src)
-#
-# Like the Gentoo ebuild in this directory, this is a binary-package
-# template: it stages prebuilt release artifacts rather than building
-# from source inside void-packages' bootstrapped xbps-src masterdir,
-# since vendoring the full smithay/tauri/npm dependency graph for an
-# offline, from-scratch xbps-src build is a larger effort tracked
-# separately (see ROADMAP.md).
 pkgname=blue-environment
 version=@VERSION@
 revision=1
 archs="x86_64 aarch64"
 build_style=meta
-short_desc="Blue Environment Wayland desktop shell (Smithay + Tauri + Svelte)"
-maintainer="LegendaryOS Team <legendaryos.linux.system@gmail.com>"
+short_desc="Blue Environment Wayland desktop shell (Tauri + Svelte)"
+maintainer="HackerOS Team <hackeros068@gmail.com>"
 license="GPL-3.0-only"
 homepage="https://github.com/HackerOS-Linux-System/Blue-Environment"
 distfiles="https://github.com/HackerOS-Linux-System/Blue-Environment/releases/download/v${version}/blue-environment-${version}-${XBPS_TARGET_MACHINE}.tar.gz"
