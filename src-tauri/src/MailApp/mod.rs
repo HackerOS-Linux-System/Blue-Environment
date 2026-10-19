@@ -202,7 +202,12 @@ pub fn mail_fetch_inbox(account_id: String, folder: Option<String>, limit: Optio
     if !out.status.success() { return vec![]; }
 
     // Parse raw IMAP FETCH response lines into simple structs.
-    parse_imap_fetch_response(&String::from_utf8_lossy(&out.stdout))
+    let emails = parse_imap_fetch_response(&String::from_utf8_lossy(&out.stdout));
+    // Keep a small header index so global search (Spotlight) can find mail offline.
+    let headers: Vec<(String, String, String, String)> =
+        emails.iter().map(|e| (e.uid.clone(), e.from.clone(), e.subject.clone(), e.date.clone())).collect();
+    crate::global_search::index_mail(&account_id, mbox, &headers);
+    emails
 }
 
 /// Fetches the text body of a single message by UID. Split out from
