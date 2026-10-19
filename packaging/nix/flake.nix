@@ -1,5 +1,5 @@
 {
-  description = "Blue Environment — Wayland desktop shell (Smithay + Tauri + Svelte)";
+  description = "Blue Environment — Wayland desktop shell (Tauri + Svelte)";
 
   # NOTE: like the Gentoo/Void files in this directory, this flake wraps
   # prebuilt release binaries with `stdenv.mkDerivation` (fetching a
