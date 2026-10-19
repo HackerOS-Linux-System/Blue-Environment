@@ -4,6 +4,7 @@
   import { Monitor, RefreshCw } from 'lucide-svelte';
   import { t } from '../../stores/language';
   import { CompositorBridge } from '../../utils/compositorBridge';
+  import DisplayArrangement from './DisplayArrangement.svelte';
 
   interface MonitorInfo { name: string; resolution: string; rate: string; scale: string; primary: boolean; connected: boolean; x: number; y: number; }
 
@@ -84,6 +85,8 @@
   <div class="flex items-center justify-center py-12"><RefreshCw size={20} class="animate-spin text-blue-400" /></div>
 {:else}
   <div class="space-y-4">
+    <!-- Wayland (wlroots) layout editor: drag to arrange, scale / rotate / mode, 15 s confirm-or-revert. -->
+    <DisplayArrangement />
     <div class="bg-slate-800 rounded-xl p-4 border border-white/5 relative overflow-hidden" style="min-height:120px;">
       <div class="flex items-center gap-2 flex-wrap">
         {#each monitors as mon (mon.name)}
