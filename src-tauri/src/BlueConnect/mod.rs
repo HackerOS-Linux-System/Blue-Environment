@@ -1,3 +1,6 @@
+pub mod phone;
+pub mod kdeconnect;
+pub mod remote;
 pub(crate) mod tls;
 
 use serde::{Deserialize, Serialize};
