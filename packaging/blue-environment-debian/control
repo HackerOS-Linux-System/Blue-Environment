@@ -9,9 +9,10 @@ Homepage: https://github.com/LegendaryOS-Linux-System/Blue-Environment
 Package: blue-environment
 Architecture: amd64 arm64
 Depends: ${shlibs:Depends}, ${misc:Depends}, ruby (>= 2.7)
-Recommends: bedm
+Recommends: bedm, pkexec | policykit-1, poppler-utils, rsync, cups-client, wlr-randr, orca, speech-dispatcher,
+            android-tools-adb, ffmpeg, scrcpy, kdeconnect, playerctl, parted, dosfstools, xz-utils
 Description: Blue Environment Wayland desktop shell
  Blue Environment is a production Wayland desktop shell built with
- Smithay, Tauri and Svelte.
+ Tauri and Svelte.
  .
- Developed by the LegendaryOS Team.
+ Developed by the HackerOS Team.
