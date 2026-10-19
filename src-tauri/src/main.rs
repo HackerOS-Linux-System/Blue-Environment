@@ -89,6 +89,16 @@ mod blue_virt;
 #[allow(non_snake_case)]
 mod BlueStore;
 mod privileged;
+#[path = "BlueMediaWriter/mod.rs"]
+mod blue_media_writer;
+#[path = "BlueBackup/mod.rs"]
+mod blue_backup;
+mod printers;
+mod pdf_reader;
+mod displays;
+mod accessibility;
+mod global_search;
+mod parental_enforcer;
 mod themes;
 mod legacy_migration;
 mod icon_store;
@@ -184,6 +194,21 @@ fn main() {
     }
     if cli_args.first().map(|a| a == "--installer-priv").unwrap_or(false) {
         std::process::exit(blue_installer_app::run_priv_helper());
+    }
+    if cli_args.first().map(|a| a == "--media-writer-priv").unwrap_or(false) {
+        std::process::exit(blue_media_writer::run_priv_helper());
+    }
+    if cli_args.first().map(|a| a == "--parental-priv").unwrap_or(false) {
+        std::process::exit(parental_enforcer::run_priv_helper());
+    }
+    // Root systemd service (blue-parental.service): enforces Parental Controls
+    // per user id, whatever session/TTY the user is on. Never returns.
+    if cli_args.first().map(|a| a == "--parental-enforce").unwrap_or(false) {
+        std::process::exit(parental_enforcer::run_daemon());
+    }
+    // Started by the per-user systemd timer blue-backup.timer.
+    if cli_args.first().map(|a| a == "--backup-run").unwrap_or(false) {
+        std::process::exit(blue_backup::run_cli());
     }
     // `blue-environment --store install|remove|list|update …` — the `blue
     // apps/plugins/themes` CLI (non-GUI), see BlueStore::run_cli's doc.
@@ -284,6 +309,25 @@ fn main() {
         blue_messages_app::storage::messages_get_retention_settings, blue_messages_app::storage::messages_set_retention_settings,
         blue_connect::bc_start_discovery, blue_connect::bc_get_devices, blue_connect::bc_forget_device,
         blue_connect::bc_request_pairing, blue_connect::bc_listen_for_pairing, blue_connect::bc_confirm_incoming_pairing,
+        // Blue Connect → Phone (Android via adb): live screen, input, apps, files, calls
+        blue_connect::phone::phone_adb_status, blue_connect::phone::phone_devices, blue_connect::phone::phone_pair,
+        blue_connect::phone::phone_connect, blue_connect::phone::phone_disconnect, blue_connect::phone::phone_enable_wifi,
+        blue_connect::phone::phone_info, blue_connect::phone::phone_apps, blue_connect::phone::phone_launch_app,
+        blue_connect::phone::phone_stop_app, blue_connect::phone::phone_uninstall_app, blue_connect::phone::phone_install_apk,
+        blue_connect::phone::phone_input, blue_connect::phone::phone_unlock, blue_connect::phone::phone_dial,
+        blue_connect::phone::phone_call_control, blue_connect::phone::phone_compose_sms, blue_connect::phone::phone_toggle,
+        blue_connect::phone::phone_notifications, blue_connect::phone::phone_ls, blue_connect::phone::phone_pull,
+        blue_connect::phone::phone_push, blue_connect::phone::phone_screenshot, blue_connect::phone::phone_open_scrcpy,
+        blue_connect::phone::phone_stream_start, blue_connect::phone::phone_stream_stop,
+        // Blue Connect → KDE Connect bridge
+        blue_connect::kdeconnect::kde_status, blue_connect::kdeconnect::kde_pair, blue_connect::kdeconnect::kde_unpair,
+        blue_connect::kdeconnect::kde_ping, blue_connect::kdeconnect::kde_ring, blue_connect::kdeconnect::kde_share_file,
+        blue_connect::kdeconnect::kde_share_text, blue_connect::kdeconnect::kde_send_sms,
+        // Blue Connect → Remote (phone / TV remote control)
+        blue_connect::remote::remote_server_status, blue_connect::remote::remote_set_enabled,
+        blue_connect::remote::remote_pairing_open, blue_connect::remote::remote_pairing_close, blue_connect::remote::remote_revoke,
+        blue_connect::remote::remote_probe, blue_connect::remote::remote_pair_with, blue_connect::remote::remote_targets,
+        blue_connect::remote::remote_forget_target, blue_connect::remote::remote_send,
         blue_downloader_app::downloader_add, blue_downloader_app::downloader_list, blue_downloader_app::downloader_pause,
         blue_downloader_app::downloader_resume, blue_downloader_app::downloader_cancel, blue_downloader_app::downloader_remove,
         blue_accounts::accounts_vault_exists, blue_accounts::accounts_is_unlocked, blue_accounts::accounts_create_vault,
@@ -394,6 +438,29 @@ fn main() {
         blue_archive_app::archive_list, blue_archive_app::archive_extract, blue_archive_app::archive_create,
         mail_app::mail_get_accounts, mail_app::mail_save_account, mail_app::mail_delete_account,
         mail_app::mail_fetch_inbox, mail_app::mail_fetch_body, mail_app::mail_send, mail_app::mail_mark_read, mail_app::mail_move_message,
+        // Blue Media Writer
+        blue_media_writer::mw_catalog, blue_media_writer::mw_list_drives, blue_media_writer::mw_image_info,
+        blue_media_writer::mw_download, blue_media_writer::mw_fetch_checksum, blue_media_writer::mw_hash,
+        blue_media_writer::mw_write, blue_media_writer::mw_restore, blue_media_writer::mw_cancel,
+        // Blue Backup
+        blue_backup::backup_get_config, blue_backup::backup_set_config, blue_backup::backup_list,
+        blue_backup::backup_is_running, blue_backup::backup_run, blue_backup::backup_cancel,
+        blue_backup::backup_browse, blue_backup::backup_restore, blue_backup::backup_delete,
+        // Blue PDF
+        pdf_reader::pdf_info, pdf_reader::pdf_render_page, pdf_reader::pdf_page_text, pdf_reader::pdf_search,
+        // Printing (CUPS)
+        printers::printers_list, printers::printers_discover, printers::printers_add, printers::printers_remove,
+        printers::printers_set_default, printers::printers_set_enabled, printers::printers_jobs,
+        printers::printers_cancel_job, printers::printers_cancel_all, printers::printers_print_file, printers::printers_test_page,
+        // Multi-monitor layout (wlr-randr)
+        displays::displays_list, displays::displays_apply, displays::displays_restore,
+        // Accessibility
+        accessibility::a11y_screen_reader_status, accessibility::a11y_screen_reader_set, accessibility::a11y_speak,
+        // Global search (Spotlight)
+        global_search::global_search,
+        // System-level parental controls
+        parental_enforcer::parental_system_status, parental_enforcer::parental_system_enable, parental_enforcer::parental_system_disable,
+        parental_controls::parental_controls_set_total_limit,
         // SettingsApp backend commands
         SettingsApp::settings_get_displays,
         SettingsApp::settings_set_brightness,
@@ -448,6 +515,10 @@ fn main() {
     ])
     .setup(|app| {
         use tauri::{Emitter, Manager};
+
+        // Blue Connect remote receiver: restart it when the person had enabled it
+        // (phone / TV remote control — see BlueConnect/remote.rs).
+        blue_connect::remote::autostart(app.handle().clone());
 
         // ── Backend events ────────────────────────────────────────────────
         // Backend threads (labwc window tracker, clipboard watcher, control
