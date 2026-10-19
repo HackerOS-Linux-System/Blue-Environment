@@ -23,6 +23,8 @@
  *   node scripts/check-i18n-keys.mjs            # report + auto-fix missing keys
  *   node scripts/check-i18n-keys.mjs --check    # report only, exit 1 if any locale is missing keys (CI)
  *   node scripts/check-i18n-keys.mjs --report-only  # report only, exit 0 (no fix, no failure)
+ *   node scripts/check-i18n-keys.mjs --check --ratchet  # CI: parity + "untranslated count may never grow" (scripts/i18n-baseline.json)
+ *   node scripts/check-i18n-keys.mjs --report-only --update-baseline  # record current untranslated counts
  */
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +35,12 @@ const dir = path.join(__dirname, '../src/lib/translations');
 
 const checkOnly = process.argv.includes('--check');
 const reportOnly = process.argv.includes('--report-only');
+// --ratchet: besides key parity, fail if any locale has MORE untranslated
+// (`FIXME i18n` placeholder) keys than scripts/i18n-baseline.json records.
+// The baseline can only go down: run with --update-baseline after translating.
+const ratchet = process.argv.includes('--ratchet');
+const updateBaseline = process.argv.includes('--update-baseline');
+const baselinePath = path.join(__dirname, 'i18n-baseline.json');
 
 // One 'key': 'value' pair per line is this codebase's actual format
 // (verified: no template literals, no multi-line values across all 17
@@ -93,6 +101,21 @@ function parseFile(filePath) {
   return { text, lines, map };
 }
 
+/** Keys that sit under a `FIXME i18n` marker, i.e. still carry english.ts's text as a placeholder. */
+function untranslatedKeys(lines) {
+  const keys = [];
+  let inBlock = false;
+  for (const line of lines) {
+    if (line.includes('FIXME i18n')) { inBlock = true; continue; }
+    if (!inBlock) continue;
+    if (line.trim().startsWith('//')) continue;
+    const m = line.match(KV_LINE);
+    if (m) keys.push(m[2]);
+    else if (line.trim() === '' || line.trim() === '};') inBlock = false;
+  }
+  return keys;
+}
+
 // IMPORTANT: only real locale dictionaries belong here — NOT types.ts
 // (no key/value pairs to parse) and NOT *.test.ts (a vitest spec file,
 // e.g. i18n-keys.test.ts, which has its own `};`-terminated object
@@ -102,7 +125,11 @@ function parseFile(filePath) {
 // key/value lines into the middle of a test file. Learned the hard
 // way: an earlier version of this filter was just `f.endsWith('.ts')
 // && f !== 'types.ts'`, which matched i18n-keys.test.ts too.
-const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'types.ts');
+// Files starting with `_` are helper modules (e.g. _placeholders.ts, imported by
+// i18n-usage.test.ts), not dictionaries. Treating one as a locale made
+// `--check` report 1207 "missing" keys and — worse — made the auto-fix append
+// placeholder translations to a source file that is not a locale.
+const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'types.ts' && !f.startsWith('_'));
 if (!files.includes('english.ts')) {
   console.error('english.ts not found in', dir);
   process.exit(1);
@@ -115,6 +142,8 @@ console.log(`english.ts: ${englishKeys.length} keys (source of truth)\n`);
 
 let anyMissing = false;
 const report = [];
+/** @type {Record<string, number>} */
+const untranslatedByLocale = {};
 
 for (const file of files) {
   if (file === 'english.ts') continue;
@@ -124,6 +153,7 @@ for (const file of files) {
   const extra = [...locale.map.keys()].filter((k) => !english.map.has(k));
 
   report.push({ file, missingCount: missing.length, extraCount: extra.length });
+  untranslatedByLocale[file.replace(/\.ts$/, '')] = untranslatedKeys(locale.lines).length;
   if (missing.length > 0) anyMissing = true;
 
   if (missing.length === 0 && extra.length === 0) {
@@ -166,6 +196,27 @@ for (const file of files) {
 }
 
 console.log('');
+const totalUntranslated = Object.values(untranslatedByLocale).reduce((a, b) => a + b, 0);
+console.log(`Untranslated (FIXME i18n placeholder) keys: ${totalUntranslated}`);
+for (const [loc, n] of Object.entries(untranslatedByLocale)) if (n > 0) console.log(`    ${loc}: ${n}`);
+
+if (updateBaseline) {
+  writeFileSync(baselinePath, JSON.stringify(untranslatedByLocale, null, 2) + '\n');
+  console.log(`Wrote ${path.relative(process.cwd(), baselinePath)}`);
+}
+let ratchetFailed = false;
+if (ratchet) {
+  let baseline = {};
+  try { baseline = JSON.parse(readFileSync(baselinePath, 'utf8')); } catch { /* no baseline yet: every locale must be at 0 */ }
+  for (const [loc, n] of Object.entries(untranslatedByLocale)) {
+    const allowed = baseline[loc] ?? 0;
+    if (n > allowed) {
+      ratchetFailed = true;
+      console.error(`RATCHET: ${loc} has ${n} untranslated keys, baseline allows ${allowed}. Translate the new keys (search "FIXME i18n") instead of leaving English placeholders.`);
+    }
+  }
+}
+if (checkOnly && ratchetFailed) process.exit(1);
 if (checkOnly) {
   if (anyMissing) {
     console.error('DRIFT DETECTED: one or more locales are missing keys present in english.ts.');
