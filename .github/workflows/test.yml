@@ -34,6 +34,9 @@ jobs:
       - name: svelte-check (typecheck)
         run: npm run lint
 
+      - name: Unit tests (vitest)
+        run: npm test
+
       - name: vite build (frontend only, no Tauri binary)
         run: npm run build -- --mode production
         env:
@@ -74,67 +77,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Check translation key parity
-        run: node scripts/check-i18n-keys.mjs --check
-
-  compositor-check:
-    name: Compositor — cargo check + clippy + test (if present)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # The Wayland compositor described in README.md hasn't landed in
-      # this tree yet — same "probe, don't assume" pattern as
-      # `blue-lock-check` below, so this workflow neither fails nor
-      # silently skips depending on repo state; it explicitly reports
-      # which it did.
-      - name: Check whether compositor/ exists yet
-        id: probe
-        run: |
-          if [ -f "compositor/Cargo.toml" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::compositor/Cargo.toml not found — skipping compositor checks (nothing to check yet)."
-          fi
-
-      - name: Install system dependencies
-        if: steps.probe.outputs.present == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev libxkbcommon-dev libudev-dev libinput-dev \
-            libgbm-dev libdrm-dev libseat-dev libegl1-mesa-dev \
-            libgles2-mesa-dev pkg-config
-
-      - name: Install Rust toolchain
-        if: steps.probe.outputs.present == 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.probe.outputs.present == 'true'
-        with:
-          workspaces: compositor -> target
-
-      - name: cargo fmt --check
-        if: steps.probe.outputs.present == 'true'
-        run: cargo fmt --manifest-path compositor/Cargo.toml -- --check
-        continue-on-error: true # style-only, shouldn't block CI on its own
-
-      - name: cargo check
-        if: steps.probe.outputs.present == 'true'
-        run: cargo check --manifest-path compositor/Cargo.toml --all-targets
-
-      - name: cargo clippy
-        if: steps.probe.outputs.present == 'true'
-        run: cargo clippy --manifest-path compositor/Cargo.toml --all-targets -- -D warnings
-        continue-on-error: true # tighten to blocking once the existing warning backlog is cleared
-
-      - name: cargo test
-        if: steps.probe.outputs.present == 'true'
-        run: cargo test --manifest-path compositor/Cargo.toml
+      # --check : every locale must have every english.ts key (and none extra).
+      # --ratchet: the number of keys that still carry an English placeholder
+      #            (`FIXME i18n`) may never grow beyond scripts/i18n-baseline.json.
+      #            Translate new keys instead of leaving placeholders, then run
+      #            `node scripts/check-i18n-keys.mjs --report-only --update-baseline`.
+      - name: Check translation key parity and the untranslated-keys ratchet
+        run: node scripts/check-i18n-keys.mjs --check --ratchet
 
   shell-backend-check:
     name: Shell backend (src-tauri) — cargo check + test
@@ -159,6 +108,12 @@ jobs:
           # not ./src-tauri/target (unlike compositor above, which is a
           # genuinely separate, standalone crate).
           workspaces: . -> target
+
+      # Optional runtime tools the new features shell out to. Installing them lets
+      # the integration-style tests run for real (rsync round trip, poppler, …);
+      # each of those tests skips itself when its tool is missing.
+      - name: Install optional tools used by tests
+        run: sudo apt-get install -y rsync poppler-utils xz-utils
 
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
