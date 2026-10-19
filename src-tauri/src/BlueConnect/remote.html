@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>Blue Remote</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2f; --btn:#1c2942; --btn2:#26365a; --acc:#2f6bff; --txt:#e8eefc; --dim:#8a97b5; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:16px system-ui, sans-serif; overscroll-behavior:none; touch-action:manipulation; }
+  body { padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom); display:flex; flex-direction:column; gap:12px; max-width:520px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:10px; padding-top:12px; }
+  header h1 { font-size:18px; margin:0; flex:1; } header .dot { width:10px; height:10px; border-radius:50%; background:#3ddc84; }
+  .card { background:var(--card); border-radius:18px; padding:14px; }
+  button { font:inherit; color:var(--txt); background:var(--btn); border:0; border-radius:14px; min-height:52px; padding:0 14px; cursor:pointer; user-select:none; }
+  button:active { background:var(--btn2); transform:scale(.97); } button.acc { background:var(--acc); }
+  .dpad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; } .dpad button { min-height:64px; font-size:22px; } .dpad .ok { background:var(--acc); font-weight:600; }
+  .row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; } .row.three { grid-template-columns:repeat(3,1fr); }
+  .pad { height:170px; border-radius:18px; background:#0f1930; border:1px dashed #2a3b63; display:grid; place-items:center; color:var(--dim); touch-action:none; user-select:none; }
+  input { font:inherit; color:var(--txt); background:#0f1930; border:1px solid #2a3b63; border-radius:12px; padding:12px; width:100%; }
+  .pair { display:flex; flex-direction:column; gap:12px; margin-top:20vh; } .code { text-align:center; letter-spacing:.4em; font-size:28px; }
+  .msg { color:var(--dim); font-size:13px; text-align:center; min-height:1.2em; } .err { color:#ff8a8a; }
+  .tabs { display:flex; gap:8px; } .tabs button { flex:1; min-height:42px; } .tabs button.on { background:var(--acc); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><span class="dot"></span><h1 id="title">Blue Remote</h1><button id="unpair" hidden style="min-height:36px;font-size:13px"></button></header>
+
+<section id="pairView" class="pair" hidden>
+  <div class="card">
+    <p id="pairHelp" style="margin-top:0"></p>
+    <input id="code" class="code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+    <p class="msg" id="pairMsg"></p>
+    <button id="pairBtn" class="acc" style="width:100%"></button>
+  </div>
+</section>
+
+<main id="remoteView" hidden style="display:flex;flex-direction:column;gap:12px">
+  <div class="tabs"><button data-tab="keys" class="on" id="tKeys"></button><button data-tab="pad" id="tPad"></button><button data-tab="type" id="tType"></button></div>
+
+  <div id="keys" class="card" style="display:flex;flex-direction:column;gap:12px">
+    <div class="dpad">
+      <span></span><button data-k="up">▲</button><span></span>
+      <button data-k="left">◀</button><button data-k="select" class="ok">OK</button><button data-k="right">▶</button>
+      <span></span><button data-k="down">▼</button><span></span>
+    </div>
+    <div class="row three"><button data-k="back" id="bBack"></button><button data-k="home" id="bHome"></button><button data-k="menu" id="bMenu"></button></div>
+    <div class="row"><button data-m="prev">⏮</button><button data-m="play_pause">⏯</button><button data-m="next">⏭</button><button data-m="stop">⏹</button></div>
+    <div class="row three"><button data-vol="-1">🔉 −</button><button data-mute="1">🔇</button><button data-vol="1">🔊 +</button></div>
+  </div>
+
+  <div id="pad" class="card" hidden style="display:none;flex-direction:column;gap:12px">
+    <div class="pad" id="touch"></div>
+    <div class="row three"><button data-click="left" id="bLeft"></button><button data-click="right" id="bRight"></button><button data-scroll="1">⇅</button></div>
+    <div class="row"><button data-scroll="-1">▲</button><button data-scroll="2">▼</button><button data-k="back" id="bBack2"></button><button data-k="home" id="bHome2"></button></div>
+  </div>
+
+  <div id="type" class="card" hidden style="display:none;flex-direction:column;gap:12px">
+    <input id="text" placeholder="" autocomplete="off" autocapitalize="off" autocorrect="off">
+    <div class="row three"><button id="send" class="acc"></button><button data-k="backspace">⌫</button><button data-k="enter">⏎</button></div>
+  </div>
+</main>
+
+<p class="msg" id="status"></p>
+
+<script>
+'use strict';
+const L = (navigator.language || 'en').slice(0, 2);
+const T = {
+  en: { title:'Blue Remote', pairHelp:'Enter the 6-digit code shown on the TV (Blue Connect → Remote → Pair a remote).', pair:'Pair', keys:'Remote', pad:'Touchpad', type:'Type', back:'Back', home:'Home', menu:'Menu', left:'Click', right:'Right click', send:'Send', ph:'Type here…', unpair:'Unpair', wrong:'Wrong code', closed:'Pairing is not open on the TV', locked:'Too many attempts — wait a minute', offline:'Cannot reach the TV' },
+  pl: { title:'Pilot Blue', pairHelp:'Wpisz 6-cyfrowy kod widoczny na telewizorze (Blue Connect → Pilot → Sparuj pilota).', pair:'Sparuj', keys:'Pilot', pad:'Gładzik', type:'Pisz', back:'Wstecz', home:'Start', menu:'Menu', left:'Klik', right:'Prawy klik', send:'Wyślij', ph:'Wpisz tekst…', unpair:'Odłącz', wrong:'Błędny kod', closed:'Parowanie nie jest otwarte na telewizorze', locked:'Za dużo prób — odczekaj minutę', offline:'Brak połączenia z telewizorem' },
+};
+const S = T[L] || T.en;
+const $ = (id) => document.getElementById(id);
+$('title').textContent = S.title; $('pairHelp').textContent = S.pairHelp; $('pairBtn').textContent = S.pair;
+$('tKeys').textContent = S.keys; $('tPad').textContent = S.pad; $('tType').textContent = S.type;
+for (const id of ['bBack','bBack2']) $(id).textContent = S.back; for (const id of ['bHome','bHome2']) $(id).textContent = S.home; $('bMenu').textContent = S.menu;
+$('bLeft').textContent = S.left; $('bRight').textContent = S.right; $('send').textContent = S.send; $('text').placeholder = S.ph; $('unpair').textContent = S.unpair;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), credentials:'same-origin' });
+  let j = {}; try { j = await r.json(); } catch {}
+  return { ok:r.ok, status:r.status, j };
+}
+function show(authorized) {
+  $('pairView').hidden = authorized; $('remoteView').hidden = !authorized; $('unpair').hidden = !authorized;
+}
+async function init() {
+  try { const r = await api('/api/info'); if (r.j.name) $('title').textContent = r.j.name; show(!!r.j.authorized); } catch { $('status').textContent = S.offline; show(false); }
+}
+$('pairBtn').onclick = async () => {
+  $('pairMsg').className = 'msg'; $('pairMsg').textContent = '';
+  try {
+    const r = await api('/api/pair', { code: $('code').value.trim(), name: (navigator.userAgentData?.platform || '') + ' ' + (/Android|iPhone|iPad/.exec(navigator.userAgent)||['browser'])[0] });
+    if (r.ok) { show(true); return; }
+    $('pairMsg').className = 'msg err'; $('pairMsg').textContent = r.status === 429 ? S.locked : r.status === 403 ? S.closed : S.wrong;
+  } catch { $('pairMsg').className = 'msg err'; $('pairMsg').textContent = S.offline; }
+};
+$('unpair').onclick = async () => { await api('/api/unpair', {}); show(false); };
+
+let lastSend = 0;
+async function send(msg) {
+  if (navigator.vibrate) navigator.vibrate(8);
+  try { const r = await api('/api/input', msg); if (r.status === 401) { show(false); } } catch { $('status').textContent = S.offline; }
+}
+document.querySelectorAll('[data-k]').forEach((b) => b.onclick = () => send({ type:'key', name:b.dataset.k }));
+document.querySelectorAll('[data-m]').forEach((b) => b.onclick = () => send({ type:'media', action:b.dataset.m }));
+document.querySelectorAll('[data-vol]').forEach((b) => b.onclick = () => send({ type:'volume', delta:Number(b.dataset.vol) }));
+document.querySelectorAll('[data-mute]').forEach((b) => b.onclick = () => send({ type:'mute' }));
+document.querySelectorAll('[data-click]').forEach((b) => b.onclick = () => send({ type:'click', button:b.dataset.click }));
+document.querySelectorAll('[data-scroll]').forEach((b) => b.onclick = () => { const v = Number(b.dataset.scroll); if (v === 1) return; send({ type:'scroll', dy: v === 2 ? 3 : -3 }); });
+document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  for (const id of ['keys','pad','type']) { const el = $(id); const on = id === b.dataset.tab; el.hidden = !on; el.style.display = on ? 'flex' : 'none'; }
+});
+$('send').onclick = () => { const v = $('text').value; if (v) { send({ type:'text', text:v }); $('text').value = ''; } };
+$('text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('send').click(); } });
+
+// touchpad: relative movement, tap = click, two fingers = scroll
+const pad = $('touch'); let last = null, moved = 0, t0 = 0, fingers = 0;
+pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); last = { x:e.clientX, y:e.clientY }; moved = 0; t0 = performance.now(); fingers++; });
+pad.addEventListener('pointermove', (e) => {
+  if (!last) return; const dx = e.clientX - last.x, dy = e.clientY - last.y; last = { x:e.clientX, y:e.clientY }; moved += Math.abs(dx) + Math.abs(dy);
+  const now = performance.now(); if (now - lastSend < 30) { pending.dx += dx; pending.dy += dy; return; } lastSend = now;
+  const mx = Math.round((dx + pending.dx) * 1.6), my = Math.round((dy + pending.dy) * 1.6); pending.dx = pending.dy = 0;
+  if (fingers >= 2) send({ type:'scroll', dy: Math.sign(my) * Math.min(4, Math.max(1, Math.abs(Math.round(my / 8)))) }); else if (mx || my) send({ type:'move', dx:mx, dy:my });
+});
+const pending = { dx:0, dy:0 };
+pad.addEventListener('pointerup', () => { fingers = Math.max(0, fingers - 1); if (moved < 8 && performance.now() - t0 < 300) send({ type:'click', button:'left' }); last = null; });
+pad.addEventListener('pointercancel', () => { fingers = 0; last = null; });
+init();
+</script>
+</body>
+</html>
