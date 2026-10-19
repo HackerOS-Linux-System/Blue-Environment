@@ -39,6 +39,9 @@ export enum AppId {
   BLUE_VIRT = 'blue_virt',
   BLUE_SECURITY = 'blue_security',
   BLUE_HELP = 'blue_help',
+  BLUE_MEDIA_WRITER = 'blue_media_writer',
+  BLUE_PDF = 'blue_pdf',
+  BLUE_BACKUP = 'blue_backup',
   EXTERNAL = 'external',
 }
 
