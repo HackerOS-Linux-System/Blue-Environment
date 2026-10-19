@@ -67,6 +67,10 @@ pub struct ParentalControlsConfig {
     /// blocked. `None` means no time-of-day restriction.
     pub allowed_hours_start: Option<String>,
     pub allowed_hours_end: Option<String>,
+    /// Optional limit on the TOTAL screen time per day (minutes, all apps
+    /// together). `None` = no overall limit.
+    #[serde(default)]
+    pub daily_total_limit_minutes: Option<u32>,
 }
 
 fn load() -> ParentalControlsConfig {
@@ -307,6 +311,30 @@ pub fn parental_controls_set_daily_limit(app_id: String, minutes: Option<u32>, p
 }
 
 #[tauri::command(async)]
+pub fn parental_controls_set_total_limit(minutes: Option<u32>, pin: String) -> bool {
+    let mut cfg = load();
+    if !verify_pin_internal(&mut cfg, &pin) {
+        return false;
+    }
+    cfg.daily_total_limit_minutes = minutes.filter(|m| *m > 0);
+    save(&cfg)
+}
+
+/// Returns the saved configuration if — and only if — `pin` is correct
+/// (counts toward the lock-out like any other verification). Used by
+/// `parental_enforcer` to copy the policy to the system level.
+pub(crate) fn verified_config(pin: &str) -> Option<ParentalControlsConfig> {
+    let mut cfg = load();
+    if verify_pin_internal(&mut cfg, pin) { Some(cfg) } else { None }
+}
+
+/// Stateless PIN check against an Argon2 PHC string (no lock-out counters;
+/// the root helper has no user config to update).
+pub(crate) fn verify_pin_hash_public(pin: &str, stored_hash: &str) -> bool {
+    verify_pin_hash(pin, stored_hash)
+}
+
+#[tauri::command(async)]
 pub fn parental_controls_set_allowed_hours(start: Option<String>, end: Option<String>, pin: String) -> bool {
     let mut cfg = load();
     if !verify_pin_internal(&mut cfg, &pin) {
@@ -332,15 +360,19 @@ pub fn parental_controls_check_launch(app_id: String) -> Option<String> {
     }
 
     if let (Some(start), Some(end)) = (&cfg.allowed_hours_start, &cfg.allowed_hours_end) {
-        let now = chrono::Local::now().format("%H:%M").to_string();
-        // Simple string comparison works for "HH:MM" since it's
-        // lexicographically ordered the same as chronologically, as long
-        // as start <= end (doesn't handle windows that cross midnight —
-        // acceptable for a first pass, e.g. "08:00"-"20:00" is the
-        // overwhelmingly common case; a "22:00"-"06:00" overnight-block
-        // window is a follow-up).
-        if now.as_str() < start.as_str() || now.as_str() > end.as_str() {
+        use chrono::Timelike;
+        let now = chrono::Local::now();
+        let minute = now.hour() * 60 + now.minute();
+        // `in_window` understands windows that cross midnight (e.g. 22:00-06:00).
+        if !crate::parental_enforcer::in_window(&Some(start.clone()), &Some(end.clone()), minute) {
             return Some(format!("Apps are only allowed between {start} and {end}."));
+        }
+    }
+
+    if let Some(total_limit) = cfg.daily_total_limit_minutes {
+        let total_used: u32 = cfg.usage_minutes_today.values().sum();
+        if total_used >= total_limit {
+            return Some(format!("Daily screen-time limit reached ({total_limit} min)."));
         }
     }
 
