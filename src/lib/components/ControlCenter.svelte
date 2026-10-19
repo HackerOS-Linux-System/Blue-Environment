@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, ChevronDown, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck, Lock, Unlock, Loader2, Settings as SettingsIcon, Pencil, Trash2 } from 'lucide-svelte';
+  import { BellOff, Bell, Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, ChevronDown, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck, Lock, Unlock, Loader2, Settings as SettingsIcon, Pencil, Trash2 } from 'lucide-svelte';
+  import { dnd, isDndActive, toggleDnd, minutesLeft } from '../stores/doNotDisturb';
   import { SystemBridge } from '../utils/systemBridge';
   import { CompositorBridge } from '../utils/compositorBridge';
   import { configStore } from '../utils/configStore';
@@ -243,6 +244,13 @@
     btBusy = dev.mac;
     try { await SystemBridge.bluetoothForget(dev.mac); await scanBt(); } finally { btBusy = null; }
   }
+
+  // Do Not Disturb tile (re-evaluated every 30 s so 'until' / schedule modes flip on time).
+  let dndTick = Date.now();
+  const dndTimer = setInterval(() => (dndTick = Date.now()), 30000);
+  onDestroy(() => clearInterval(dndTimer));
+  $: dndActive = (void dndTick, isDndActive($dnd));
+  $: dndLeft = (void dndTick, minutesLeft($dnd));
 
   // ── Dark / Light mode. Previously this button just flipped a local
   // `darkMode` boolean that nothing else ever read — visually it looked
@@ -533,6 +541,11 @@
       {/if}
     </div>
     <div class="grid grid-cols-2 gap-2 mb-2">
+      <button on:click={() => toggleDnd()} aria-pressed={dndActive}
+        class="p-3 rounded-xl flex items-center gap-2 transition-all {dndActive ? 'bg-violet-600/30 text-violet-200' : 'bg-slate-800 text-slate-300'}">
+        {#if dndActive}<BellOff size={16} />{:else}<Bell size={16} />{/if}
+        <span class="text-xs font-bold">{$t('dnd.tile')}{dndLeft ? ` · ${dndLeft} min` : ''}</span>
+      </button>
       <button on:click={toggleDarkMode} class="p-3 rounded-xl flex items-center gap-2 transition-all {darkMode ? 'bg-slate-700 text-white' : 'bg-amber-400/20 text-amber-300'}">
         {#if darkMode}<Moon size={16} />{:else}<Sun size={16} />{/if}
         <span class="text-xs font-bold">{darkMode ? 'Dark' : 'Light'}</span>
