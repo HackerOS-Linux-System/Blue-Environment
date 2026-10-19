@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "_comment": "Catalog shown in Blue Media Writer. `url` (optional) is a direct https download of the image; `pageUrl` is the project's official download page, opened when no stable direct link exists. `checksumUrl` (optional) points to a sha256sum file. Users can add their own entries in ~/.config/Blue-Environment/media-images.json (same format, same ids override).",
+  "images": [
+    {
+      "id": "hackeros",
+      "name": "HackerOS",
+      "description": "The operating system Blue Environment was built for.",
+      "category": "Linux",
+      "arch": "x86_64",
+      "pageUrl": "https://github.com/HackerOS-Linux-System"
+    },
+    {
+      "id": "archlinux",
+      "name": "Arch Linux",
+      "description": "Rolling-release installation image (always the latest).",
+      "category": "Linux",
+      "arch": "x86_64",
+      "url": "https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso",
+      "checksumUrl": "https://geo.mirror.pkgbuild.com/iso/latest/sha256sums.txt"
+    },
+    {
+      "id": "fedora-workstation",
+      "name": "Fedora Workstation",
+      "description": "GNOME desktop from the Fedora Project.",
+      "category": "Linux",
+      "arch": "x86_64",
+      "pageUrl": "https://fedoraproject.org/workstation/download"
+    },
+    {
+      "id": "debian",
+      "name": "Debian",
+      "description": "Universal operating system — pick a netinst or live image.",
+      "category": "Linux",
+      "arch": "x86_64",
+      "pageUrl": "https://www.debian.org/distrib/"
+    },
+    {
+      "id": "ubuntu",
+      "name": "Ubuntu Desktop",
+      "description": "Long-term-support desktop from Canonical.",
+      "category": "Linux",
+      "arch": "x86_64",
+      "pageUrl": "https://ubuntu.com/download/desktop"
+    },
+    {
+      "id": "raspios-arm64",
+      "name": "Raspberry Pi OS (64-bit)",
+      "description": "Disk image for Raspberry Pi 3/4/5 — write it to an SD card.",
+      "category": "Single-board",
+      "arch": "aarch64",
+      "url": "https://downloads.raspberrypi.org/raspios_arm64_latest"
+    }
+  ]
+}
