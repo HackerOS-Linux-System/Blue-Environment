@@ -495,3 +495,46 @@ body {
 [data-theme='light-glass'] .docs-distraction-surface { background: #f1f5f9; }
 .docs-markdown-preview { color: #e2e8f0; }
 [data-theme='light-glass'] .docs-markdown-preview { color: #1e293b; }
+
+
+/* ── Accessibility (Settings → Accessibility; see lib/stores/accessibility.ts) ── */
+
+/* High contrast: pure black/white surfaces, bright links, strong borders. Works by
+   overriding the colours tailwind utilities resolve to, so no component needs changes. */
+html.a11y-high-contrast {
+  --a11y-fg: #ffffff;
+  --a11y-bg: #000000;
+  --a11y-accent: #ffe600;
+  color-scheme: dark;
+}
+html.a11y-high-contrast body,
+html.a11y-high-contrast [class*="bg-slate-"],
+html.a11y-high-contrast [class*="bg-gray-"],
+html.a11y-high-contrast [class*="bg-black"] {
+  background-color: var(--a11y-bg) !important;
+  backdrop-filter: none !important;
+}
+html.a11y-high-contrast [class*="text-slate-"],
+html.a11y-high-contrast [class*="text-gray-"],
+html.a11y-high-contrast [class*="text-white"] { color: var(--a11y-fg) !important; }
+html.a11y-high-contrast [class*="border-"] { border-color: var(--a11y-fg) !important; }
+html.a11y-high-contrast a,
+html.a11y-high-contrast [class*="text-blue-"] { color: var(--a11y-accent) !important; }
+html.a11y-high-contrast button:focus-visible,
+html.a11y-high-contrast [role="button"]:focus-visible,
+html.a11y-high-contrast input:focus-visible,
+html.a11y-high-contrast select:focus-visible { outline: 3px solid var(--a11y-accent) !important; outline-offset: 2px; }
+
+/* Strong focus ring everywhere (independent of high contrast). */
+html.a11y-strong-focus *:focus-visible { outline: 3px solid #4da3ff !important; outline-offset: 2px !important; }
+
+/* Reduce motion: no animations or transitions (spinners keep a still frame). */
+html.a11y-reduce-motion *, html.a11y-reduce-motion *::before, html.a11y-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.a11y-reduce-motion-off) * { scroll-behavior: auto !important; }
+}
