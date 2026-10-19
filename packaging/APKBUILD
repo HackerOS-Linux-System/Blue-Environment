@@ -1,25 +1,7 @@
-# Contributor: Blue Environment packaging
-# Maintainer: LegendaryOS Team <legendaryos.linux.system@gmail.com>
-#
-# Alpine Linux (apk) packaging. Binary-only package, same layout as the
-# Arch/Fedora/Debian variants in this directory: build.rb (or the
-# build-and-package.yml CI workflow) builds `blue-environment` and
-# `blue-compositor` first via cargo + npm on a glibc build host, and this
-# APKBUILD just stages the already-built artifacts.
-#
-# NOTE: Alpine's default userland is musl, not glibc. The prebuilt
-# binaries staged here are expected to have been cross-built or built
-# with `RUSTFLAGS` targeting `x86_64-unknown-linux-musl` /
-# `aarch64-unknown-linux-musl` — see .github/workflows/build.yml's
-# `alpine-musl` matrix entries. A source build (`build()`/`package()`
-# compiling from scratch inside abuild's clean chroot) is intentionally
-# not attempted here since it would require vendoring the full
-# smithay + tauri + npm dependency tree into Alpine's aports build
-# environment, which is a separate, larger effort than "runs on Alpine".
 pkgname=blue-environment
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="Blue Environment Wayland desktop shell (Smithay + Tauri + Svelte)"
+pkgdesc="Blue Environment Wayland desktop shell (Tauri + Svelte)"
 url="https://github.com/HackerOS-Linux-System/Blue-Environment"
 arch="x86_64 aarch64"
 license="GPL-3.0-only"
