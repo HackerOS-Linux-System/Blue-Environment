@@ -34,6 +34,9 @@
   import NotificationCenter from './lib/components/NotificationCenter.svelte';
   import ClipboardPanel from './lib/components/ClipboardPanel.svelte';
   import ToastContainer from './lib/components/ToastContainer.svelte';
+  import Spotlight from './lib/components/Spotlight.svelte';
+  import MagnifierController from './lib/components/MagnifierController.svelte';
+  import { initRemoteReceiver } from './lib/utils/remoteReceiver';
   import ContextMenu from './lib/components/ContextMenu.svelte';
   import { installGlobalContextMenu } from './lib/utils/globalContextMenu';
   import WorkspaceSwitcher from './lib/components/WorkspaceSwitcher.svelte';
@@ -174,6 +177,8 @@
   }
 
   let isStartMenuOpen = false;
+  /** Spotlight search (Super+S, Ctrl+Alt+Space or `blue-environment --ctl toggle-spotlight`). */
+  let isSpotlightOpen = false;
   let isStartMenuFullScreen = false;
   let hotCornersCfg: HotCornersConfig = DEFAULT_HOT_CORNERS;
   let superDoubleTapMs = 350;
@@ -229,6 +234,20 @@
   // everywhere and replace it with shell menus — see globalContextMenu.ts.
   // Calendar reminders fire from the shell itself, so they work with the Calendar window closed.
   onMount(() => startCalendarReminders());
+
+  // Restore the saved multi-monitor layout (wlroots) and start the Blue Connect
+  // remote receiver listener (phones / controllers paired in Blue Connect → Remote).
+  onMount(() => {
+    SystemBridge.invokeCommand('displays_restore', {}).catch(() => {});
+    let stop: (() => void) | undefined;
+    initRemoteReceiver().then((un) => (stop = un)).catch(() => {});
+    return () => stop?.();
+  });
+
+  function onGlobalKey(e: KeyboardEvent) {
+    const spot = (e.ctrlKey && e.altKey && e.code === 'Space') || (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 's');
+    if (spot) { e.preventDefault(); isSpotlightOpen = !isSpotlightOpen; }
+  }
 
   onMount(() => installGlobalContextMenu({
     minimize: (id) => minimizeWindow(id),
@@ -428,6 +447,7 @@
     const unlistenShell = CompositorBridge.onShellCommand((cmd, arg) => {
       switch (cmd) {
         case 'toggle-start-menu': isStartMenuOpen = !isStartMenuOpen; if (!isStartMenuOpen) isStartMenuFullScreen = false; break;
+        case 'toggle-spotlight': isSpotlightOpen = !isSpotlightOpen; break;
         case 'super-tap': { const n = Number(arg); superTap(Number.isFinite(n) && arg ? n : undefined); break; }
         case 'workspace-sync': if (arg) syncWorkspaceFromCompositor(arg); break;
         case 'workspace-next': switchWorkspace(get(currentWorkspace) + 1); break;
@@ -658,6 +678,8 @@
     : 'linear-gradient(160deg, #0f172a, #1e293b)';
 </script>
 
+<svelte:window on:keydown={onGlobalKey} />
+
 {#if $liveModeChecked && $isLiveMode}
   <!-- Live session: the installer stays mounted (just hidden) while the
        classic desktop is shown, so nothing entered so far is lost. -->
@@ -666,6 +688,7 @@
 {#if $liveModeChecked && (!$isLiveMode || $liveView === 'desktop')}
 <ShellThemeStyle {shellThemeId} />
 <SystemThemeStyle {systemThemeId} />
+
 <div
   class="relative w-full h-full overflow-hidden select-none"
   role="presentation"
@@ -773,6 +796,8 @@
   {/if}
 
   <ToastContainer />
+  <Spotlight isOpen={isSpotlightOpen} zIndex={startMenuZIndex + 300} on:close={() => (isSpotlightOpen = false)} />
+  <MagnifierController />
   <OsdOverlay zIndex={startMenuZIndex + 200} bottomInset={effectivePanelPosition === 'bottom' ? barHeight : 0} />
   <ContextMenu />
   <DialogHost />
