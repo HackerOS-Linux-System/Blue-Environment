@@ -33,6 +33,7 @@
   import TvSettings from './TvSettings.svelte';
   import { FocusMemory, pickRestoreIndex } from '../lib/altShell/focusMemory';
   import { remoteAction } from '../lib/altShell/remoteKeys';
+  import { initRemoteReceiver } from '../lib/utils/remoteReceiver';
   import { FOCUSABLE_SELECTOR } from '../lib/altShell/spatialNav';
 
   let wallpaper = '';
@@ -188,14 +189,26 @@
     raf = requestAnimationFrame(poll);
   }
 
+  // Blue Connect → Remote: a paired phone / controller drives the TV through the
+  // same code path as a game pad (see utils/remoteReceiver.ts + BlueConnect/remote.rs).
+  function onRemoteAction(e: Event) {
+    const d = (e as CustomEvent<{ action: PadAction; handled: boolean }>).detail;
+    if (!d) return;
+    d.handled = true;
+    perform(d.action);
+  }
+  let stopRemote: (() => void) | undefined;
+
   onMount(() => {
+    window.addEventListener('blue:remote-action', onRemoteAction);
+    void initRemoteReceiver().then((un) => (stopRemote = un)).catch(() => {});
     clock = setInterval(() => (now = new Date()), 10000);
     raf = requestAnimationFrame(poll);
     const showPointer = () => document.body.classList.remove('tv-nav-active');
     window.addEventListener('mousemove', showPointer);
     return () => window.removeEventListener('mousemove', showPointer);
   });
-  onDestroy(() => { clearInterval(clock); cancelAnimationFrame(raf); document.body.classList.remove('tv-nav-active'); });
+  onDestroy(() => { window.removeEventListener('blue:remote-action', onRemoteAction); stopRemote?.(); clearInterval(clock); cancelAnimationFrame(raf); document.body.classList.remove('tv-nav-active'); });
 
   function launch(id: string) { panel = 'none'; openApp(id); }
   function resume(id: string) { panel = 'none'; focusWindow(id); }
