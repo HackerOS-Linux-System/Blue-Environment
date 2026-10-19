@@ -4,7 +4,7 @@ Release: 1%{?dist}
 Summary: Blue Environment Wayland Desktop Shell
 License: GPL-3.0
 %description
-Blue Environment — Production Wayland desktop shell built with Smithay, Tauri and React.
+Blue Environment — Production Wayland desktop shell built with Tauri and Svelte.
 %install
 mkdir -p %{buildroot}/usr/share/Blue-Environment/lib
 mkdir -p %{buildroot}/usr/share/wayland-sessions
