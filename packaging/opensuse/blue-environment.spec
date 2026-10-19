@@ -1,13 +1,3 @@
-# openSUSE / SUSE Linux Enterprise spec.
-# Kept as a separate file from blue-environment-fedora.spec (rather than
-# reused as-is) because openSUSE's build service (OBS) expects
-# BuildRequires/Requires phrased with zypper package names, which diverge
-# from Fedora's (e.g. "nodejs18" + "npm18" on Fedora vs "nodejs18" +
-# "npm18" naming being similar but version-locked packages differing, and
-# openSUSE preferring %autosetup/%cmake-style macros in fuller specs).
-# This is intentionally a minimal binary-only spec, mirroring how the
-# Fedora/LegendaryOS specs in this directory work: build.rb builds the
-# binaries first, then this spec just stages+packages them.
 Name:           blue-environment
 Version:        @VERSION@
 Release:        1%{?dist}
@@ -19,7 +9,7 @@ Requires:       ruby
 Recommends:     bedm
 
 %description
-Blue Environment — production Wayland desktop shell built with Smithay,
+Blue Environment — production Wayland desktop shell built with
 Tauri and Svelte. openSUSE/SUSE packaging variant.
 
 %install
