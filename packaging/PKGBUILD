@@ -1,8 +1,7 @@
-# Maintainer: LegendaryOS Team <legendaryos.linux.system@gmail.com>
 pkgname=blue-environment
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="Blue Environment Wayland desktop shell (Smithay + Tauri + Svelte)"
+pkgdesc="Blue Environment Wayland desktop shell (Tauri + Svelte)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/HackerOS-Linux-System/Blue-Environment"
 license=('GPL3')
