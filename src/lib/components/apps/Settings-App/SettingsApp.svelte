@@ -4,8 +4,7 @@
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
     Sparkles, Puzzle, Layers, Clock, Keyboard, Copy, FileCog,
-    ChevronLeft,
-  } from 'lucide-svelte';
+    ChevronLeft, Accessibility, BellOff } from 'lucide-svelte';
   import { isCompactWidth } from '../../../utils/compact';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
@@ -41,6 +40,8 @@
   import MonitorsSection from '../../settings/MonitorsSection.svelte';
   import PrintersSection from '../../settings/PrintersSection.svelte';
   import UsersSection from '../../settings/UsersSection.svelte';
+  import AccessibilitySection from './sections/AccessibilitySection.svelte';
+  import DoNotDisturbSection from './sections/DoNotDisturbSection.svelte';
 
   interface TabEntry { id: SettingsTab; labelKey: string; label?: string; icon: any; group: 'Appearance' | 'Network' | 'System' | 'Hardware' | 'Account'; }
 
@@ -66,6 +67,8 @@
     { id: 'default_apps', labelKey: 'settings.tab.default_apps', icon: LayoutGrid, group: 'System' },
     { id: 'file_types', labelKey: 'settings.tab.file_types', icon: FileCog, group: 'System' },
     { id: 'users', labelKey: 'settings.tab.users', icon: Users, group: 'System' },
+    { id: 'accessibility', labelKey: 'settings.tab.accessibility', icon: Accessibility, group: 'System' },
+    { id: 'dnd', labelKey: 'settings.tab.dnd', icon: BellOff, group: 'System' },
     { id: 'security', labelKey: 'settings.tab.security', icon: Shield, group: 'Account' },
     { id: 'parental_controls', labelKey: 'settings.tab.parental_controls', icon: ShieldCheck, group: 'Account' },
     { id: 'screen_time', labelKey: 'settings.tab.screen_time', icon: Clock, group: 'Account' },
@@ -226,6 +229,8 @@
       {:else if activeTab === 'network'}<NetworkSection />
       {:else if activeTab === 'monitors'}<MonitorsSection />
       {:else if activeTab === 'printers'}<PrintersSection />
+      {:else if activeTab === 'accessibility'}<AccessibilitySection />
+      {:else if activeTab === 'dnd'}<DoNotDisturbSection />
       {:else if activeTab === 'power'}<PowerSection />
       {:else if activeTab === 'apps'}<AppsSection {config} {onSave} />
       {:else if activeTab === 'default_apps'}<DefaultAppsSection />
