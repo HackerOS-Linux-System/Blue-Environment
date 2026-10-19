@@ -116,6 +116,7 @@
     [AppId.BLUE_NEWS]: ['Internet'],
     [AppId.BLUE_DOWNLOADER]: ['Internet'],
     [AppId.BLUE_SECURITY]: ['System'], [AppId.BLUE_HELP]: ['System'],
+    [AppId.BLUE_MEDIA_WRITER]: ['System'], [AppId.BLUE_PDF]: ['Office'], [AppId.BLUE_BACKUP]: ['System'],
   };
 
   function getCategory(app: AnyApp): string {
