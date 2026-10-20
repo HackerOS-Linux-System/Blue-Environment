@@ -4,7 +4,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
@@ -811,8 +810,6 @@ pub async fn remote_send(target: String, input: Input) -> Result<(), String> {
         s => Err(format!("The TV answered HTTP {s}")),
     }
 }
-
-static _KEEP: AtomicBool = AtomicBool::new(false);
 
 // ───────────────────────────── tests ─────────────────────────────
 
