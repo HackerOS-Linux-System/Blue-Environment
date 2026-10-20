@@ -535,7 +535,7 @@ pub fn phone_pair(host_port: String, code: String) -> Result<String, String> {
         return Err("The pairing code has 6 digits".into());
     }
     let o = run_timeout("adb", &["pair", &host_port, &code], Duration::from_secs(20))?;
-    let text = String::from_utf8_lossy(&o.stdout).to_string() + &o.stderr;
+    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), o.stderr);
     if text.to_lowercase().contains("successfully paired") {
         Ok(first_line(&text, "Paired"))
     } else {
@@ -549,7 +549,7 @@ pub fn phone_connect(host_port: String) -> Result<String, String> {
         return Err("Enter the address as host:port, e.g. 192.168.1.20:5555".into());
     }
     let o = run_timeout("adb", &["connect", &host_port], Duration::from_secs(15))?;
-    let text = String::from_utf8_lossy(&o.stdout).to_string() + &o.stderr;
+    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), o.stderr);
     if text.contains("connected to") || text.contains("already connected") {
         Ok(first_line(&text, "Connected"))
     } else {
@@ -667,7 +667,7 @@ pub fn phone_install_apk(serial: String, path: String) -> Result<(), String> {
         return Err("Choose an .apk file".into());
     }
     let o = run_timeout("adb", &["-s", &serial, "install", "-r", &path], Duration::from_secs(180))?;
-    let text = String::from_utf8_lossy(&o.stdout).to_string() + &o.stderr;
+    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), o.stderr);
     if text.contains("Success") { Ok(()) } else { Err(first_line(&text, "Install failed")) }
 }
 
