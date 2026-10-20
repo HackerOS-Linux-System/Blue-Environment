@@ -136,6 +136,8 @@ pub fn build_args(layout: &[OutputConfig]) -> Result<Vec<String>, String> {
 }
 
 /// Lays the enabled outputs out left-to-right without gaps or overlaps
+/// (the UI does the same in TypeScript; kept here, tested, for CLI / restore repair use).
+#[cfg_attr(not(test), allow(dead_code))]
 /// (used by the "Arrange in a row" button and as a repair when the saved
 /// layout no longer matches the connected monitors).
 pub fn arrange_in_row(outputs: &mut [OutputConfig], sizes: &dyn Fn(&str) -> (u32, u32)) {
