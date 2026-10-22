@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { preventDefault } from 'svelte/legacy';
+
   /**
    * On-screen ("virtual") keyboard, toggled by Settings > "On-screen
    * Keyboard" (`config.onscreenKeyboardEnabled`, opt-in, default off —
@@ -42,10 +44,14 @@
   import { onMount, onDestroy } from 'svelte';
   import { ChevronDown, Delete, ArrowBigUp, Globe } from 'lucide-svelte';
 
-  export let visible = false;
+  interface Props {
+    visible?: boolean;
+  }
 
-  let shift = false;
-  let capsLock = false;
+  let { visible = $bindable(false) }: Props = $props();
+
+  let shift = $state(false);
+  let capsLock = $state(false);
 
   const ROWS: string[][] = [
     ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
@@ -150,7 +156,7 @@
 {#if visible}
   <div data-shell-occluder="keyboard" class="fixed bottom-0 left-0 right-0 z-[9999] bg-slate-900/95 backdrop-blur-xl border-t border-white/10 px-3 pt-2 pb-3 select-none" data-testid="onscreen-keyboard">
     <div class="flex justify-end mb-1">
-      <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400" on:click={() => (visible = false)} title="Hide keyboard" aria-label="Hide keyboard">
+      <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400" onclick={() => (visible = false)} title="Hide keyboard" aria-label="Hide keyboard">
         <ChevronDown size={16} />
       </button>
     </div>
@@ -160,14 +166,14 @@
           {#each row as k}
             <button
               class="flex-1 min-w-0 h-10 rounded-lg bg-white/5 hover:bg-white/10 active:bg-blue-600 text-white text-sm font-medium transition-colors"
-              on:mousedown|preventDefault={() => pressKey(k)}>
+              onmousedown={preventDefault(() => pressKey(k))}>
               {keyLabel(k)}
             </button>
           {/each}
           {#if i === 3}
             <button
               class="w-16 h-10 rounded-lg bg-white/5 hover:bg-white/10 active:bg-blue-600 flex items-center justify-center transition-colors"
-              on:mousedown|preventDefault={backspace} title="Backspace" aria-label="Backspace">
+              onmousedown={preventDefault(backspace)} title="Backspace" aria-label="Backspace">
               <Delete size={16} class="text-white" />
             </button>
           {/if}
@@ -176,19 +182,19 @@
       <div class="flex gap-1.5">
         <button
           class="w-16 h-10 rounded-lg flex items-center justify-center transition-colors {shift || capsLock ? 'bg-blue-600' : 'bg-white/5 hover:bg-white/10'}"
-          on:mousedown|preventDefault={() => (shift = !shift)}
-          on:dblclick|preventDefault={() => { capsLock = !capsLock; shift = false; }}
+          onmousedown={preventDefault(() => (shift = !shift))}
+          ondblclick={preventDefault(() => { capsLock = !capsLock; shift = false; })}
           title="Shift (double-tap for Caps Lock)" aria-label="Shift">
           <ArrowBigUp size={16} class="text-white" />
         </button>
         <button
           class="flex-1 h-10 rounded-lg bg-white/5 hover:bg-white/10 active:bg-blue-600 text-white text-sm transition-colors"
-          on:mousedown|preventDefault={() => pressKey(' ')}>
+          onmousedown={preventDefault(() => pressKey(' '))}>
           {' '}
         </button>
         <button
           class="w-20 h-10 rounded-lg bg-white/5 hover:bg-white/10 active:bg-blue-600 text-white text-sm font-medium transition-colors"
-          on:mousedown|preventDefault={enter}>
+          onmousedown={preventDefault(enter)}>
           ↵
         </button>
       </div>
