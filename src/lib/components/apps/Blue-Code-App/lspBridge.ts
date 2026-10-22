@@ -1,24 +1,35 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { snippet, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from '@codemirror/autocomplete';
+import { hoverTooltip, keymap, EditorView } from '@codemirror/view';
+import { Prec, type EditorState, type Extension } from '@codemirror/state';
 import type { Diagnostic } from './types';
+import type { EditorHandle } from './editorHandle';
+import { lspSnippetToCm } from './snippetSyntax';
+export { lspSnippetToCm };
 
-/** Języki obsługiwane przez serwery LSP, których Monaco nie ma wbudowanych. */
-export const BRIDGED_LANGS = ['rust', 'python', 'go', 'c', 'cpp'];
+/**
+ * Languages served by a real LSP server through the Rust backend.
+ * With Monaco, TypeScript/JavaScript came with a built-in language service;
+ * CodeMirror has none, so they now go through `typescript-language-server`
+ * like the rest.
+ */
+export const BRIDGED_LANGS = ['rust', 'python', 'go', 'c', 'cpp', 'typescript', 'javascript'];
 
 export interface LspDiagnosticOut {
   message: string; severity: number; line: number; character: number;
   endLine: number; endCharacter: number; source?: string | null; code?: string | null;
 }
 
-/** Numer `CompletionItemKind` z LSP → nazwa w `monaco.languages.CompletionItemKind`. */
-export function lspKindToMonaco(kind?: number | null): string {
+/** LSP `CompletionItemKind` → CodeMirror completion `type` (drives the icon). */
+export function lspKindToCompletionType(kind?: number | null): string {
   const map: Record<number, string> = {
-    1: 'Text', 2: 'Method', 3: 'Function', 4: 'Constructor', 5: 'Field', 6: 'Variable', 7: 'Class', 8: 'Interface',
-    9: 'Module', 10: 'Property', 11: 'Unit', 12: 'Value', 13: 'Enum', 14: 'Keyword', 15: 'Snippet', 16: 'Color',
-    17: 'File', 18: 'Reference', 19: 'Folder', 20: 'EnumMember', 21: 'Constant', 22: 'Struct', 23: 'Event',
-    24: 'Operator', 25: 'TypeParameter',
+    1: 'text', 2: 'method', 3: 'function', 4: 'function', 5: 'property', 6: 'variable', 7: 'class', 8: 'interface',
+    9: 'namespace', 10: 'property', 11: 'constant', 12: 'constant', 13: 'enum', 14: 'keyword', 15: 'text', 16: 'constant',
+    17: 'text', 18: 'text', 19: 'text', 20: 'enum', 21: 'constant', 22: 'class', 23: 'text',
+    24: 'keyword', 25: 'type',
   };
-  return (kind && map[kind]) || 'Text';
+  return (kind && map[kind]) || 'text';
 }
 
 /** Diagnostyki LSP (0-based) → model Problems panelu Blue Code (1-based). */
@@ -31,16 +42,17 @@ export function toProblems(path: string, list: LspDiagnosticOut[]): Diagnostic[]
 }
 
 export interface LspBridgeDeps {
-  getMonaco: () => any;
+  getEditor: () => EditorHandle | null;
   getRoot: () => string;
   getActivePath: () => string | undefined;
   onDiagnostics: (path: string, problems: Diagnostic[]) => void;
   openLocation: (path: string, line: number) => void;
 }
 
+interface LspLocation { path: string; line: number; character: number; endLine: number; endCharacter: number }
+
 export function createLspBridge(deps: LspBridgeDeps) {
   const ready = new Set<string>();            // języki po udanym handshake
-  const providersFor = new Set<string>();     // języki z zarejestrowanymi providerami Monaco
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let diagListening = false;
 
@@ -53,98 +65,107 @@ export function createLspBridge(deps: LspBridgeDeps) {
       await listen<{ key: string; path: string; diagnostics: LspDiagnosticOut[] }>('lsp-diagnostics', (e) => {
         const { path, diagnostics } = e.payload;
         deps.onDiagnostics(path, toProblems(path, diagnostics));
-        const monaco = deps.getMonaco();
-        if (monaco && deps.getActivePath() === path) {
-          const model = monaco.editor.getModels?.()[0];
-          if (model) {
-            monaco.editor.setModelMarkers(model, 'blue-lsp', diagnostics.map((d) => ({
-              severity: d.severity <= 1 ? monaco.MarkerSeverity.Error : d.severity === 2 ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info,
-              startLineNumber: d.line + 1, startColumn: d.character + 1,
-              endLineNumber: d.endLine + 1, endColumn: Math.max(d.endCharacter + 1, d.character + 2),
-              message: d.message, source: d.source ?? undefined,
-            })));
-          }
+        const editor = deps.getEditor();
+        if (editor && deps.getActivePath() === path) {
+          editor.setMarkers('blue-lsp', diagnostics.map((d) => ({
+            severity: d.severity <= 1 ? 'error' as const : d.severity === 2 ? 'warning' as const : 'info' as const,
+            startLine: d.line + 1, startCol: d.character + 1,
+            endLine: d.endLine + 1, endCol: Math.max(d.endCharacter + 1, d.character + 2),
+            message: d.message, source: d.source ?? undefined,
+          })));
         }
       });
     } catch { /* poza Tauri */ }
   }
 
-  function registerProviders(language: string) {
-    const monaco = deps.getMonaco();
-    if (!monaco || providersFor.has(language)) return;
-    providersFor.add(language);
-    const root = () => deps.getRoot();
-    const args = (model: any, pos: any) => ({
-      language, rootPath: root(), path: deps.getActivePath(), line: pos.lineNumber - 1, character: pos.column - 1,
-    });
+  const argsAt = (language: string, state: EditorState, pos: number) => {
+    const line = state.doc.lineAt(pos);
+    return { language, rootPath: deps.getRoot(), path: deps.getActivePath(), line: line.number - 1, character: pos - line.from };
+  };
 
-    monaco.languages.registerHoverProvider(language, {
-      provideHover: async (model: any, pos: any) => {
-        if (!deps.getActivePath()) return null;
-        try {
-          const h = await invoke<{ contents: string } | null>('lsp_hover', args(model, pos));
-          return h ? { contents: [{ value: h.contents }] } : null;
-        } catch { return null; }
-      },
-    });
-
-    monaco.languages.registerCompletionItemProvider(language, {
-      triggerCharacters: ['.', ':', '>', '<', '"', '/', '('],
-      provideCompletionItems: async (model: any, pos: any) => {
-        if (!deps.getActivePath()) return { suggestions: [] };
-        try {
-          const items = await invoke<{ label: string; kind?: number; detail?: string; documentation?: string; insertText: string; snippet: boolean }[]>('lsp_completion', args(model, pos));
-          const w = model.getWordUntilPosition(pos);
-          const range = { startLineNumber: pos.lineNumber, endLineNumber: pos.lineNumber, startColumn: w.startColumn, endColumn: w.endColumn };
-          return {
-            suggestions: items.map((i) => ({
-              label: i.label,
-              kind: monaco.languages.CompletionItemKind[lspKindToMonaco(i.kind)],
-              detail: i.detail ?? undefined,
-              documentation: i.documentation ? { value: i.documentation } : undefined,
-              insertText: i.insertText,
-              insertTextRules: i.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
-              range,
-            })),
-          };
-        } catch { return { suggestions: [] }; }
-      },
-    });
-
-    monaco.languages.registerDefinitionProvider(language, {
-      provideDefinition: async (model: any, pos: any) => {
-        if (!deps.getActivePath()) return null;
-        try {
-          const locs = await invoke<{ path: string; line: number; character: number; endLine: number; endCharacter: number }[]>('lsp_definition', args(model, pos));
-          return locs.map((l) => ({
-            uri: monaco.Uri.file(l.path),
-            range: { startLineNumber: l.line + 1, startColumn: l.character + 1, endLineNumber: l.endLine + 1, endColumn: l.endCharacter + 1 },
-          }));
-        } catch { return null; }
-      },
-    });
-
-    // Definicja w innym pliku: Monaco nie ma jego modelu, więc otwieramy plik w Blue Code.
-    try {
-      monaco.editor.registerEditorOpener?.({
-        openCodeEditor: (_src: any, resource: any, sel: any) => {
-          const path = resource?.path;
-          if (!path) return false;
-          deps.openLocation(path, sel?.startLineNumber ?? sel?.lineNumber ?? 1);
-          return true;
-        },
-      });
-    } catch { /* starsze wersje Monaco */ }
+  /** Completion source backed by `lsp_completion`. */
+  function completionSource(language: string): CompletionSource {
+    return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
+      if (!isActive(language) || !deps.getActivePath()) return null;
+      const word = ctx.matchBefore(/[\w$]*/);
+      if (!ctx.explicit && (!word || (word.from === word.to && !/[.:>/<"(]/.test(ctx.state.sliceDoc(Math.max(0, ctx.pos - 1), ctx.pos))))) return null;
+      try {
+        const items = await invoke<{ label: string; kind?: number; detail?: string; documentation?: string; insertText: string; snippet: boolean }[]>(
+          'lsp_completion', argsAt(language, ctx.state, ctx.pos));
+        const options: Completion[] = items.map((i) => ({
+          label: i.label,
+          type: lspKindToCompletionType(i.kind),
+          detail: i.detail ?? undefined,
+          info: i.documentation ?? undefined,
+          apply: i.snippet ? snippet(lspSnippetToCm(i.insertText)) : (i.insertText === i.label ? undefined : i.insertText),
+        }));
+        return { from: word ? word.from : ctx.pos, options, validFor: /^[\w$]*$/ };
+      } catch { return null; }
+    };
   }
 
-  /** Handshake + providery. Zwraca true, gdy LSP działa dla tego języka. */
+  /** Hover (type info / docs) from the server. */
+  function hover(language: string): Extension {
+    return hoverTooltip(async (view, pos) => {
+      if (!isActive(language) || !deps.getActivePath()) return null;
+      try {
+        const h = await invoke<{ contents: string } | null>('lsp_hover', argsAt(language, view.state, pos));
+        if (!h || !h.contents) return null;
+        const text = h.contents.replace(/```[a-z]*\n?/gi, '').trim();
+        return {
+          pos, above: true,
+          create() {
+            const dom = document.createElement('pre');
+            dom.style.cssText = 'margin:0;padding:6px 10px;font-size:12px;max-width:520px;max-height:260px;overflow:auto;white-space:pre-wrap';
+            dom.textContent = text;
+            return { dom };
+          },
+        };
+      } catch { return null; }
+    }, { hoverTime: 350 });
+  }
+
+  /** Go to definition: Ctrl/Cmd+click and F12. Targets in other files open in Blue Code. */
+  function definition(language: string): Extension {
+    const go = async (view: EditorView, pos: number) => {
+      if (!isActive(language) || !deps.getActivePath()) return false;
+      try {
+        const locs = await invoke<LspLocation[]>('lsp_definition', argsAt(language, view.state, pos));
+        const l = locs?.[0];
+        if (!l) return false;
+        if (l.path === deps.getActivePath()) {
+          const ln = view.state.doc.line(Math.min(l.line + 1, view.state.doc.lines));
+          const at = Math.min(ln.from + l.character, ln.to);
+          view.dispatch({ selection: { anchor: at }, effects: EditorView.scrollIntoView(at, { y: 'center' }) });
+          view.focus();
+        } else {
+          deps.openLocation(l.path, l.line + 1);
+        }
+        return true;
+      } catch { return false; }
+    };
+    return [
+      EditorView.domEventHandlers({
+        mousedown(e, view) {
+          if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return false;
+          const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+          if (pos == null) return false;
+          e.preventDefault();
+          void go(view, pos);
+          return true;
+        },
+      }),
+      Prec.high(keymap.of([{ key: 'F12', run: (view) => { void go(view, view.state.selection.main.head); return true; } }])),
+    ];
+  }
+
+  /** Handshake. Returns true when LSP works for this language. */
   async function initialize(language: string): Promise<boolean> {
     if (!BRIDGED_LANGS.includes(language)) return false;
     if (ready.has(language)) return true;
     try {
       await invoke('lsp_initialize', { language, rootPath: deps.getRoot() });
       ready.add(language);
-      registerProviders(language);
       await listenDiagnostics();
       return true;
     } catch { return false; }
@@ -168,7 +189,7 @@ export function createLspBridge(deps: LspBridgeDeps) {
     call('lsp_did_close', { language, rootPath: deps.getRoot(), path });
   }
 
-  return { initialize, isActive, didOpen, didChange, didClose };
+  return { initialize, isActive, didOpen, didChange, didClose, completionSource, hover, definition };
 }
 
 export type LspBridge = ReturnType<typeof createLspBridge>;
