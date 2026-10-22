@@ -1,7 +1,9 @@
 package org.hackeros.blueconnect.ui
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -40,9 +42,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.hackeros.blueconnect.android.BlueConnectRuntime
+import org.hackeros.blueconnect.android.BlueNotificationListener
 import org.hackeros.blueconnect.android.SmsPlugin
 import org.hackeros.blueconnect.core.ConnectException
 import org.hackeros.blueconnect.core.DeviceInfo
@@ -149,6 +153,14 @@ fun ConnectScreen(onStopService: () -> Unit, onStartService: () -> Unit) {
             }
 
             Spacer(Modifier.height(12.dp))
+            var notifAccess by remember { mutableStateOf(BlueNotificationListener.isEnabled(context)) }
+            // The person toggles this in system settings and comes back — re-check while the screen is shown.
+            LaunchedEffect(Unit) { while (true) { notifAccess = BlueNotificationListener.isEnabled(context); delay(1500) } }
+            NotificationAccessCard(notifAccess) {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+
+            Spacer(Modifier.height(12.dp))
             Text("Devices", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
 
@@ -225,6 +237,24 @@ private fun SmsCard(granted: Boolean, onEnable: () -> Unit) {
             if (!granted) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = onEnable) { Text("Allow SMS access") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationAccessCard(enabled: Boolean, onOpenSettings: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Notifications on your computer", fontWeight = FontWeight.SemiBold)
+            Text(
+                if (enabled) "On — a paired computer can list this phone's current notifications (only when you ask for them there)."
+                else "Off — turn on to see this phone's notifications in Blue Connect on your computer.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
+            )
+            if (!enabled) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = onOpenSettings) { Text("Open notification access settings") }
             }
         }
     }
