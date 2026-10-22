@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   // Applies a filesystem theme package (`/usr/share/themes/<id>/`, see
   // src-tauri/src/themes.rs) globally, the same way ShellThemeStyle.svelte
   // applies a built-in `shellThemeId` theme via `[data-shell-theme]` — the
@@ -13,7 +15,11 @@
   import { onMount } from 'svelte';
   import { SystemBridge } from '../utils/systemBridge';
 
-  export let systemThemeId: string | null | undefined;
+  interface Props {
+    systemThemeId: string | null | undefined;
+  }
+
+  let { systemThemeId }: Props = $props();
 
   let injectedStyleEl: HTMLStyleElement | null = null;
   let currentlyAppliedId: string | null = null;
@@ -52,7 +58,9 @@
     currentlyAppliedId = null;
   }
 
-  $: applyTheme(systemThemeId);
+  run(() => {
+    applyTheme(systemThemeId);
+  });
 
   onMount(() => () => {
     // Cleanup on unmount (shell restart, hot-reload during
