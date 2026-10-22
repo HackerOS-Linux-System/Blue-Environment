@@ -10,14 +10,20 @@
   //
   // Usage:
   //   <LoadingSpinner label="Checking for updates…" />
-  //   <LoadingSpinner size={16} inline />
-  export let label: string = '';
-  export let size: number = 20;
+  
   /// `true` renders compactly on one line next to other content
   /// (a button, a list row); `false` (default) centers in whatever
   /// container it's placed in — for a section that's *entirely*
-  /// waiting on one backend call, not just one small piece of it.
-  export let inline: boolean = false;
+  
+  interface Props {
+    //   <LoadingSpinner size={16} inline />
+    label?: string;
+    size?: number;
+    /// waiting on one backend call, not just one small piece of it.
+    inline?: boolean;
+  }
+
+  let { label = '', size = 20, inline = false }: Props = $props();
 </script>
 
 {#if inline}
