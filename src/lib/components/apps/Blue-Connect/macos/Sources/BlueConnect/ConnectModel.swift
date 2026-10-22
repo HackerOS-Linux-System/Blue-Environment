@@ -17,6 +17,7 @@ final class ConnectModel: ObservableObject, ConnectDelegate {
     @Published var deviceName = Host.current().localizedName ?? "Mac"
 
     private var service: ConnectService?
+    private let pluginHost = MacPluginHost()
     private var pendingDecision: CheckedContinuation<Bool, Never>?
     private var decisionTimeout: Task<Void, Never>?
 
@@ -32,6 +33,7 @@ final class ConnectModel: ObservableObject, ConnectDelegate {
                 identity: identity
             )
             svc.delegate = self
+            svc.pluginRouter = PluginRouter(host: pluginHost)
             try await svc.start()
             service = svc
             fingerprint = svc.fingerprint
