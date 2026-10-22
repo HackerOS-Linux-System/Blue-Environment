@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { appHealth } from '../stores/appHealth';
   import type { WindowState } from '../types';
   import { createEventDispatcher, onDestroy } from 'svelte';
@@ -8,29 +10,43 @@
   import { windowInteracting } from '../stores/overlayState';
   import { closePopups } from '../utils/popups';
 
-  export let win: WindowState;
-  export let isActive: boolean;
   // Actual reserved space for the panel — 0 if the user disabled it,
   // otherwise their configured panelSize (not a hardcoded 48px like
   // before, which silently drifted out of sync with the Panel settings
-  // slider). `panelPosition` decides which screen edge is reserved.
-  export let barHeight = 48;
-  export let panelPosition: 'top' | 'bottom' = 'top';
-  /** See WindowControls.svelte's module doc — this is what actually
+  
+  
+  interface Props {
+    win: WindowState;
+    isActive: boolean;
+    // slider). `panelPosition` decides which screen edge is reserved.
+    barHeight?: number;
+    panelPosition?: 'top' | 'bottom';
+    /** See WindowControls.svelte's module doc — this is what actually
    * makes `windowControlsStyle`/`windowControlsPosition` (previously
    * dead data on every theme) do something. `undefined`/default theme
    * both resolve to the same 'windows'/'right' look this component
    * already had hardcoded before, so nothing changes for anyone not
    * using a theme that sets these. */
-  export let shellThemeId: string | undefined = undefined;
+    shellThemeId?: string | undefined;
+    children?: import('svelte').Snippet;
+  }
 
-  $: activeTheme = resolveActiveShellTheme(shellThemeId);
-  $: controlsStyle = activeTheme?.layout.windowControlsStyle ?? 'windows';
-  $: controlsPosition = activeTheme?.layout.windowControlsPosition ?? 'right';
+  let {
+    win,
+    isActive,
+    barHeight = 48,
+    panelPosition = 'top',
+    shellThemeId = undefined,
+    children
+  }: Props = $props();
+
+  let activeTheme = $derived(resolveActiveShellTheme(shellThemeId));
+  let controlsStyle = $derived(activeTheme?.layout.windowControlsStyle ?? 'windows');
+  let controlsPosition = $derived(activeTheme?.layout.windowControlsPosition ?? 'right');
   // Only Hydra sets this today (its pink accent) — see
   // WindowControls.svelte's doc for why this is a separate prop rather
   // than its own `windowControlsStyle` value.
-  $: controlsGlow = activeTheme?.id === 'hydra' ? activeTheme.colors.accent : undefined;
+  let controlsGlow = $derived(activeTheme?.id === 'hydra' ? activeTheme.colors.accent : undefined);
   // Person's own override from Settings → Themes → "Window control
   // button order" (see ThemesSection.svelte), keyed per *installed
   // theme id* — see the `windowControlsOrderByTheme` field's doc
@@ -43,9 +59,11 @@
   // active style's own sensible default (WindowControls.svelte) when
   // *this theme* has no override, i.e. this is `undefined` for everyone
   // who hasn't customized their current theme specifically.
-  $: effectiveThemeId = shellThemeId ?? DEFAULT_SHELL_THEME_ID;
-  let controlsOrder: WindowControlsOrder | undefined;
-  $: controlsOrder = configStore.get().windowControlsOrderByTheme?.[effectiveThemeId] as WindowControlsOrder | undefined;
+  let effectiveThemeId = $derived(shellThemeId ?? DEFAULT_SHELL_THEME_ID);
+  let controlsOrder = $state<WindowControlsOrder | undefined>();
+  run(() => {
+    controlsOrder = configStore.get().windowControlsOrderByTheme?.[effectiveThemeId] as WindowControlsOrder | undefined;
+  });
   const unsubControlsOrder = configStore.subscribe((cfg) => {
     controlsOrder = cfg.windowControlsOrderByTheme?.[effectiveThemeId] as WindowControlsOrder | undefined;
   });
@@ -64,7 +82,7 @@
   // Where windows are allowed to start/snap to, given the panel's
   // current edge — 0 at the panel-free edge, `barHeight` at the edge the
   // panel actually occupies.
-  $: topReserved = panelPosition === 'top' ? barHeight : 0;
+  let topReserved = $derived(panelPosition === 'top' ? barHeight : 0);
 
   type SnapRegion = 'none' | 'left' | 'right' | 'top' | 'top-left' | 'top-right';
   interface SnapPreview { x: number; y: number; w: number; h: number; }
@@ -95,10 +113,10 @@
     }
   }
 
-  let isDragging = false;
+  let isDragging = $state(false);
   let isResizing = false;
   let snapRegion: SnapRegion = 'none';
-  let snapPreview: SnapPreview | null = null;
+  let snapPreview = $state<SnapPreview | null>(null);
 
   let dragOffset = { x: 0, y: 0 };
   let resizeStart = { x: 0, y: 0, w: 0, h: 0 };
@@ -169,18 +187,18 @@
     if (isDragging || isResizing) windowInteracting.set(false);
   });
 
-  $: style = win.isMaximized
+  let style = $derived(win.isMaximized
     ? `left:0; top:${topReserved}px; width:100vw; height:calc(100vh - ${barHeight}px); border-radius:0; border:none; z-index:${win.zIndex};`
     : win.isPiP
     ? `left:${win.x}px; top:${win.y}px; width:${win.width}px; height:${win.height}px; z-index:9998;`
-    : `left:${win.x}px; top:${win.y}px; width:${win.width}px; height:${win.height}px; z-index:${win.zIndex};`;
+    : `left:${win.x}px; top:${win.y}px; width:${win.width}px; height:${win.height}px; z-index:${win.zIndex};`);
 </script>
 
 {#if !win.isMinimized}
   {#if snapPreview}
     <div data-shell-occluder="snap-preview" class="fixed pointer-events-none z-[9999]"
          style="left:{snapPreview.x}px; top:{snapPreview.y}px; width:{snapPreview.w}px; height:{snapPreview.h}px;
-                background:rgba(59,130,246,0.15); border:2px solid rgba(59,130,246,0.5); border-radius:12px; transition:all 0.12s ease;" />
+                background:rgba(59,130,246,0.15); border:2px solid rgba(59,130,246,0.5); border-radius:12px; transition:all 0.12s ease;"></div>
   {/if}
 
   <div
@@ -191,23 +209,23 @@
       {isDragging ? 'cursor-grabbing select-none' : ''}
       {win.isPiP ? 'ring-2 ring-blue-500/50 shadow-blue-500/30' : ''}"
     style="{style} border-radius: {win.isPiP ? 'var(--shell-radius, 1rem)' : win.isMaximized ? '0px' : 'var(--shell-radius, 0.75rem)'};"
-    on:mousedown={() => { closePopups(); dispatch('focus', win.id); }}
+    onmousedown={() => { closePopups(); dispatch('focus', win.id); }}
   >
     <div
       class="h-9 flex items-center justify-between px-3 select-none shrink-0 theme-bg-secondary theme-border border-b {win.isMaximized ? '' : 'cursor-default'}"
       data-window-id={win.id} data-window-titlebar
       role="presentation"
-      on:mousedown={handleTitleMouseDown}
-      on:dblclick={() => dispatch('maximize', win.id)}
+      onmousedown={handleTitleMouseDown}
+      ondblclick={() => dispatch('maximize', win.id)}
     >
       <div class="flex items-center gap-2 text-sm font-medium theme-text-primary min-w-0 {controlsPosition === 'left' ? 'order-last' : 'order-first'}">
-        <div class="w-2 h-2 rounded-full shrink-0 transition-colors {isActive ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]' : 'bg-slate-600'}" />
+        <div class="w-2 h-2 rounded-full shrink-0 transition-colors {isActive ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]' : 'bg-slate-600'}"></div>
         <span class="truncate">{win.title}</span>
         {#if win.isExternal}
           <span class="text-[10px] text-slate-500 bg-slate-700/50 px-1.5 rounded">ext</span>
         {/if}
       </div>
-      <div class="shrink-0 {controlsPosition === 'left' ? 'order-first' : 'order-last'}" role="presentation" on:mousedown={(e) => e.stopPropagation()}>
+      <div class="shrink-0 {controlsPosition === 'left' ? 'order-first' : 'order-last'}" role="presentation" onmousedown={(e) => e.stopPropagation()}>
         <WindowControls
           isMaximized={win.isMaximized}
           isPiP={win.isPiP}
@@ -224,18 +242,18 @@
     </div>
 
     <div class="app-content-area flex-1 overflow-auto relative theme-bg-primary theme-text-primary select-text cursor-auto">
-      <slot />
+      {@render children?.()}
 
       {#if $appHealth[win.id]}
         <!-- KDE-style "not responding" — only this window, the rest of the shell stays usable. -->
         <div class="absolute inset-0 z-30 bg-black/55 backdrop-blur-[1px] flex items-center justify-center" role="alertdialog" aria-live="assertive">
           <div class="bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5 max-w-sm text-center">
-            <div class="mx-auto mb-3 w-8 h-8 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+            <div class="mx-auto mb-3 w-8 h-8 rounded-full border-2 border-amber-400 border-t-transparent animate-spin"></div>
             <div class="font-medium text-slate-100 mb-1">“{win.title}” is not responding</div>
             <div class="text-xs text-slate-400 mb-4">Still waiting for <span class="font-mono">{$appHealth[win.id].label}</span>. You can keep waiting, or close the application.</div>
             <div class="flex gap-2 justify-center">
-              <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm" on:click={() => appHealth.update((h) => { const n = { ...h }; delete n[win.id]; return n; })}>Wait</button>
-              <button class="px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-sm" on:click={() => dispatch('close', win.id)}>Close application</button>
+              <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm" onclick={() => appHealth.update((h) => { const n = { ...h }; delete n[win.id]; return n; })}>Wait</button>
+              <button class="px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-sm" onclick={() => dispatch('close', win.id)}>Close application</button>
             </div>
           </div>
         </div>
@@ -243,7 +261,7 @@
     </div>
 
     {#if !win.isMaximized}
-      <div class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-10 group" role="presentation" on:mousedown={handleResizeMouseDown}>
+      <div class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-10 group" role="presentation" onmousedown={handleResizeMouseDown}>
         <svg width="12" height="12" viewBox="0 0 12 12" class="absolute bottom-1 right-1 opacity-30 group-hover:opacity-70 transition-opacity">
           <path d="M0 12 L12 0 M4 12 L12 4 M8 12 L12 8" stroke="currentColor" stroke-width="1.5" />
         </svg>
