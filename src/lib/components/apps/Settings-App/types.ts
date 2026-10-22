@@ -3,6 +3,6 @@ export type SettingsTab =
   | 'power' | 'panel' | 'language' | 'nightLight' | 'weather'
   | 'apps' | 'default_apps' | 'monitors' | 'printers' | 'users'
   | 'accounts' | 'about' | 'security' | 'parental_controls'
-  | 'screen_time' | 'cloned_apps' | 'keyboard' | 'file_types'
+  | 'screen_time' | 'cloned_apps' | 'app_permissions' | 'keyboard' | 'file_types'
   | 'bar' | 'hotCorners' | 'shellUpdates' | 'devices'
   | 'accessibility' | 'dnd';
