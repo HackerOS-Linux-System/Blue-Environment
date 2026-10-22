@@ -187,6 +187,14 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
     const cloneId = appId.slice('clone:'.length);
     const entry = configStore.get().clonedApps?.find((c) => c.id === cloneId);
     if (!entry) return; // stale/deleted clone reference — nothing to open
+    // Cloned *external* app: start it through the isolation wrapper so it gets its own
+    // HOME / XDG_CONFIG_HOME / XDG_DATA_HOME (or a bubblewrap container) instead of sharing the real profile.
+    if (entry.kind === 'external' && entry.exec) {
+      const mode = entry.isolation ?? 'env';
+      if (mode === 'none') { await SystemBridge.launchApp(entry.exec, entry.baseAppId); return; }
+      await SystemBridge.launchCloneApp(entry.exec, entry.id, mode, entry.baseAppId);
+      return;
+    }
     return openApp(entry.baseAppId, false, undefined, { ...launchArgs, cloneProfileId: entry.id }, entry.label);
   }
 
