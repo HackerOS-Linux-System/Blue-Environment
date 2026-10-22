@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { run } from 'svelte/legacy';
+
   /**
    * Community store inside Blue Software: Apps / Plugins / Themes.
    * Entries come from the JSON indexes (config/stores/*.json via
@@ -14,20 +17,24 @@
   } from '../../../utils/blueStore';
   import { SystemBridge } from '../../../utils/systemBridge';
 
-  export let kind: PackageKind;
+  interface Props {
+    kind: PackageKind;
+  }
 
-  let entries: StoreIndexEntry[] = [];
-  let warnings: string[] = [];
+  let { kind }: Props = $props();
+
+  let entries = $state<StoreIndexEntry[]>([]);
+  let warnings = $state<string[]>([]);
   let installed: Receipt[] = [];
   let updates: UpdateInfo[] = [];
-  let loading = true;
-  let error = '';
-  let query = '';
+  let loading = $state(true);
+  let error = $state('');
+  let query = $state('');
   type Filter = 'all' | 'installed' | 'updates';
-  let filter: Filter = 'all';
+  let filter = $state<Filter>('all');
   const FILTERS: [Filter, string][] = [['all', 'All'], ['installed', 'Installed'], ['updates', 'Updates']];
-  let busy: Record<string, { pct: number; message: string } | undefined> = {};
-  let icons: Record<string, string> = {};
+  let busy = $state<Record<string, { pct: number; message: string } | undefined>>({});
+  let icons = $state<Record<string, string>>({});
   let unlisten: (() => void) | null = null;
   let seq = 0;
 
@@ -88,14 +95,17 @@
     finally { const b = { ...busy }; delete b[e.downloadUrl]; busy = b; refreshInstalled(); }
   }
 
-  $: shown = entries.filter((e) => {
+  let shown = $derived(entries.filter((e) => {
     const q = query.toLowerCase();
     if (q && !(e.name.toLowerCase().includes(q) || e.description.toLowerCase().includes(q) || e.author.toLowerCase().includes(q))) return false;
     if (filter === 'installed') return !!receiptFor(e);
     if (filter === 'updates') return !!updateFor(e);
     return true;
+  }));
+  $effect(() => {
+    void kind;
+    untrack(() => load());
   });
-  $: kind, load();
 
   onMount(async () => { unlisten = await onStoreChanged(refreshInstalled); });
   onDestroy(() => unlisten?.());
@@ -110,10 +120,10 @@
     </div>
     <div class="flex rounded-lg overflow-hidden border border-white/10 text-xs">
       {#each FILTERS as [id, label]}
-        <button on:click={() => (filter = id)} class="px-3 py-1.5 {filter === id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/5'}">{label}</button>
+        <button onclick={() => (filter = id)} class="px-3 py-1.5 {filter === id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/5'}">{label}</button>
       {/each}
     </div>
-    <button on:click={load} class="p-2 hover:bg-white/10 rounded-full" title="Refresh"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
+    <button onclick={load} class="p-2 hover:bg-white/10 rounded-full" title="Refresh"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
   </div>
 
   {#if error}
@@ -156,10 +166,10 @@
             {:else}
               <div class="mt-auto flex gap-2">
                 {#if !r}
-                  <button on:click={() => install(e)} class="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm"><Download size={14} /> Install</button>
+                  <button onclick={() => install(e)} class="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm"><Download size={14} /> Install</button>
                 {:else}
-                  {#if up}<button on:click={() => install(e)} class="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-orange-500/80 hover:bg-orange-500 text-sm"><ArrowUpCircle size={14} /> Update to v{up.latestVersion}</button>{/if}
-                  <button on:click={() => remove(e)} class="{up ? '' : 'flex-1'} px-3 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/10 hover:bg-red-500/30 text-sm text-red-300"><Trash2 size={14} /> {up ? '' : 'Uninstall'}</button>
+                  {#if up}<button onclick={() => install(e)} class="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-orange-500/80 hover:bg-orange-500 text-sm"><ArrowUpCircle size={14} /> Update to v{up.latestVersion}</button>{/if}
+                  <button onclick={() => remove(e)} class="{up ? '' : 'flex-1'} px-3 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/10 hover:bg-red-500/30 text-sm text-red-300"><Trash2 size={14} /> {up ? '' : 'Uninstall'}</button>
                 {/if}
               </div>
             {/if}
