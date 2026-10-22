@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   /**
    * Applies the active shell theme (see builtinThemes.ts) to the running UI.
    * Mount once, near the root (App.svelte does this).
@@ -34,15 +36,17 @@
   import { THEME_ATTRS, THEME_CSS_VARS, themeToCss } from '../utils/shellThemeCss';
 
   // Only `shellThemeId` is ever read — a bare string prop rather than the
-  // full `UserConfig`, so callers don't need to thread a whole config through.
-  export let shellThemeId: string | undefined = undefined;
+  
+  interface Props {
+    // full `UserConfig`, so callers don't need to thread a whole config through.
+    shellThemeId?: string | undefined;
+  }
+
+  let { shellThemeId = undefined }: Props = $props();
 
   onMount(() => { ensureCustomThemesLoaded(); });
 
-  // A theme being tried from the editor (unsaved) takes precedence over the configured one.
-  $: activeShellTheme = $previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
 
-  $: applyTheme(activeShellTheme);
 
   function clearTheme(root: HTMLElement) {
     for (const v of THEME_CSS_VARS) root.style.removeProperty(v);
@@ -67,5 +71,10 @@
     // Belt-and-suspenders — App.svelte mounts this for the app's whole
     // lifetime, but never leave inline overrides stuck on <html>.
     clearTheme(document.documentElement);
+  });
+  // A theme being tried from the editor (unsaved) takes precedence over the configured one.
+  let activeShellTheme = $derived($previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes));
+  run(() => {
+    applyTheme(activeShellTheme);
   });
 </script>
