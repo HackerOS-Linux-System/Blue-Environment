@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import { AppId } from '../types';
   import { APPS } from '../constants';
@@ -24,23 +26,39 @@
   import type { BatteryStatus } from '../utils/systemBridge';
   import type { RunningItem } from '../utils/runningApps';
 
-  export let openWindows: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[] = [];
-  /** Every open window (Blue + native, all workspaces) — feeds the running-apps strip. */
-  export let runningItems: RunningItem[] = [];
-  export let currentWorkspace = 0;
-  export let workspaceCount = 4;
-  export let isStartMenuOpen = false;
-  export let isClipboardOpen = false;
-  export let enabled = true;
-  export let position: 'top' | 'bottom' = 'top';
-  /** Active shell theme id (see builtinThemes.ts / App.svelte's
+  
+  
+  interface Props {
+    openWindows?: { id: string; appId?: AppId; isMinimized: boolean; isActive: boolean; workspace: number }[];
+    /** Every open window (Blue + native, all workspaces) — feeds the running-apps strip. */
+    runningItems?: RunningItem[];
+    currentWorkspace?: number;
+    workspaceCount?: number;
+    isStartMenuOpen?: boolean;
+    isClipboardOpen?: boolean;
+    enabled?: boolean;
+    position?: 'top' | 'bottom';
+    /** Active shell theme id (see builtinThemes.ts / App.svelte's
    * `activeShellTheme`) — `undefined`/anything other than `'hydra'`
    * today just means "normal panel look", same as before this prop
    * existed. Not a general theming hook; add more `{#if shellThemeId
    * === '...'}` branches here if/when another theme needs its own
    * panel treatment, rather than trying to generalize prematurely for
    * a single data point. */
-  export let shellThemeId: string | undefined = undefined;
+    shellThemeId?: string | undefined;
+  }
+
+  let {
+    openWindows = [],
+    runningItems = [],
+    currentWorkspace = 0,
+    workspaceCount = 4,
+    isStartMenuOpen = false,
+    isClipboardOpen = false,
+    enabled = true,
+    position = 'top',
+    shellThemeId = undefined
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{
     openApp: string;
@@ -124,7 +142,7 @@
   // See CompositorBridge.onImeCandidateWindow / protocols/input_method.rs on
   // the compositor side. Purely a status dot — the candidate list itself is
   // always the IME's own composited surface, never drawn here.
-  let imeActive = false;
+  let imeActive = $state(false);
   // `onImeCandidateWindow` resolves via Tauri's async event API, so the
   // real unlisten fn only exists once that promise settles — same pattern
   // as MonitorsSection.svelte's onHdrStateChanged.
@@ -191,22 +209,22 @@
     }
   }
 
-  let time = new Date();
-  let weather: WeatherData | null = null;
+  let time = $state(new Date());
+  let weather = $state<WeatherData | null>(null);
   let weatherEnabled = true;
   let weatherCityOverride = '';
   let weatherUnit: 'celsius' | 'fahrenheit' = 'celsius';
-  let showWeatherPopover = false;
+  let showWeatherPopover = $state(false);
 
   // --- Clipboard hover preview ---------------------------------------------
-  let hasClipboardContent = false;
+  let hasClipboardContent = $state(false);
 
   // --- Battery ------------------------------------------------------------
   // Shown right next to the weather chip. Hidden entirely on machines with
   // no battery (desktops) — `present` comes from /sys/class/power_supply
   // (see `get_battery_status` in system_stats.rs), not a fake "100 %".
   type BatteryState = BatteryStatus;
-  let battery: BatteryState | null = null;
+  let battery = $state<BatteryState | null>(null);
   let batteryTimer: ReturnType<typeof setInterval>;
   async function loadBattery() {
     try { battery = await SystemBridge.getBatteryStatus(); } catch { /* keep last value */ }
@@ -228,17 +246,11 @@
   // Hover card (charging or not, time left, power draw, health, adapter) and the
   // click popover (power profile). While either is open the numbers are refreshed
   // every few seconds — they change quickly right after (un)plugging the charger.
-  let showBatteryHover = false;
+  let showBatteryHover = $state(false);
   let batteryHoverTimer: ReturnType<typeof setTimeout>;
-  let batteryLiveTimer: ReturnType<typeof setInterval> | undefined;
+  let batteryLiveTimer = $state<ReturnType<typeof setInterval> | undefined>();
   const BATTERY_LIVE_MS = 5_000;
 
-  $: phase = battery?.present ? batteryPhase(battery) : 'unknown';
-  $: batteryLive = showBatteryHover || showPowerPopover;
-  $: {
-    if (batteryLive && !batteryLiveTimer) batteryLiveTimer = setInterval(loadBattery, BATTERY_LIVE_MS);
-    else if (!batteryLive && batteryLiveTimer) { clearInterval(batteryLiveTimer); batteryLiveTimer = undefined; }
-  }
 
   function onBatteryEnter() {
     if (showPowerPopover) return;
@@ -268,17 +280,16 @@
   // `get_power_profiles` returns [] when power-profiles-daemon isn't there,
   // in which case the popover explains what is missing instead of listing profiles.
   interface PowerProfileItem { name: string; active: boolean; icon?: string; description: string; }
-  let powerProfiles: PowerProfileItem[] = [];
-  let showPowerPopover = false;
-  let powerBusy = false;
-  let powerError = '';
+  let powerProfiles = $state<PowerProfileItem[]>([]);
+  let showPowerPopover = $state(false);
+  let powerBusy = $state(false);
+  let powerError = $state('');
   let powerTimer: ReturnType<typeof setInterval>;
   const POWER_KEYS: Record<string, { name: string; desc: string }> = {
     'power-saver': { name: 'settings.power.profile.power_saver.name', desc: 'settings.power.profile.power_saver.desc' },
     'balanced': { name: 'settings.power.profile.balanced.name', desc: 'settings.power.profile.balanced.desc' },
     'performance': { name: 'settings.power.profile.performance.name', desc: 'settings.power.profile.performance.desc' },
   };
-  $: activePowerProfile = powerProfiles.find((p) => p.active) ?? null;
   function powerIconFor(name: string) { return name === 'performance' ? Zap : name === 'power-saver' ? Battery : Wind; }
   function powerColorFor(name: string) { return name === 'performance' ? 'text-amber-300' : name === 'power-saver' ? 'text-green-400' : 'text-blue-300'; }
   function powerName(p: PowerProfileItem): string { const k = POWER_KEYS[p.name]; return k ? $t(k.name) : p.name; }
@@ -311,8 +322,8 @@
     }
   }
 
-  let clipboardHoverPreviewEnabled = true;
-  let showClipboardPreview = false;
+  let clipboardHoverPreviewEnabled = $state(true);
+  let showClipboardPreview = $state(false);
   /** Click-away for every TopBar popover, even when the click lands inside an app window. */
   function closeOwnPopovers() {
     showWeatherPopover = false; showPowerPopover = false; showClipboardPreview = false; showClockPopover = false; showBatteryHover = false;
@@ -321,7 +332,7 @@
     window.addEventListener(CLOSE_POPUPS_EVENT, closeOwnPopovers);
     return () => window.removeEventListener(CLOSE_POPUPS_EVENT, closeOwnPopovers);
   });
-  let latestClipboardItem: { id: string; content: string; timestamp: number } | null = null;
+  let latestClipboardItem = $state<{ id: string; content: string; timestamp: number } | null>(null);
   let clipboardHoverTimer: ReturnType<typeof setTimeout>;
 
   async function loadLatestClipboardItem() {
@@ -345,13 +356,13 @@
   }
 
   // --- Network speed + timezone popover ------------------------------------
-  let networkHoverInfoEnabled = true;
-  let showClockPopover = false;
-  let netRxBps = 0;
-  let netTxBps = 0;
-  let netConnected = false;
-  let timezoneName = '';
-  let timezoneOffset = '';
+  let networkHoverInfoEnabled = $state(true);
+  let showClockPopover = $state(false);
+  let netRxBps = $state(0);
+  let netTxBps = $state(0);
+  let netConnected = $state(false);
+  let timezoneName = $state('');
+  let timezoneOffset = $state('');
   let clockHoverTimer: ReturnType<typeof setTimeout>;
 
   function fmtBps(bps: number): string {
@@ -394,29 +405,20 @@
     showClockPopover = false;
   }
 
-  let pinnedApps: AppId[] = [AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS];
-  let panelOpacity = 0.95;
+  let pinnedApps = $state<AppId[]>([AppId.TERMINAL, AppId.EXPLORER, AppId.SYSTEM_MONITOR, AppId.SETTINGS]);
+  let panelOpacity = $state(0.95);
   // Pełne dostosowanie paska (Ustawienia → Panel → Pasek) — patrz utils/topBarConfig.ts.
-  let bar: TopBarConfig = normalizeTopBar(undefined);
-  let barHidden = false;
+  let bar = $state<TopBarConfig>(normalizeTopBar(undefined));
+  let barHidden = $state(false);
 
-  // ── Extended bar options (topBarConfig.ts) ─────────────────────────────
-  // Custom background: wins over the theme's panel colour (and over Hydra's
-  // gradient) — the person chose it explicitly in Settings → Bar.
-  $: barBg = bar.backgroundMode === 'custom'
-    ? `background-color:${withAlpha(bar.backgroundColor, bar.backgroundOpacity / 100) ?? 'transparent'};`
-    : '';
-  $: barShadow = bar.shadow ? 'box-shadow:0 6px 24px rgba(0, 0, 0, 0.4);' : '';
   /** CSS `order` for a right-hand widget (the IME badge has none → always first). */
   const ord = (item: BarRightItem | BarLeftItem, order: readonly (BarRightItem | BarLeftItem)[]) => `order:${itemOrder(order, item)};`;
-  $: startRadius = bar.startButtonStyle === 'pill' ? 'rounded-full' : bar.startButtonStyle === 'square' ? 'rounded-none' : 'rounded-lg';
-  let barHoverTimer: ReturnType<typeof setTimeout>;
-  let panelHeight = 48;
+  let barHoverTimer = $state() as ReturnType<typeof setTimeout>;
+  let panelHeight = $state(48);
   // Settings > Panel > "App Launcher" — see systemBridge.ts's
   // UserConfig.startButtonLabelMode/startButtonIcon doc comments.
-  let startButtonLabelMode: 'icon-and-label' | 'icon-only' = 'icon-and-label';
-  let startButtonIcon = '';
-  $: StartButtonIconComponent = startButtonIcon ? ICON_COMPONENTS[startButtonIcon] : null;
+  let startButtonLabelMode = $state<'icon-and-label' | 'icon-only'>('icon-and-label');
+  let startButtonIcon = $state('');
 
   let clockTimer: ReturnType<typeof setInterval>;
   let weatherTimer: ReturnType<typeof setInterval>;
@@ -500,18 +502,34 @@
     await SystemBridge.copyText(latestClipboardItem.content);
     showClipboardPreview = false;
   }
+  let phase = $derived(battery?.present ? batteryPhase(battery) : 'unknown');
+  let batteryLive = $derived(showBatteryHover || showPowerPopover);
+  run(() => {
+    if (batteryLive && !batteryLiveTimer) batteryLiveTimer = setInterval(loadBattery, BATTERY_LIVE_MS);
+    else if (!batteryLive && batteryLiveTimer) { clearInterval(batteryLiveTimer); batteryLiveTimer = undefined; }
+  });
+  let activePowerProfile = $derived(powerProfiles.find((p) => p.active) ?? null);
+  // ── Extended bar options (topBarConfig.ts) ─────────────────────────────
+  // Custom background: wins over the theme's panel colour (and over Hydra's
+  // gradient) — the person chose it explicitly in Settings → Bar.
+  let barBg = $derived(bar.backgroundMode === 'custom'
+    ? `background-color:${withAlpha(bar.backgroundColor, bar.backgroundOpacity / 100) ?? 'transparent'};`
+    : '');
+  let barShadow = $derived(bar.shadow ? 'box-shadow:0 6px 24px rgba(0, 0, 0, 0.4);' : '');
+  let startRadius = $derived(bar.startButtonStyle === 'pill' ? 'rounded-full' : bar.startButtonStyle === 'square' ? 'rounded-none' : 'rounded-lg');
+  let StartButtonIconComponent = $derived(startButtonIcon ? ICON_COMPONENTS[startButtonIcon] : null);
 </script>
 
 {#if enabled}
 {#if bar.autoHide && barHidden}
   <div class="absolute left-0 right-0 z-50 h-1.5 {position === 'top' ? 'top-0' : 'bottom-0'}"
-    on:mouseenter={() => { clearTimeout(barHoverTimer); barHidden = false; }} role="presentation" />
+    onmouseenter={() => { clearTimeout(barHoverTimer); barHidden = false; }} role="presentation"></div>
 {/if}
 <div
   class="absolute flex items-center justify-between px-3 select-none transition-transform duration-200 {BLUR_CLASS[bar.blur]} {bar.floating ? '' : 'left-0 right-0'} {position === 'top' ? 'top-0' : 'bottom-0'} {bar.showBorder ? (bar.floating ? 'border' : (position === 'top' ? 'border-b' : 'border-t')) : ''} {shellThemeId === 'hydra' ? 'border-pink-500/20' : 'border-white/5'}"
-  on:contextmenu={panelMenu} role="presentation"
-  on:mouseleave={() => { if (bar.autoHide) { clearTimeout(barHoverTimer); barHoverTimer = setTimeout(() => (barHidden = true), 600); } }}
-  on:mouseenter={() => { clearTimeout(barHoverTimer); }}
+  oncontextmenu={panelMenu} role="presentation"
+  onmouseleave={() => { if (bar.autoHide) { clearTimeout(barHoverTimer); barHoverTimer = setTimeout(() => (barHidden = true), 600); } }}
+  onmouseenter={() => { clearTimeout(barHoverTimer); }}
   style="height:{panelHeight}px; z-index:50; {bar.floating ? `left:${bar.floatingMargin}px; right:${bar.floatingMargin}px; ${position === 'top' ? 'top' : 'bottom'}:${bar.floatingMargin}px; border-radius:${bar.cornerRadius}px;` : ''} {bar.autoHide && barHidden ? `transform:translateY(${position === 'top' ? '-' : ''}110%);` : ''} {barShadow} {barBg ? barBg : shellThemeId === 'hydra'
     ? `background:linear-gradient(90deg, rgba(236,72,153,${panelOpacity * 0.5}), rgba(139,92,246,${panelOpacity * 0.5}), rgba(59,130,246,${panelOpacity * 0.5})); box-shadow:0 0 24px rgba(236,72,153,0.25);`
     : `background-color:rgba(var(--panel-rgb, 15, 23, 42), var(--panel-opacity, ${panelOpacity}));`}"
@@ -520,19 +538,19 @@
   <div class="flex items-center gap-3 w-1/3 min-w-0">
     {#if bar.showStartButton}
     <button
-      on:contextmenu={startButtonMenu}
-      on:click={handleStartClick}
+      oncontextmenu={startButtonMenu}
+      onclick={handleStartClick}
       style={ord('start', bar.leftOrder)}
       class="panel-icon-btn flex items-center justify-center gap-2 px-3 py-1.5 {startRadius} transition-all group {isStartMenuOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/5 text-slate-300 hover:text-white'}"
       title={$t('topbar.start_tooltip')}
     >
       <div class="relative">
         {#if StartButtonIconComponent}
-          <svelte:component this={StartButtonIconComponent} size={18} class="group-hover:rotate-12 transition-transform duration-200" />
+          <StartButtonIconComponent size={18} class="group-hover:rotate-12 transition-transform duration-200" />
         {:else}
           <Command size={18} class="group-hover:rotate-12 transition-transform duration-200" />
         {/if}
-        <div class="absolute -top-1 -right-1 w-1.5 h-1.5 theme-accent-gradient rounded-full" />
+        <div class="absolute -top-1 -right-1 w-1.5 h-1.5 theme-accent-gradient rounded-full"></div>
       </div>
       {#if startButtonLabelMode !== 'icon-only'}
         <span class="font-bold text-sm tracking-tight hidden sm:block">{bar.startLabel || 'Blue'}</span>
@@ -565,8 +583,8 @@
           {@const isOpen = openInsts.length > 0}
           {@const isActive = openInsts.some((w) => w.isActive && !w.isMinimized)}
           <button
-            on:contextmenu={(e) => pinnedAppMenu(e, appId)}
-            on:click={() => {
+            oncontextmenu={(e) => pinnedAppMenu(e, appId)}
+            onclick={() => {
               const inst = openWindows.find((w) => w.appId === appId);
               if (inst) dispatch('toggleWindow', inst.id);
               else dispatch('openApp', appId);
@@ -575,11 +593,11 @@
             title={app.title}
           >
             {#if typeof app.icon !== 'string'}
-              <svelte:component this={app.icon} size={bar.pinnedIconSize}
+              <app.icon size={bar.pinnedIconSize}
                 class="transition-colors duration-200 {isOpen ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-200'}" />
             {/if}
             {#if isOpen}
-              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {bar.indicatorStyle === 'dot' ? 'w-1 !h-1' : isActive ? 'w-3.5' : 'w-1'} {isActive ? 'bg-blue-400' : 'bg-slate-500'} {bar.indicatorStyle === 'glow' && isActive ? 'shadow-[0_0_8px_2px_rgba(96,165,250,0.7)]' : ''} {bar.accentIndicators ? '' : 'hidden'}" />
+              <span class="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all {bar.indicatorStyle === 'dot' ? 'w-1 !h-1' : isActive ? 'w-3.5' : 'w-1'} {isActive ? 'bg-blue-400' : 'bg-slate-500'} {bar.indicatorStyle === 'glow' && isActive ? 'shadow-[0_0_8px_2px_rgba(96,165,250,0.7)]' : ''} {bar.accentIndicators ? '' : 'hidden'}"></span>
             {/if}
           </button>
         {/if}
@@ -595,11 +613,11 @@
       {#each Array.from({ length: workspaceCount }, (_, i) => i) as i (i)}
         {@const hasWins = openWindows.some((w) => w.workspace === i && !w.isMinimized)}
         {#if bar.workspaceStyle === 'numbers'}
-          <button on:click={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
+          <button onclick={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
             class="w-5 h-5 flex items-center justify-center rounded-md text-[10px] font-semibold tabular-nums transition-colors {i === currentWorkspace ? 'bg-blue-500 text-white' : `${hasWins ? 'text-slate-200' : 'text-slate-500'} hover:bg-white/10`}">{i + 1}</button>
         {:else}
-          <button on:click={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
-            class="transition-all duration-200 rounded-full {i === currentWorkspace ? 'w-4 h-2 bg-blue-400' : `w-2 h-2 ${hasWins ? 'bg-slate-400' : 'bg-slate-600'} hover:bg-slate-300`}" />
+          <button onclick={() => dispatch('switchWorkspace', i)} title="Workspace {i + 1}"
+            class="transition-all duration-200 rounded-full {i === currentWorkspace ? 'w-4 h-2 bg-blue-400' : `w-2 h-2 ${hasWins ? 'bg-slate-400' : 'bg-slate-600'} hover:bg-slate-300`}"></button>
         {/if}
       {/each}
     </div>
@@ -616,23 +634,23 @@
       {@const wi = weatherIconFor(weather.code)}
       <div class="hidden lg:block relative" style={ord('weather', bar.rightOrder)}>
         <button
-          on:click={() => (showWeatherPopover = !showWeatherPopover)}
+          onclick={() => (showWeatherPopover = !showWeatherPopover)}
           class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-white/5 transition-colors {showWeatherPopover ? 'bg-white/10' : ''}"
           title="{weather.city}: {weather.temp} — click for details"
         >
-          <svelte:component this={wi.Icon} size={14} class={wi.cls} />
+          <wi.Icon size={14} class={wi.cls} />
           <span class="text-xs font-medium text-slate-200" style="font-size:{bar.fontSize}px">{weather.temp}</span>
         </button>
 
         {#if showWeatherPopover}
-          <div class="fixed inset-0 z-40" on:click={() => (showWeatherPopover = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showWeatherPopover = false))(); } }} />
+          <div class="fixed inset-0 z-40" onclick={() => (showWeatherPopover = false)} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showWeatherPopover = false))(); } }}></div>
           <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50">
             <div class="flex items-center justify-between mb-3">
               <div>
                 <div class="text-sm font-semibold text-white">{weather.city}</div>
                 <div class="text-[11px] text-slate-500">{weatherLabelFor(weather.code)}</div>
               </div>
-              <svelte:component this={wi.Icon} size={30} class={wi.cls} />
+              <wi.Icon size={30} class={wi.cls} />
             </div>
             <div class="text-3xl font-light text-white mb-3 tabular-nums">{weather.temp}</div>
             <div class="grid grid-cols-2 gap-2 text-xs">
@@ -641,7 +659,7 @@
               <div class="flex items-center gap-1.5 text-slate-400"><Droplets size={12} /> {$t('topbar.humidity')} <span class="ml-auto text-slate-200">{weather.humidity ?? '—'}%</span></div>
               <div class="flex items-center gap-1.5 text-slate-400">H/L <span class="ml-auto text-slate-200">{weather.high} / {weather.low}</span></div>
             </div>
-            <button on:click={() => { dispatch('openApp', AppId.SETTINGS); showWeatherPopover = false; }}
+            <button onclick={() => { dispatch('openApp', AppId.SETTINGS); showWeatherPopover = false; }}
               class="mt-3 w-full text-center text-[11px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
               {$t('topbar.weather_settings')}
             </button>
@@ -651,29 +669,32 @@
     {/if}
 
     {#if bar.showBattery && (battery?.present || powerProfiles.length > 0)}
-      <div class="relative" style={ord('battery', bar.rightOrder)} on:mouseenter={onBatteryEnter} on:mouseleave={onBatteryLeave} role="presentation">
+      <div class="relative" style={ord('battery', bar.rightOrder)} onmouseenter={onBatteryEnter} onmouseleave={onBatteryLeave} role="presentation">
         <button
-          on:click={togglePowerPopover}
+          onclick={togglePowerPopover}
           class="panel-icon-btn flex items-center gap-1.5 px-2 py-1 rounded-full transition-colors hover:bg-white/5 cursor-pointer {showPowerPopover ? 'bg-white/10' : ''}"
           aria-label="{battery?.present ? `${$t('topbar.battery')}: ${Math.round(battery.percentage)}%, ${phaseLabel(phase, $t)}` : $t('panel.power_mode')}"
           aria-haspopup="menu" aria-expanded={showPowerPopover}
         >
           {#if battery?.present}
-            <svelte:component this={batteryIconFor(battery)} size={15} class={batteryColor(battery)} />
+            {@const SvelteComponent = batteryIconFor(battery)}
+            <SvelteComponent size={15} class={batteryColor(battery)} />
             {#if bar.showBatteryPercent}
               <span class="text-xs font-medium tabular-nums {battery.percentage <= 15 && !battery.charging ? 'text-red-400' : 'text-slate-200'}" style="font-size:{bar.fontSize}px">{Math.round(battery.percentage)}%</span>
             {/if}
           {/if}
           {#if activePowerProfile}
-            <svelte:component this={powerIconFor(activePowerProfile.name)} size={13} class={powerColorFor(activePowerProfile.name)} />
+            {@const SvelteComponent_1 = powerIconFor(activePowerProfile.name)}
+            <SvelteComponent_1 size={13} class={powerColorFor(activePowerProfile.name)} />
           {/if}
         </button>
 
         {#if showBatteryHover && !showPowerPopover && battery?.present}
+          {@const SvelteComponent_2 = batteryIconFor(battery)}
           <div data-shell-occluder="topbar" role="tooltip"
             class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-64 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-4 z-50 pointer-events-none">
             <div class="flex items-center gap-3">
-              <svelte:component this={batteryIconFor(battery)} size={28} class={batteryColor(battery)} />
+              <SvelteComponent_2 size={28} class={batteryColor(battery)} />
               <div class="min-w-0">
                 <div class="text-xl font-semibold tabular-nums text-white leading-none">{Math.round(battery.percentage)}%</div>
                 <div class="text-xs mt-1 font-medium {phaseColor(phase, battery.percentage)}">{phaseLabel(phase, $t)}</div>
@@ -700,7 +721,8 @@
                 <div class="flex items-center gap-2"><HeartPulse size={12} class="text-slate-500 shrink-0" />{$t('battery.health', { n: formatPercent(battery.healthPercent) })}</div>
               {/if}
               {#if activePowerProfile}
-                <div class="flex items-center gap-2"><svelte:component this={powerIconFor(activePowerProfile.name)} size={12} class="{powerColorFor(activePowerProfile.name)} shrink-0" />{$t('panel.power_mode')}: {powerName(activePowerProfile)}</div>
+                {@const SvelteComponent_3 = powerIconFor(activePowerProfile.name)}
+                <div class="flex items-center gap-2"><SvelteComponent_3 size={12} class="{powerColorFor(activePowerProfile.name)} shrink-0" />{$t('panel.power_mode')}: {powerName(activePowerProfile)}</div>
               {/if}
             </div>
             <div class="mt-3 pt-2 border-t border-white/5 text-[10px] text-slate-500">{$t('battery.click_hint')}</div>
@@ -708,11 +730,12 @@
         {/if}
 
         {#if showPowerPopover}
-          <div class="fixed inset-0 z-40" on:click={() => (showPowerPopover = false)} role="button" tabindex="-1" on:keydown={(e) => { if (e.key === 'Escape') showPowerPopover = false; }} />
+          <div class="fixed inset-0 z-40" onclick={() => (showPowerPopover = false)} role="button" tabindex="-1" onkeydown={(e) => { if (e.key === 'Escape') showPowerPopover = false; }}></div>
           <div data-shell-occluder="topbar" class="absolute right-0 {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'} w-72 bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-2 z-50" role="menu">
             {#if battery?.present}
+              {@const SvelteComponent_4 = batteryIconFor(battery)}
               <div class="flex items-center gap-3 px-2 pt-1.5 pb-2.5 mb-1 border-b border-white/5">
-                <svelte:component this={batteryIconFor(battery)} size={22} class={batteryColor(battery)} />
+                <SvelteComponent_4 size={22} class={batteryColor(battery)} />
                 <div class="min-w-0 flex-1">
                   <div class="text-sm font-semibold text-white tabular-nums">{Math.round(battery.percentage)}%</div>
                   <div class="text-[11px] {phaseColor(phase, battery.percentage)}">
@@ -723,11 +746,12 @@
             {/if}
             <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{$t('panel.power_mode')}</div>
             {#each powerProfiles as p (p.name)}
+              {@const SvelteComponent_5 = powerIconFor(p.name)}
               <button
-                on:click={() => choosePowerProfile(p)} disabled={powerBusy} role="menuitemradio" aria-checked={p.active}
+                onclick={() => choosePowerProfile(p)} disabled={powerBusy} role="menuitemradio" aria-checked={p.active}
                 class="w-full flex items-center gap-3 px-2 py-2 rounded-xl text-left transition-colors disabled:opacity-60 {p.active ? 'bg-blue-600/20' : 'hover:bg-white/5'}"
               >
-                <svelte:component this={powerIconFor(p.name)} size={18} class={powerColorFor(p.name)} />
+                <SvelteComponent_5 size={18} class={powerColorFor(p.name)} />
                 <div class="min-w-0 flex-1">
                   <div class="text-xs font-medium text-white">{powerName(p)}</div>
                   <div class="text-[10px] text-slate-400 leading-snug">{powerDesc(p)}</div>
@@ -750,13 +774,13 @@
     {/if}
 
     {#if bar.showClipboard}
-    <div class="relative" role="presentation" style={ord('clipboard', bar.rightOrder)} on:mouseenter={onClipboardEnter} on:mouseleave={onClipboardLeave}>
-      <button on:click={() => dispatch('toggleClipboard')}
+    <div class="relative" role="presentation" style={ord('clipboard', bar.rightOrder)} onmouseenter={onClipboardEnter} onmouseleave={onClipboardLeave}>
+      <button onclick={() => dispatch('toggleClipboard')}
         class="panel-icon-btn relative p-2 rounded-full transition-colors group {isClipboardOpen ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10 text-slate-300'}"
         title={$t('topbar.clipboard_history')}>
         <Clipboard size={15} class="group-hover:text-white" />
         {#if hasClipboardContent}
-          <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full" />
+          <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
         {/if}
       </button>
 
@@ -765,7 +789,7 @@
           <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{$t('topbar.clipboard_latest')}</div>
           {#if latestClipboardItem}
             <div class="text-xs text-slate-200 break-words line-clamp-4 bg-slate-800/60 rounded-lg p-2 mb-2">{latestClipboardItem.content}</div>
-            <button on:click={copyLatestClipboardItem} class="w-full flex items-center justify-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
+            <button onclick={copyLatestClipboardItem} class="w-full flex items-center justify-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
               <Copy size={11} /> {$t('topbar.copy_again')}
             </button>
           {:else}
@@ -776,8 +800,8 @@
     </div>
     {/if}
 
-    <div class="relative" role="presentation" style={ord('network', bar.rightOrder)} on:mouseenter={onClockEnter} on:mouseleave={onClockLeave}>
-      <button on:click={() => dispatch('toggleControlCenter')}
+    <div class="relative" role="presentation" style={ord('network', bar.rightOrder)} onmouseenter={onClockEnter} onmouseleave={onClockLeave}>
+      <button onclick={() => dispatch('toggleControlCenter')}
         class="panel-icon-btn flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
         {#if bar.showNetworkIcon}<Wifi size={13} class="text-slate-300" />{/if}
         {#if bar.showClock}
@@ -796,7 +820,7 @@
               <div class="text-[10px] text-slate-500">{timezoneOffset}</div>
             </div>
           </div>
-          <div class="h-px bg-white/10 my-2" />
+          <div class="h-px bg-white/10 my-2"></div>
           <div class="flex items-center gap-2 text-slate-300 mb-1">
             <ArrowDown size={12} class="text-green-400 shrink-0" />
             <span class="flex-1">{$t('topbar.download')}</span>
@@ -815,20 +839,20 @@
     </div>
 
     {#if bar.showNotifications}
-    <button on:click={() => dispatch('toggleNotifications')} style={ord('notifications', bar.rightOrder)} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
+    <button onclick={() => dispatch('toggleNotifications')} style={ord('notifications', bar.rightOrder)} class="relative p-2 rounded-full hover:bg-white/10 transition-colors group">
       <Bell size={15} class="text-slate-300 group-hover:text-white" />
-      <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 border border-slate-900 rounded-full" />
+      <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 border border-slate-900 rounded-full"></span>
     </button>
     {/if}
 
     {#if bar.showDesktopButton}
-    <button on:click={() => window.dispatchEvent(new Event('blue:show-desktop'))} style={ord('showDesktop', bar.rightOrder)}
+    <button onclick={() => window.dispatchEvent(new Event('blue:show-desktop'))} style={ord('showDesktop', bar.rightOrder)}
       class="p-2 rounded-full hover:bg-white/10 transition-colors group" title={$t('sbar.show_desktop')} aria-label={$t('sbar.show_desktop')}>
       <MonitorUp size={15} class="text-slate-300 group-hover:text-white" />
     </button>
     {/if}
     {#if bar.showPowerButton}
-    <button on:click={() => dispatch('power')} style={ord('power', bar.rightOrder)}
+    <button onclick={() => dispatch('power')} style={ord('power', bar.rightOrder)}
       class="p-2 rounded-full hover:bg-white/10 transition-colors group" title={$t('startmenu.power')} aria-label={$t('startmenu.power')}>
       <Power size={15} class="text-slate-300 group-hover:text-white" />
     </button>
