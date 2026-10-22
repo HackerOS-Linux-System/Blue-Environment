@@ -67,6 +67,7 @@ export default defineConfig({
         manualChunks: {
           'svelte-vendor': ['svelte'],
           lucide: ['lucide-svelte'],
+          codemirror: ['@codemirror/state', '@codemirror/view', '@codemirror/language', '@codemirror/commands', '@codemirror/autocomplete', '@codemirror/search', '@codemirror/lint'],
         },
       },
     },
