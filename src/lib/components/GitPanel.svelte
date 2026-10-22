@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run as run_1 } from 'svelte/legacy';
+
   import { SystemBridge } from '../utils/systemBridge';
   import { dialogConfirm } from '../stores/dialog';
   import {
@@ -6,22 +8,26 @@
     Upload, Download, AlertCircle, FolderGit2,
   } from 'lucide-svelte';
 
-  export let cwd: string;
+  interface Props {
+    cwd: string;
+  }
+
+  let { cwd }: Props = $props();
 
   interface GitFile { status: string; staged: boolean; path: string; }
   interface GitCommitInfo { hash: string; author: string; date: string; message: string; }
 
-  let branch = '';
-  let files: GitFile[] = [];
-  let commits: GitCommitInfo[] = [];
-  let commitMsg = '';
-  let tab: 'changes' | 'history' | 'diff' = 'changes';
+  let branch = $state('');
+  let files = $state<GitFile[]>([]);
+  let commits = $state<GitCommitInfo[]>([]);
+  let commitMsg = $state('');
+  let tab = $state<'changes' | 'history' | 'diff'>('changes');
   const TABS = ['changes', 'history', 'diff'] as const;
-  let diff = '';
-  let selectedFile: string | null = null;
-  let loading = false;
-  let error: string | null = null;
-  let isGitRepo = false;
+  let diff = $state('');
+  let selectedFile = $state<string | null>(null);
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+  let isGitRepo = $state(false);
 
   // Security note: `run()` sends its argument straight to a `sh -c`
   // shell (via SystemBridge.executeCommand). Every piece of this string
@@ -81,7 +87,9 @@
     loading = false;
   }
 
-  $: if (cwd) refresh();
+  run_1(() => {
+    if (cwd) refresh();
+  });
 
   async function stageFile(path: string) { await run(`git add ${shq(path)}`); refresh(); }
   async function unstageFile(path: string) { await run(`git reset HEAD ${shq(path)}`); refresh(); }
@@ -106,8 +114,8 @@
 
   const STATUS_COLOR: Record<string, string> = { M: 'text-yellow-400', A: 'text-green-400', D: 'text-red-400', '?': 'text-slate-400', R: 'text-blue-400' };
 
-  $: staged = files.filter((f) => f.staged);
-  $: unstaged = files.filter((f) => !f.staged);
+  let staged = $derived(files.filter((f) => f.staged));
+  let unstaged = $derived(files.filter((f) => !f.staged));
 
   function diffLineColor(line: string) {
     if (line.startsWith('+')) return 'text-green-400';
@@ -125,7 +133,7 @@
   <div class="flex flex-col items-center justify-center h-full text-slate-500 text-sm gap-3">
     <FolderGit2 size={32} class="text-slate-600" />
     <p>Not a Git repository</p>
-    <button on:click={() => run('git init').then(refresh)} class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-xs transition-colors">
+    <button onclick={() => run('git init').then(refresh)} class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-xs transition-colors">
       Initialize Repository
     </button>
   </div>
@@ -138,15 +146,15 @@
         {#if loading}<RefreshCw size={12} class="animate-spin text-slate-500" />{/if}
       </div>
       <div class="flex gap-1">
-        <button on:click={pull} title="Pull" class="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Download size={13} /></button>
-        <button on:click={push} title="Push" class="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Upload size={13} /></button>
-        <button on:click={refresh} class="p-1 hover:bg-white/10 rounded text-slate-400"><RefreshCw size={12} /></button>
+        <button onclick={pull} title="Pull" class="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Download size={13} /></button>
+        <button onclick={push} title="Push" class="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Upload size={13} /></button>
+        <button onclick={refresh} class="p-1 hover:bg-white/10 rounded text-slate-400"><RefreshCw size={12} /></button>
       </div>
     </div>
 
     <div class="shrink-0 flex border-b border-white/5">
       {#each TABS as t (t)}
-        <button on:click={() => (tab = t)}
+        <button onclick={() => (tab = t)}
           class="px-3 py-1.5 text-xs capitalize transition-colors border-b-2 {tab === t ? 'border-blue-500 text-white' : 'border-transparent text-slate-400'}">
           {t === 'changes' ? `Changes (${files.length})` : t === 'history' ? `History (${commits.length})` : 'Diff'}
         </button>
@@ -156,7 +164,7 @@
     {#if error}
       <div class="shrink-0 px-3 py-2 bg-red-500/10 border-b border-red-500/20 text-red-300 text-xs flex gap-2">
         <AlertCircle size={12} class="shrink-0 mt-0.5" /><span>{error}</span>
-        <button on:click={() => (error = null)} class="ml-auto"><X size={10} /></button>
+        <button onclick={() => (error = null)} class="ml-auto"><X size={10} /></button>
       </div>
     {/if}
 
@@ -164,10 +172,10 @@
       <div class="flex-1 overflow-y-auto">
         <div class="p-3 border-b border-white/5 space-y-2">
           <textarea bind:value={commitMsg} placeholder="Commit message..." rows="2"
-            class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none focus:outline-none focus:border-blue-500/50 placeholder-slate-600" />
+            class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none focus:outline-none focus:border-blue-500/50 placeholder-slate-600"></textarea>
           <div class="flex gap-2">
-            <button on:click={stageAll} class="flex-1 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors">Stage All</button>
-            <button on:click={commit} disabled={!commitMsg.trim() || staged.length === 0}
+            <button onclick={stageAll} class="flex-1 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs transition-colors">Stage All</button>
+            <button onclick={commit} disabled={!commitMsg.trim() || staged.length === 0}
               class="flex-1 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs transition-colors disabled:opacity-40">
               <span class="flex items-center justify-center gap-1"><GitCommit size={11} /> Commit ({staged.length})</span>
             </button>
@@ -178,10 +186,10 @@
           <div>
             <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Staged ({staged.length})</div>
             {#each staged as f (f.path)}
-              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
+              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" onclick={() => showDiff(f.path)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
                 <span class="text-[10px] font-bold w-4 {STATUS_COLOR[f.status] || 'text-slate-400'}">{f.status}</span>
                 <span class="text-xs text-slate-300 flex-1 truncate">{f.path}</span>
-                <button on:click={(e) => { e.stopPropagation(); unstageFile(f.path); }} class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-yellow-400 text-slate-600"><Minus size={11} /></button>
+                <button onclick={(e) => { e.stopPropagation(); unstageFile(f.path); }} class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-yellow-400 text-slate-600"><Minus size={11} /></button>
               </div>
             {/each}
           </div>
@@ -191,12 +199,12 @@
           <div>
             <div class="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Changes ({unstaged.length})</div>
             {#each unstaged as f (f.path)}
-              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" on:click={() => showDiff(f.path)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
+              <div class="flex items-center gap-2 px-3 py-1 hover:bg-white/5 group cursor-pointer" onclick={() => showDiff(f.path)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => showDiff(f.path))(); } }}>
                 <span class="text-[10px] font-bold w-4 {STATUS_COLOR[f.status] || 'text-slate-400'}">{f.status}</span>
                 <span class="text-xs text-slate-300 flex-1 truncate">{f.path}</span>
                 <div class="flex gap-0.5 opacity-0 group-hover:opacity-100">
-                  <button on:click={(e) => { e.stopPropagation(); stageFile(f.path); }} class="p-0.5 hover:text-green-400 text-slate-600"><Plus size={11} /></button>
-                  <button on:click={(e) => { e.stopPropagation(); discardFile(f.path); }} class="p-0.5 hover:text-red-400 text-slate-600"><X size={11} /></button>
+                  <button onclick={(e) => { e.stopPropagation(); stageFile(f.path); }} class="p-0.5 hover:text-green-400 text-slate-600"><Plus size={11} /></button>
+                  <button onclick={(e) => { e.stopPropagation(); discardFile(f.path); }} class="p-0.5 hover:text-red-400 text-slate-600"><X size={11} /></button>
                 </div>
               </div>
             {/each}
@@ -215,7 +223,7 @@
       <div class="flex-1 overflow-y-auto">
         {#each commits as c (c.hash)}
           <div class="px-3 py-2.5 border-b border-white/5 hover:bg-white/5 cursor-pointer"
-            on:click={() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; })} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; }))(); } }}>
+            onclick={() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; })} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => run(`git show ${shq(c.hash)}`).then((d) => { diff = d; tab = 'diff'; }))(); } }}>
             <div class="flex items-center gap-2 mb-0.5">
               <code class="text-blue-400 text-[10px] font-mono">{c.hash}</code>
               <span class="text-[10px] text-slate-500 ml-auto">{c.date}</span>
