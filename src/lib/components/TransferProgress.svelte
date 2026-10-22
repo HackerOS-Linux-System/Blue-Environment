@@ -5,12 +5,16 @@
   import { t } from '../stores/language';
   import { transferJobs, updateJob, controlJob, fmtBytes, fmtEta, percent, type ProgressEvent } from '../stores/transferJobs';
 
-  export let enabled = true;
+  interface Props {
+    enabled?: boolean;
+  }
+
+  let { enabled = true }: Props = $props();
   let unlisten: (() => void) | undefined;
   onMount(async () => { unlisten = await listen<ProgressEvent>('fm:progress', (e) => updateJob(e.payload)); });
   onDestroy(() => unlisten?.());
 
-  $: visible = enabled ? $transferJobs.filter((j) => j.visible) : [];
+  let visible = $derived(enabled ? $transferJobs.filter((j) => j.visible) : []);
 </script>
 
 {#if visible.length}
@@ -23,16 +27,16 @@
             {j.cancelling ? $t('transfer.cancelling') : j.paused ? $t('transfer.paused') : j.mode === 'copy' ? $t('transfer.copying') : $t('transfer.moving')}
           </div>
           <button class="p-1 rounded-lg hover:bg-white/10 disabled:opacity-40" title={j.paused ? $t('transfer.resume') : $t('transfer.pause')} disabled={j.cancelling}
-            on:click={() => controlJob(j.jobId, j.paused ? 'resume' : 'pause')}>
+            onclick={() => controlJob(j.jobId, j.paused ? 'resume' : 'pause')}>
             {#if j.paused}<Play size={15} />{:else}<Pause size={15} />{/if}
           </button>
           <button class="p-1 rounded-lg hover:bg-red-500/20 text-red-400 disabled:opacity-40" title={$t('transfer.cancel')} disabled={j.cancelling}
-            on:click={() => controlJob(j.jobId, 'cancel')}><X size={15} /></button>
+            onclick={() => controlJob(j.jobId, 'cancel')}><X size={15} /></button>
         </div>
 
         <div class="text-xs text-slate-300 truncate mb-2" title={j.current}>{j.current || '…'}</div>
         <div class="h-2 rounded-full bg-slate-700 overflow-hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent(j))}>
-          <div class="h-full bg-blue-500 transition-[width] duration-100 {j.paused ? 'opacity-50' : ''}" style="width:{percent(j)}%" />
+          <div class="h-full bg-blue-500 transition-[width] duration-100 {j.paused ? 'opacity-50' : ''}" style="width:{percent(j)}%"></div>
         </div>
         <div class="flex justify-between text-[11px] text-slate-400 mt-1.5">
           <span>{Math.round(percent(j))}% · {fmtBytes(j.doneBytes)} / {fmtBytes(j.totalBytes)}</span>
