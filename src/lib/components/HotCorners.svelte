@@ -2,11 +2,15 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { cornerAt, type HotCornersConfig, type HotCornerId, type HotCornerSlot } from '../utils/hotCorners';
 
-  export let config: HotCornersConfig;
+  interface Props {
+    config: HotCornersConfig;
+  }
+
+  let { config }: Props = $props();
 
   const dispatch = createEventDispatcher<{ trigger: HotCornerSlot & { corner: HotCornerId } }>();
 
-  let armed: HotCornerId | null = null;     // róg, w którym stoi kursor (odlicza czas)
+  let armed: HotCornerId | null = $state(null);     // róg, w którym stoi kursor (odlicza czas)
   let fired: HotCornerId | null = null;     // róg już wyzwolony — wymaga wyjścia z niego
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let lastFire = 0;
@@ -58,5 +62,5 @@
 
 <!-- Delikatna poświata pokazuje, że róg jest "naładowany" (kursor dociska). -->
 {#if config.enabled && armed}
-  <div class="pointer-events-none fixed z-[9999] w-16 h-16 bg-blue-500/30 blur-md {pos[armed]} animate-pulse" />
+  <div class="pointer-events-none fixed z-[9999] w-16 h-16 bg-blue-500/30 blur-md {pos[armed]} animate-pulse"></div>
 {/if}
