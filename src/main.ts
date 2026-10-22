@@ -1,5 +1,6 @@
 import './app.css';
 import App from './App.svelte';
+import { mount } from 'svelte';
 
 // Entry point of the DEFAULT (desktop) shell.
 //
@@ -9,8 +10,6 @@ import App from './App.svelte';
 // shell phones|tv` and the `build:phones` / `build:tv` npm scripts). Nothing
 // here imports them, so a regular build never contains their code.
 
-const app = new App({
-  target: document.getElementById('root')!,
-});
+const app = mount(App, { target: document.getElementById('root')! });
 
 export default app;
