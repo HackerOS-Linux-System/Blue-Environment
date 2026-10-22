@@ -3,6 +3,7 @@ import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
 import type { OpenFile, Diagnostic } from './types';
 import { getLang, LSP_LANGS } from './languageMap';
 import { createLspBridge } from './lspBridge';
+import type { EditorHandle } from './editorHandle';
 
 function out(r: any): string { return typeof r === 'string' ? r : (r?.stdout ?? '') + (r?.stderr ?? ''); }
 
@@ -15,17 +16,16 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
   const fontSize = writable(13);
   const cursorPos = writable({ line: 1, col: 1 });
 
-  /** Set by MonacoEditor.svelte once mounted — used for markers + theme sync. */
-  let monacoApi: any = null;
-  let editorApi: any = null;
-  function setMonacoRefs(editor: any, monaco: any) { editorApi = editor; monacoApi = monaco; }
+  /** Set by CodeEditor.svelte once mounted — used for diagnostics markers. */
+  let editorHandle: EditorHandle | null = null;
+  function setEditorHandle(h: EditorHandle | null) { editorHandle = h; }
 
   let currentRoot = '';
   rootPathStore.subscribe((v) => (currentRoot = v));
 
   // Klient LSP (hover, uzupełnianie, definicje, diagnostyki) — backend: lsp_client.rs.
   const lsp = createLspBridge({
-    getMonaco: () => monacoApi,
+    getEditor: () => editorHandle,
     getRoot: () => currentRoot,
     getActivePath: () => get(openFiles)[get(activeIdx)]?.path,
     onDiagnostics: (path, problems) => diagnostics.update((prev) => [...prev.filter((d) => d.file !== path), ...problems]),
@@ -106,18 +106,14 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
 
     diagnostics.update((prev) => [...prev.filter((d) => d.file !== file.path), ...newDiags]);
 
-    if (monacoApi && editorApi) {
-      const model = editorApi.getModel();
-      if (model) {
-        const markers = newDiags
-          .filter((d) => d.file === file.path || file.path.endsWith(d.file))
-          .map((d) => ({
-            severity: d.severity === 'error' ? monacoApi.MarkerSeverity.Error : monacoApi.MarkerSeverity.Warning,
-            startLineNumber: d.line, startColumn: d.col, endLineNumber: d.line, endColumn: d.col + 30,
-            message: d.message,
-          }));
-        monacoApi.editor.setModelMarkers(model, 'blue-lint', markers);
-      }
+    if (editorHandle) {
+      editorHandle.setMarkers('blue-lint', newDiags
+        .filter((d) => d.file === file.path || file.path.endsWith(d.file))
+        .map((d) => ({
+          severity: d.severity === 'error' ? 'error' as const : 'warning' as const,
+          startLine: d.line, startCol: d.col, endLine: d.line, endCol: d.col + 30,
+          message: d.message,
+        })));
     }
   }
 
@@ -143,8 +139,6 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
     if (cur) lsp.didChange(cur.language, cur.path, value);
   }
 
-  editorTheme.subscribe(($theme) => monacoApi?.editor.setTheme($theme));
-
   const activeFile = derived([openFiles, activeIdx], ([$openFiles, $activeIdx]) => $openFiles[$activeIdx]);
   const fileDiagnostics = derived([diagnostics, activeFile], ([$diagnostics, $activeFile]) =>
     $diagnostics.filter((d) => $activeFile && (d.file === $activeFile.path || $activeFile.path.endsWith(d.file)))
@@ -160,10 +154,10 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
 
   /** Line to scroll the editor to once the target file becomes active —
    * set by openFileAtLine, consumed by BlueCodeApp.svelte's `{#key
-   * $activeIdx}` block via monacoEditorRef.revealLineInCenter(). A plain
+   * $activeIdx}` block via editorHandle.revealLine(). A plain
    * store rather than a function-with-callback because the editor
    * instance for the target file doesn't exist yet at the moment
-   * openFileAtLine runs (Monaco mounts async, after the {#key} block
+   * openFileAtLine runs (the editor mounts async, after the {#key} block
    * re-renders) — the consumer has to be able to pick this up slightly
    * later, not synchronously. */
   const revealLine = writable<number | null>(null);
@@ -179,7 +173,7 @@ export function createEditorFiles(rootPathStore: { subscribe: (fn: (v: string) =
     openFiles, activeIdx, activeFile,
     diagnostics, fileDiagnostics, errors, warnings, totalErrors, totalWarnings, revealLine,
     lspStatus, editorTheme, fontSize, cursorPos,
-    setMonacoRefs, setCursorPos: (p: { line: number; col: number }) => cursorPos.set(p),
+    setEditorHandle, lsp, setCursorPos: (p: { line: number; col: number }) => cursorPos.set(p),
     openFile, openFileAtLine, closeFile, saveFile, saveAll, runLint, renameOpenFile, handleEditorChange,
   };
 }
