@@ -51,12 +51,16 @@
   import { SystemBridge } from '../utils/systemBridge';
   import { notificationManager } from '../utils/notificationManager';
 
-  export let manifest: PluginManifest;
-  export let onClose: () => void;
+  interface Props {
+    manifest: PluginManifest;
+    onClose: () => void;
+  }
 
-  let iframeEl: HTMLIFrameElement;
-  let loadError = '';
-  let ready = false;
+  let { manifest, onClose }: Props = $props();
+
+  let iframeEl = $state() as HTMLIFrameElement;
+  let loadError = $state('');
+  let ready = $state(false);
 
   const permissions = new Set<PluginPermission>(manifest.permissions ?? []);
   const STORAGE_PREFIX = `plugin-storage:${manifest.id}:`;
@@ -209,7 +213,7 @@ ${pluginSource}
         <span class="text-sm font-medium truncate">{manifest.name}</span>
         <span class="text-[10px] text-slate-500 shrink-0">sandboxed</span>
       </div>
-      <button on:click={onClose} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
+      <button onclick={onClose} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
         <X size={15} />
       </button>
     </div>
@@ -230,11 +234,11 @@ ${pluginSource}
       {:else}
         <iframe
           bind:this={iframeEl}
-          on:load={() => { if (!ready) loadAndRun(); }}
+          onload={() => { if (!ready) loadAndRun(); }}
           sandbox="allow-scripts"
           title={manifest.name}
           class="w-full h-64 border-0 bg-slate-950"
-        />
+></iframe>
       {/if}
     </div>
   </div>
