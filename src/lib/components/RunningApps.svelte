@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   /**
    * Running-apps strip in the top bar's left section (it replaced the old
    * "Search apps…" pill, which only duplicated the Start button).
@@ -20,22 +22,35 @@
   import { CLOSE_POPUPS_EVENT } from '../utils/popups';
   import { pickVisible, groupByWorkspace, type RunningItem } from '../utils/runningApps';
 
-  /** Every open window, all workspaces. */
-  export let items: RunningItem[] = [];
-  export let currentWorkspace = 0;
-  export let max = 4;
-  export let showLabels = true;
-  export let position: 'top' | 'bottom' = 'top';
+  
+  interface Props {
+    /** Every open window, all workspaces. */
+    items?: RunningItem[];
+    currentWorkspace?: number;
+    max?: number;
+    showLabels?: boolean;
+    position?: 'top' | 'bottom';
+  }
+
+  let {
+    items = [],
+    currentWorkspace = 0,
+    max = 4,
+    showLabels = true,
+    position = 'top'
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ activate: RunningItem; close: RunningItem }>();
 
-  let listOpen = false;
+  let listOpen = $state(false);
 
-  $: onWorkspace = items.filter((i) => i.workspace === currentWorkspace);
-  $: ({ visible, hidden } = pickVisible(onWorkspace, max));
-  $: groups = groupByWorkspace(items, currentWorkspace);
+  let onWorkspace = $derived(items.filter((i) => i.workspace === currentWorkspace));
+  let { visible, hidden } = $derived(pickVisible(onWorkspace, max));
+  let groups = $derived(groupByWorkspace(items, currentWorkspace));
   // The list can outlive its content: close it when the last window goes away.
-  $: if (listOpen && items.length === 0) listOpen = false;
+  run(() => {
+    if (listOpen && items.length === 0) listOpen = false;
+  });
 
   function iconFor(item: RunningItem): unknown {
     if (item.iconPath) return item.iconPath;
@@ -93,13 +108,13 @@
   onDestroy(() => window.removeEventListener(CLOSE_POPUPS_EVENT, closeList));
 </script>
 
-<svelte:window on:keydown={onWindowKeydown} />
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div class="relative hidden md:flex items-center min-w-0 flex-1 max-w-full">
   <div
     class="flex items-center gap-0.5 min-w-0 max-w-full rounded-full bg-slate-800/60 border border-white/5 px-1 py-0.5 transition-colors hover:bg-slate-800/80"
     title={$t('running.hint')}
-    on:dblclick={openList}
+    ondblclick={openList}
     role="group"
     aria-label={$t('running.label')}
   >
@@ -110,9 +125,9 @@
         {@const dim = item.isMinimized}
         <button
           type="button"
-          on:click={(e) => activate(item, e)}
-          on:auxclick={(e) => auxClick(e, item)}
-          on:contextmenu={(e) => entryMenu(e, item)}
+          onclick={(e) => activate(item, e)}
+          onauxclick={(e) => auxClick(e, item)}
+          oncontextmenu={(e) => entryMenu(e, item)}
           title={titleFor(item)}
           class="relative flex items-center gap-1.5 min-w-0 rounded-full pl-1.5 pr-1.5 xl:pr-2.5 py-1 text-xs transition-colors {item.isActive && !dim ? 'bg-blue-600/25 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'} {dim ? 'opacity-60' : ''}"
         >
@@ -121,14 +136,14 @@
             <span class="hidden xl:block truncate max-w-[104px]">{titleFor(item)}</span>
           {/if}
           {#if item.isActive && !dim}
-            <span class="absolute -bottom-px left-1/2 -translate-x-1/2 h-0.5 w-3 rounded-full bg-blue-400" />
+            <span class="absolute -bottom-px left-1/2 -translate-x-1/2 h-0.5 w-3 rounded-full bg-blue-400"></span>
           {/if}
         </button>
       {/each}
       {#if hidden > 0}
         <button
           type="button"
-          on:click={openList}
+          onclick={openList}
           title={$t('running.show_all', { n: items.length })}
           class="shrink-0 flex items-center gap-0.5 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
         >+{hidden}</button>
@@ -137,7 +152,7 @@
   </div>
 
   {#if listOpen}
-    <div class="fixed inset-0 z-40" on:click={closeList} role="presentation" />
+    <div class="fixed inset-0 z-40" onclick={closeList} role="presentation"></div>
     <div
       data-shell-occluder="running-apps"
       class="absolute left-0 w-80 max-h-[60vh] flex flex-col bg-slate-900/97 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden {position === 'top' ? 'top-full mt-2' : 'bottom-full mb-2'}"
@@ -149,7 +164,7 @@
           <ChevronsUpDown size={14} class="text-blue-400" />
           {$t('running.all_title', { n: items.length })}
         </div>
-        <button type="button" on:click={closeList} class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10" aria-label={$t('running.close_list')}><X size={14} /></button>
+        <button type="button" onclick={closeList} class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10" aria-label={$t('running.close_list')}><X size={14} /></button>
       </div>
       <div class="overflow-y-auto p-2 flex flex-col gap-1">
         {#if items.length === 0}
@@ -163,7 +178,7 @@
           {/if}
           {#each group.items as item (item.id)}
             <div class="group flex items-center gap-1 rounded-xl hover:bg-white/5 {item.isActive && !item.isMinimized ? 'bg-blue-600/15' : ''}">
-              <button type="button" on:click={() => pick(item)} on:contextmenu={(e) => entryMenu(e, item)} class="flex-1 min-w-0 flex items-center gap-3 px-2 py-1.5 text-left">
+              <button type="button" onclick={() => pick(item)} oncontextmenu={(e) => entryMenu(e, item)} class="flex-1 min-w-0 flex items-center gap-3 px-2 py-1.5 text-left">
                 <span class="w-8 h-8 shrink-0 rounded-xl bg-slate-800 border border-white/5 flex items-center justify-center overflow-hidden"><AppIconGlyph icon={iconFor(item)} name={titleFor(item)} size={20} /></span>
                 <span class="min-w-0 flex-1">
                   <span class="block text-sm text-slate-200 group-hover:text-white truncate">{titleFor(item)}</span>
@@ -172,7 +187,7 @@
                   </span>
                 </span>
               </button>
-              <button type="button" on:click={() => dispatch('close', item)} title={$t('running.close')} aria-label={$t('running.close')}
+              <button type="button" onclick={() => dispatch('close', item)} title={$t('running.close')} aria-label={$t('running.close')}
                 class="mr-1 p-1.5 rounded-lg text-slate-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-opacity"><X size={13} /></button>
             </div>
           {/each}
