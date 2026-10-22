@@ -127,6 +127,14 @@ export interface ClonedAppEntry {
   id: string;
   baseAppId: string;
   label: string;
+  /** 'external' = an installed desktop app (Flatpak/native) launched through the isolation wrapper;
+   * omitted/'builtin' = one of the shell's own apps. */
+  kind?: 'builtin' | 'external';
+  /** External clones: the desktop entry's Exec line. */
+  exec?: string;
+  /** External clones: what is isolated. 'env' = own HOME/XDG_* dirs, 'bwrap' = bubblewrap container,
+   * 'none' = shared profile. Default 'env'. */
+  isolation?: 'none' | 'env' | 'bwrap';
 }
 
 export interface UserConfig {
