@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { t } from '../../../../stores/language';
   // Blue Connect — LAN device discovery + pairing, KDE-Connect-style.
   // See src-tauri/src/BlueConnect/mod.rs's module doc for exactly what
@@ -15,31 +17,38 @@
   import LoadingSpinner from '../../../LoadingSpinner.svelte';
   import type { DiscoveredDevice, DeviceType } from './types';
   import PhonePanel from './PhonePanel.svelte';
+  import DeviceTools from './DeviceTools.svelte';
   import KdeConnectPanel from './KdeConnectPanel.svelte';
   import RemotePanel from './RemotePanel.svelte';
 
   // Tabs: the original LAN pairing view, the Android phone (adb) view and the KDE Connect bridge.
   type ConnectTab = 'devices' | 'phone' | 'remote' | 'kde';
   // On the TV UI the Remote tab (pair a phone as a remote) is the point of Blue Connect.
-  let tab: ConnectTab = typeof document !== 'undefined' && document.querySelector('[data-alt-shell="tv"]') ? 'remote' : 'phone';
+  let tab = $state<ConnectTab>(typeof document !== 'undefined' && document.querySelector('[data-alt-shell="tv"]') ? 'remote' : 'phone');
   const setConnectTab = (id: string) => { tab = id as ConnectTab; };
 
-  export let windowId: string;
-  // Every app is handed its window id; this one doesn't need it.
-  $: windowId;
+  interface Props {
+    windowId: string;
+  }
 
-  let devices: DiscoveredDevice[] = [];
-  let discovering = false;
-  let listeningForPairing = false;
-  let pairingDeviceId: string | null = null;
-  let error: string | null = null;
+  let { windowId }: Props = $props();
+  // Every app is handed its window id; this one doesn't need it.
+  run(() => {
+    windowId;
+  });
+
+  let devices = $state<DiscoveredDevice[]>([]);
+  let discovering = $state(false);
+  let listeningForPairing = $state(false);
+  let pairingDeviceId = $state<string | null>(null);
+  let error = $state<string | null>(null);
 
   /** The SAS confirmation dialog's state — shown for both roles:
    * `role: 'initiator'` (we called bcRequestPairing and are waiting for
    * the other person) shows the code with no buttons, just "waiting…";
    * `role: 'incoming'` (someone is pairing with us) shows the code with
    * Accept/Reject buttons wired to bcConfirmIncomingPairing. */
-  let sasDialog: { role: 'initiator' | 'incoming'; deviceId: string; deviceName: string; sas: string } | null = null;
+  let sasDialog = $state<{ role: 'initiator' | 'incoming'; deviceId: string; deviceName: string; sas: string } | null>(null);
   let unlistenSas: (() => void) | null = null;
   let unlistenIncoming: (() => void) | null = null;
 
@@ -162,7 +171,7 @@
     </div>
     <div class="flex items-center gap-2">
       <button
-        on:click={toggleListening}
+        onclick={toggleListening}
         disabled={listeningForPairing}
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {listeningForPairing ? 'bg-emerald-600/30 text-emerald-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}"
         title={$t('blueconnect.listen_tip')}
@@ -170,7 +179,7 @@
         {#if listeningForPairing}<Loader2 class="w-3.5 h-3.5 animate-spin" /> {$t('blueconnect.listening')}{:else}<Radio class="w-3.5 h-3.5" /> {$t('blueconnect.listen')}{/if}
       </button>
       <button
-        on:click={runDiscovery}
+        onclick={runDiscovery}
         disabled={discovering}
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors"
       >
@@ -181,7 +190,7 @@
 
   <div class="px-4 pt-2 border-b border-white/10 flex gap-1 text-xs" role="tablist">
     {#each [['phone', 'blueconnect.tab.phone'], ['remote', 'blueconnect.tab.remote'], ['devices', 'blueconnect.tab.devices'], ['kde', 'blueconnect.tab.kde']] as [id, label]}
-      <button role="tab" aria-selected={tab === id} on:click={() => setConnectTab(id)}
+      <button role="tab" aria-selected={tab === id} onclick={() => setConnectTab(id)}
         class="px-3 py-1.5 rounded-t-lg border-b-2 transition-colors {tab === id ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}">{$t(label)}</button>
     {/each}
   </div>
@@ -204,9 +213,10 @@
     {:else}
       <div class="grid grid-cols-2 gap-3">
         {#each devices as device (device.id)}
+          {@const SvelteComponent = ICONS[device.deviceType]}
           <div class="rounded-xl border border-white/10 bg-slate-900/60 p-3 flex items-start gap-3">
             <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
-              <svelte:component this={ICONS[device.deviceType]} class="w-5 h-5 text-blue-400" />
+              <SvelteComponent class="w-5 h-5 text-blue-400" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
@@ -216,12 +226,12 @@
               <p class="text-[11px] text-slate-500 mt-0.5">{$t(`blueconnect.device.${device.deviceType}`)} · {device.address}</p>
               <div class="mt-2">
                 {#if device.paired}
-                  <button on:click={() => forget(device)} class="flex items-center gap-1 text-xs text-red-400 hover:text-red-300">
+                  <button onclick={() => forget(device)} class="flex items-center gap-1 text-xs text-red-400 hover:text-red-300">
                     <Unlink class="w-3 h-3" /> {$t('blueconnect.unpair')}
                   </button>
                 {:else}
                   <button
-                    on:click={() => pair(device)}
+                    onclick={() => pair(device)}
                     disabled={pairingDeviceId === device.id}
                     class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
                   >
@@ -229,6 +239,7 @@
                   </button>
                 {/if}
               </div>
+              {#if device.paired}<DeviceTools deviceId={device.id} deviceName={device.name} />{/if}
             </div>
           </div>
         {/each}
@@ -265,13 +276,13 @@
         {#if sasDialog.role === 'incoming'}
           <div class="flex gap-2">
             <button
-              on:click={() => respondToIncoming(false)}
+              onclick={() => respondToIncoming(false)}
               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             >
               <X class="w-3.5 h-3.5" /> {$t('blueconnect.reject')}
             </button>
             <button
-              on:click={() => respondToIncoming(true)}
+              onclick={() => respondToIncoming(true)}
               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
             >
               <ShieldCheck class="w-3.5 h-3.5" /> {$t('blueconnect.accept')}
