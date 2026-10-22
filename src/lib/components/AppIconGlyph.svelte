@@ -2,11 +2,15 @@
   import { activeShellThemeId } from '../stores/shellTheme';
   import { toAssetUrl } from '../utils/systemBridge';
 
-  export let icon: any;
-  export let name: string;
-  export let size = 32;
+  interface Props {
+    icon: any;
+    name: string;
+    size?: number;
+  }
 
-  let failed = false;
+  let { icon, name, size = 32 }: Props = $props();
+
+  let failed = $state(false);
   // `resolveIcon()` (icon_resolver.rs) and window_tracker.rs both hand
   // back icon paths as `file://<absolute path>` strings — which looks
   // like a normal, webview-loadable URL, but isn't: a Tauri v2 app runs
@@ -23,12 +27,12 @@
   // Menu, every package in Blue Software) silently failed to load and
   // fell back to the lettered placeholder below, no matter how
   // correctly the backend had resolved the underlying path.
-  $: isFileUrl = typeof icon === 'string' && icon.startsWith('file://');
-  $: isHttpUrl = typeof icon === 'string' && (icon.startsWith('http://') || icon.startsWith('https://'));
-  $: isUrl = isFileUrl || isHttpUrl;
-  $: resolvedSrc = isFileUrl ? toAssetUrl(icon) : isHttpUrl ? icon : null;
+  let isFileUrl = $derived(typeof icon === 'string' && icon.startsWith('file://'));
+  let isHttpUrl = $derived(typeof icon === 'string' && (icon.startsWith('http://') || icon.startsWith('https://')));
+  let isUrl = $derived(isFileUrl || isHttpUrl);
+  let resolvedSrc = $derived(isFileUrl ? toAssetUrl(icon) : isHttpUrl ? icon : null);
 
-  $: hue = (name.charCodeAt(0) * 37) % 360;
+  let hue = $derived((name.charCodeAt(0) * 37) % 360);
   // Real, honest scope (see this app's request history — a true
   // pixel-matched custom icon set is separate, larger work with no
   // actual art assets to draw from): rather than hand-drawing a
@@ -38,14 +42,15 @@
   // systemic improvement across every app's icon (pinned, tray,
   // launcher grid, wherever this component is used), not a partial
   // one-off retouch of a chosen few.
-  $: isHydra = $activeShellThemeId === 'hydra';
+  let isHydra = $derived($activeShellThemeId === 'hydra');
 </script>
 
 {#if isUrl && resolvedSrc && !failed}
-  <img src={resolvedSrc} alt={name} width={size} height={size} loading="lazy" decoding="async" class="object-contain {isHydra ? 'hydra-icon-glow' : ''}" on:error={() => (failed = true)} />
+  <img src={resolvedSrc} alt={name} width={size} height={size} loading="lazy" decoding="async" class="object-contain {isHydra ? 'hydra-icon-glow' : ''}" onerror={() => (failed = true)} />
 {:else if typeof icon !== 'string' && !failed}
+  {@const SvelteComponent = icon}
   <div class={isHydra ? 'hydra-icon-glow' : ''} style={isHydra ? 'display:contents;' : undefined}>
-    <svelte:component this={icon} {size} />
+    <SvelteComponent {size} />
   </div>
 {:else}
   <div class="flex items-center justify-center rounded-lg font-bold text-white {isHydra ? 'hydra-icon-glow' : ''}"
