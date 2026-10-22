@@ -1,16 +1,29 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import { colorScheme } from '../../../stores/colorScheme';
+  import {
+    REVIEW_CSS, addCommentToRange, replyToComment, setCommentResolved, deleteComment, trackedInsert, trackedDeleteRange,
+    acceptChange, rejectChange, acceptAll, rejectAll, type Author,
+  } from './docReview';
 
-  export let content: string;
-  export let fontFamily: string;
-  export let fontSize: number;
+  interface Props {
+    content: string;
+    fontFamily: string;
+    fontSize: number;
+    /** When on, typing/deleting is recorded as tracked changes by `author` instead of editing directly. */
+    trackChanges?: boolean;
+    author?: Author;
+  }
+
+  let { content, fontFamily, fontSize, trackChanges = false, author = { name: 'Me', color: '#3b82f6' } }: Props = $props();
 
   const dispatch = createEventDispatcher<{ change: string }>();
 
-  let iframeEl: HTMLIFrameElement;
-  let styleEl: HTMLStyleElement | null = null;
+  let iframeEl = $state() as HTMLIFrameElement;
+  let styleEl = $state<HTMLStyleElement | null>(null);
   let initialised = false;
 
   // This editor's content lives inside an <iframe> (needed for a real,
@@ -54,6 +67,7 @@
     th{background:${thBg};font-weight:600}
     ::selection{background:#1d4ed8;color:#fff}
     mark{background:#ca8a04;color:#000;border-radius:.2em;padding:.05em .2em}
+    ${REVIEW_CSS}
   `;
   }
 
@@ -74,6 +88,7 @@
     doc.head.appendChild(styleEl);
 
     doc.body.addEventListener('input', () => dispatch('change', doc.body.innerHTML));
+    doc.body.addEventListener('beforeinput', onBeforeInput as EventListener);
     doc.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'b') { e.preventDefault(); doc.execCommand('bold'); }
@@ -84,19 +99,80 @@
     });
   }
 
+  const emit = () => { const d = getDoc(); if (d) dispatch('change', d.body.innerHTML); };
+
+  // Track-changes interception: typing becomes <ins>, deleting becomes <del> (nothing is lost).
+  function onBeforeInput(e: InputEvent) {
+    if (!trackChanges) return;
+    const d = getDoc();
+    if (!d) return;
+    const type = e.inputType;
+    if (type === 'insertText' && e.data) {
+      e.preventDefault();
+      if (trackedInsert(d, e.data, author)) emit();
+    } else if (type === 'insertFromPaste' || type === 'insertFromDrop') {
+      const text = e.dataTransfer?.getData('text/plain');
+      if (text) { e.preventDefault(); if (trackedInsert(d, text, author)) emit(); }
+    } else if (type.startsWith('delete')) {
+      const sel = d.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const backward = type.includes('Backward');
+      if (sel.isCollapsed) {
+        const unit = type.includes('Word') ? 'word' : type.includes('Line') ? 'line' : 'character';
+        (sel as Selection & { modify?: (a: string, b: string, c: string) => void }).modify?.('extend', backward ? 'backward' : 'forward', unit);
+      }
+      const range = sel.getRangeAt(0);
+      if (range.collapsed) return;
+      e.preventDefault();
+      trackedDeleteRange(d, range, author, Date.now(), backward ? 'before' : 'after');
+      emit();
+    }
+  }
+
   onMount(() => iframeEl?.addEventListener('load', handleLoad));
   onDestroy(() => iframeEl?.removeEventListener('load', handleLoad));
 
-  $: if (styleEl) styleEl.textContent = buildStyle($colorScheme === 'light');
+  run(() => {
+    if (styleEl) styleEl.textContent = buildStyle($colorScheme === 'light');
+  });
 
-  $: { const doc = getDoc(); if (doc?.body && doc.body.innerHTML !== content) doc.body.innerHTML = content; }
+  run(() => { const doc = getDoc(); if (doc?.body && doc.body.innerHTML !== content) doc.body.innerHTML = content; });
 
-  $: {
+  run(() => {
     const doc = getDoc();
     if (doc?.body) {
       doc.body.style.fontFamily = fontFamily === 'Monospace' ? 'monospace' : fontFamily === 'Serif' ? 'serif' : fontFamily === 'System UI' ? 'system-ui, sans-serif' : `"${fontFamily}", system-ui, sans-serif`;
       doc.body.style.fontSize = `${fontSize}px`;
     }
+  });
+
+  // ── review API (used by ReviewPanel through BlueDocsApp) ──
+  export function addComment(text: string): boolean {
+    const d = getDoc();
+    const sel = d?.getSelection();
+    if (!d || !sel || sel.rangeCount === 0) return false;
+    const ok = addCommentToRange(d, sel.getRangeAt(0), author, text) !== null;
+    if (ok) emit();
+    return ok;
+  }
+  export function replyComment(id: string, text: string) { const d = getDoc(); if (d && replyToComment(d.body, id, author, text)) emit(); }
+  export function resolveComment(id: string, resolved: boolean) { const d = getDoc(); if (d && setCommentResolved(d.body, id, resolved)) emit(); }
+  export function removeComment(id: string) { const d = getDoc(); if (d && deleteComment(d.body, id)) emit(); }
+  export function changeAction(action: 'accept' | 'reject' | 'acceptAll' | 'rejectAll', id?: string) {
+    const d = getDoc();
+    if (!d) return;
+    if (action === 'acceptAll') acceptAll(d.body);
+    else if (action === 'rejectAll') rejectAll(d.body);
+    else if (id) (action === 'accept' ? acceptChange : rejectChange)(d.body, id);
+    emit();
+  }
+  export function focusComment(id: string) {
+    const d = getDoc();
+    const el = d && [...d.querySelectorAll<HTMLElement>('span.bd-comment')].find((e) => e.getAttribute('data-comment-id') === id);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('bd-flash');
+    setTimeout(() => el.classList.remove('bd-flash'), 1200);
   }
 
   export function applyFormat(cmd: string, val?: string) {
@@ -131,4 +207,4 @@
   }
 </script>
 
-<iframe bind:this={iframeEl} src="about:blank" class="flex-1 w-full border-none" title="document editor" style="background:transparent;" />
+<iframe bind:this={iframeEl} src="about:blank" class="flex-1 w-full border-none" title="document editor" style="background:transparent;"></iframe>
