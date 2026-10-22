@@ -353,6 +353,45 @@ class ConnectEngine(
         }
     }
 
+    // ── Plugin requests (battery, find my device, clipboard, share, notifications) ──
+
+    /** Sends one request packet and, when [replyType] is set, waits for one reply packet of that type. */
+    private fun request(deviceId: String, frame: ByteArray, replyType: String?, timeoutMs: Int = 8_000): Protocol.Packet? {
+        val (c, dev) = openAuthenticated(deviceId)
+        c.use {
+            c.sock.outputStream.apply { write(frame); flush() }
+            if (replyType == null) return null
+            c.sock.soTimeout = timeoutMs
+            val line = try { PacketReader(c.sock.inputStream).readLine() } catch (e: SocketTimeoutException) {
+                throw ConnectException("${dev.name} did not reply in time")
+            } ?: throw ConnectException("${dev.name} closed the connection without replying")
+            val reply = Protocol.parse(line)
+            if (reply == null || reply.type != replyType) throw ConnectException("${dev.name} sent an unexpected reply")
+            return reply
+        }
+    }
+
+    /** Battery of the other device; null when it has none. */
+    fun getBattery(deviceId: String): BatteryStatus? =
+        PluginPackets.parseBattery(request(deviceId, PluginPackets.batteryRequest(), Protocol.TYPE_BATTERY)!!)
+
+    /** Makes the other device ring ("Find my device"). */
+    fun findDevice(deviceId: String) { request(deviceId, PluginPackets.findMyPhone(), null) }
+
+    fun sendClipboard(deviceId: String, text: String) { request(deviceId, PluginPackets.clipboard(text), null) }
+
+    fun getClipboard(deviceId: String): String =
+        request(deviceId, PluginPackets.clipboardRequest(), Protocol.TYPE_CLIPBOARD)!!.body.optString("content", "")
+
+    /** Pushes a link (opened on the other device) or plain text. */
+    fun share(deviceId: String, textOrUrl: String) {
+        val frame = if (PluginPackets.isSafeUrl(textOrUrl)) PluginPackets.shareUrl(textOrUrl) else PluginPackets.shareText(textOrUrl)
+        request(deviceId, frame, null)
+    }
+
+    fun getNotifications(deviceId: String): List<NotificationInfo> =
+        PluginPackets.parseNotifications(request(deviceId, PluginPackets.notificationRequest(), Protocol.TYPE_NOTIFICATION_LIST)!!)
+
     private companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val HANDSHAKE_TIMEOUT_MS = 20_000
