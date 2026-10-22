@@ -106,6 +106,10 @@ mod icon_store_ocs;
 mod music;
 mod music_mpris;
 mod user_dirs;
+mod app_isolation;
+mod gpu_env;
+mod clipboard_rich;
+mod app_permissions;
 mod tv_cec;
 
 use camera_app::{camera_list_devices, camera_check_available, camera_capture_frame, camera_capture_photo, camera_record_video};
@@ -170,6 +174,10 @@ use commands::misc::*;
 use commands::osd::*;
 
 fn main() {
+    // GPU workarounds for WebKitGTK (NVIDIA proprietary driver / virtual GPUs). WebKit reads these
+    // variables once at start-up, so this has to happen before anything touches GTK or Tauri.
+    gpu_env::apply();
+
     // ── Backend gate (config.hk → [backend] compositor) ───────────────────
     // Must run before anything else (logging, Tauri): on a native backend
     // (labwc, sway or wayfire) this call *replaces the process* with that
@@ -281,6 +289,9 @@ fn main() {
         commands::backend::backend_get_info, commands::backend::backend_set_compositor, commands::backend::focus_shell,
         labwc_integration_status, labwc_integration_repair,
         get_system_apps, get_recent_apps, record_app_launch, invalidate_app_cache, launch_process,
+        clipboard_rich::clipboard_poll_rich, clipboard_rich::clipboard_rich_history, clipboard_rich::clipboard_rich_image, clipboard_rich::clipboard_rich_copy, clipboard_rich::clipboard_rich_delete, clipboard_rich::clipboard_rich_clear,
+        app_permissions::flatpak_exec,
+        app_isolation::launch_clone_process, app_isolation::clone_isolation_status, app_isolation::clone_profile_delete,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
         exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
         BlueStore::store_fetch_index, BlueStore::store_fetch_image, BlueStore::store_resolve, BlueStore::store_install, BlueStore::store_uninstall,
@@ -318,6 +329,8 @@ fn main() {
         blue_connect::phone::phone_call_control, blue_connect::phone::phone_compose_sms, blue_connect::phone::phone_toggle,
         blue_connect::phone::phone_notifications, blue_connect::phone::phone_ls, blue_connect::phone::phone_pull,
         blue_connect::phone::phone_push, blue_connect::phone::phone_screenshot, blue_connect::phone::phone_open_scrcpy,
+        blue_connect::plugins::bc_device_battery, blue_connect::plugins::bc_find_device, blue_connect::plugins::bc_send_clipboard, blue_connect::plugins::bc_get_device_clipboard, blue_connect::plugins::bc_share, blue_connect::plugins::bc_device_notifications,
+        blue_connect::audio::phone_audio_supported, blue_connect::audio::phone_audio_status, blue_connect::audio::phone_audio_start, blue_connect::audio::phone_audio_stop, blue_connect::audio::phone_audio_stop_all, blue_connect::audio::phone_audio_volume,
         blue_connect::phone::phone_stream_start, blue_connect::phone::phone_stream_stop,
         // Blue Connect → KDE Connect bridge
         blue_connect::kdeconnect::kde_status, blue_connect::kdeconnect::kde_pair, blue_connect::kdeconnect::kde_unpair,
