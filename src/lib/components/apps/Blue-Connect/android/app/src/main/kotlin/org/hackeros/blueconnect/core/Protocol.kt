@@ -27,6 +27,16 @@ object Protocol {
     const val TYPE_SMS_REQUEST = "kdeconnect.sms.request"
     const val TYPE_SMS_MESSAGES = "kdeconnect.sms.messages"
 
+    // ── Plugin packets (see ../../PLUGINS.md — shared by desktop, Windows, Android and macOS) ──
+    const val TYPE_BATTERY_REQUEST = "kdeconnect.battery.request"
+    const val TYPE_BATTERY = "kdeconnect.battery"
+    const val TYPE_FIND_MY_PHONE = "kdeconnect.findmyphone.request"
+    const val TYPE_CLIPBOARD = "kdeconnect.clipboard"
+    const val TYPE_CLIPBOARD_REQUEST = "kdeconnect.clipboard.request"
+    const val TYPE_SHARE = "kdeconnect.share.request"
+    const val TYPE_NOTIFICATION_REQUEST = "kdeconnect.notification.request"
+    const val TYPE_NOTIFICATION_LIST = "kdeconnect.notification.list"
+
     /** How long either side waits for the other person to answer a pairing request. */
     const val PAIRING_DECISION_TIMEOUT_MS = 120_000L
 
@@ -58,8 +68,17 @@ object Protocol {
             .put("tcpPort", tcpPort)
             // Extra fields: ignored by the desktop (serde skips unknown keys),
             // but let real KDE Connect negotiate plugins.
-            .put("incomingCapabilities", JSONArray(listOf(TYPE_PAIR, TYPE_PING, TYPE_SMS_REQUEST)))
-            .put("outgoingCapabilities", JSONArray(listOf(TYPE_PAIR, TYPE_PING, TYPE_SMS_MESSAGES)))
+            .put(
+                "incomingCapabilities",
+                JSONArray(listOf(
+                    TYPE_PAIR, TYPE_PING, TYPE_SMS_REQUEST, TYPE_BATTERY_REQUEST, TYPE_FIND_MY_PHONE,
+                    TYPE_CLIPBOARD, TYPE_CLIPBOARD_REQUEST, TYPE_SHARE, TYPE_NOTIFICATION_REQUEST,
+                )),
+            )
+            .put(
+                "outgoingCapabilities",
+                JSONArray(listOf(TYPE_PAIR, TYPE_PING, TYPE_SMS_MESSAGES, TYPE_BATTERY, TYPE_CLIPBOARD, TYPE_NOTIFICATION_LIST)),
+            )
         val packet = JSONObject().put("type", TYPE_IDENTITY).put("body", body)
         return packet.toString().toByteArray(Charsets.UTF_8)
     }
