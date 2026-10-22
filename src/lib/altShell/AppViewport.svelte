@@ -12,12 +12,17 @@
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import CommunityAppHost from '../components/apps/Community-App-Host/CommunityAppHost.svelte';
 
-  /**
+  
+  interface Props {
+    /**
    * Replaces the component of an app for this shell (appId → component). The TV
    * shell uses it to swap the desktop Settings app for a remote-friendly one.
    * The replacement gets the same props (`windowId`, launch args).
    */
-  export let overrides: Record<string, any> = {};
+    overrides?: Record<string, any>;
+  }
+
+  let { overrides = {} }: Props = $props();
 
   function componentFor(appId: string) {
     if (overrides[appId]) return overrides[appId];
@@ -25,7 +30,7 @@
     return APPS[appId as AppId]?.component;
   }
 
-  $: mounted = $windows.filter((w) => !w.isMinimized && !w.isExternal && w.workspace === $currentWorkspace);
+  let mounted = $derived($windows.filter((w) => !w.isMinimized && !w.isExternal && w.workspace === $currentWorkspace));
 </script>
 
 {#each mounted as win (win.id)}
