@@ -83,9 +83,9 @@
     return { kernel: stats.kernel || 'Unknown', cpu: Math.round(stats.cpu), ram: Math.round(stats.ram), hostname, username: SystemBridge.getUsername(), uptime, cpuModel, totalRam, gpuInfo, diskInfo, arch };
   }
 
-  let distro: DistroInfo | null = null;
-  let hw: HwInfo | null = null;
-  let loading = true;
+  let distro = $state<DistroInfo | null>(null);
+  let hw = $state<HwInfo | null>(null);
+  let loading = $state(true);
 
   async function load() {
     loading = true;
@@ -105,17 +105,17 @@
   // installed at all; Blue Web always is one.
   function openUrl(url?: string) { if (url) openInBlueWeb(url); }
 
-  $: hwRows = [
+  let hwRows = $derived([
     { icon: Cpu, label: 'Processor', value: hw?.cpuModel, sub: hw ? `${hw.cpu}% usage` : undefined },
     { icon: CircuitBoard, label: 'Memory', value: hw?.totalRam, sub: hw ? `${hw.ram}% used` : undefined },
     { icon: Monitor, label: 'Graphics', value: hw?.gpuInfo },
     { icon: HardDrive, label: 'Storage', value: hw?.diskInfo },
-  ];
-  $: sysRows = [
+  ]);
+  let sysRows = $derived([
     { icon: Server, label: 'Kernel', value: hw?.kernel },
     { icon: Server, label: 'Hostname', value: hw?.hostname },
     { icon: Server, label: 'Uptime', value: hw?.uptime },
-  ];
+  ]);
 </script>
 
 {#if loading}
@@ -123,11 +123,11 @@
 {:else}
   <div class="flex flex-col h-full bg-slate-900 text-white overflow-y-auto">
     <div class="relative bg-gradient-to-br from-blue-900/50 via-slate-900 to-slate-900 px-8 py-8 border-b border-white/5 overflow-hidden">
-      <div class="absolute inset-0" style="background:radial-gradient(circle at 30% 50%, rgba(59,130,246,0.15), transparent 60%);" />
+      <div class="absolute inset-0" style="background:radial-gradient(circle at 30% 50%, rgba(59,130,246,0.15), transparent 60%);"></div>
       <div class="relative flex items-center gap-6">
         {#if distro?.logoPath}
           <img src={toAssetUrl(distro.logoPath)} alt="Logo" class="w-20 h-20 object-contain shrink-0"
-               on:error={hideBrokenLogo} />
+               onerror={hideBrokenLogo} />
         {:else}
           <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-2xl shadow-blue-500/40 shrink-0">
             <span class="text-4xl font-black text-white">{(distro?.name || 'L').charAt(0).toUpperCase()}</span>
@@ -143,13 +143,13 @@
           </div>
           <div class="flex gap-2 mt-2">
             {#if distro?.website}
-              <button on:click={() => openUrl(distro?.website)} class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"><Globe size={11} /> Website</button>
+              <button onclick={() => openUrl(distro?.website)} class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"><Globe size={11} /> Website</button>
             {/if}
             {#if distro?.supportUrl}
-              <button on:click={() => openUrl(distro?.supportUrl)} class="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"><ExternalLink size={11} /> Support</button>
+              <button onclick={() => openUrl(distro?.supportUrl)} class="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"><ExternalLink size={11} /> Support</button>
             {/if}
             {#if distro?.bugReportUrl}
-              <button on:click={() => openUrl(distro?.bugReportUrl)} class="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"><Bug size={11} /> Report Bug</button>
+              <button onclick={() => openUrl(distro?.bugReportUrl)} class="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"><Bug size={11} /> Report Bug</button>
             {/if}
           </div>
         </div>
@@ -176,7 +176,7 @@
       <div class="space-y-1.5">
         {#each hwRows as { icon: Icon, label, value, sub } (label)}
           <div class="flex items-center gap-3 bg-slate-800/50 rounded-lg px-4 py-2.5 border border-white/5">
-            <svelte:component this={Icon} size={15} class="text-slate-500 shrink-0" />
+            <Icon size={15} class="text-slate-500 shrink-0" />
             <span class="text-slate-400 text-sm w-24 shrink-0">{label}</span>
             <div class="flex-1 min-w-0">
               <div class="text-white text-sm truncate">{value || '—'}</div>
@@ -192,7 +192,7 @@
       <div class="space-y-1.5">
         {#each sysRows as { icon: Icon, label, value } (label)}
           <div class="flex items-center gap-3 bg-slate-800/50 rounded-lg px-4 py-2.5 border border-white/5">
-            <svelte:component this={Icon} size={15} class="text-slate-500 shrink-0" />
+            <Icon size={15} class="text-slate-500 shrink-0" />
             <span class="text-slate-400 text-sm w-24 shrink-0">{label}</span>
             <span class="text-white text-sm font-mono">{value || '—'}</span>
           </div>
@@ -216,7 +216,7 @@
     <div class="px-6 py-4 flex items-center justify-between">
       {#if distro?.copyright}<p class="text-xs text-slate-600">{distro.copyright}</p>{/if}
       <div class="ml-auto">
-        <button on:click={load} class="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors" title="Refresh"><RefreshCw size={15} /></button>
+        <button onclick={load} class="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors" title="Refresh"><RefreshCw size={15} /></button>
       </div>
     </div>
   </div>
