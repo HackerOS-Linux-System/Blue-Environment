@@ -28,6 +28,19 @@ public static class Protocol
     public const string TypeSmsRequest = "kdeconnect.sms.request";
     public const string TypeSmsMessages = "kdeconnect.sms.messages";
 
+    // ── Plugin packets (see ../../PLUGINS.md — shared by desktop, Windows, Android and macOS) ──
+    public const string TypeBatteryRequest = "kdeconnect.battery.request";
+    public const string TypeBattery = "kdeconnect.battery";
+    public const string TypeFindMyPhone = "kdeconnect.findmyphone.request";
+    public const string TypeClipboard = "kdeconnect.clipboard";
+    public const string TypeClipboardRequest = "kdeconnect.clipboard.request";
+    public const string TypeShare = "kdeconnect.share.request";
+    public const string TypeNotificationRequest = "kdeconnect.notification.request";
+    public const string TypeNotificationList = "kdeconnect.notification.list";
+
+    /// <summary>Replies must fit one TLS record — the desktop reads each answer with a single read().</summary>
+    public const int MaxSingleReadReplyBytes = 14_000;
+
     /// <summary>How long either side waits for the other person to answer a pairing request.</summary>
     public static readonly TimeSpan PairingDecisionTimeout = TimeSpan.FromSeconds(120);
 
@@ -54,8 +67,9 @@ public static class Protocol
             ["tcpPort"] = tcpPort,
             // Extra fields: ignored by the desktop (serde ignores unknown keys),
             // but let real KDE Connect negotiate plugins.
-            ["incomingCapabilities"] = new JsonArray(TypePair, TypePing, TypeSmsRequest),
-            ["outgoingCapabilities"] = new JsonArray(TypePair, TypePing, TypeSmsMessages),
+            ["incomingCapabilities"] = new JsonArray(TypePair, TypePing, TypeSmsRequest, TypeBatteryRequest, TypeFindMyPhone,
+                TypeClipboard, TypeClipboardRequest, TypeShare, TypeNotificationRequest),
+            ["outgoingCapabilities"] = new JsonArray(TypePair, TypePing, TypeSmsMessages, TypeBattery, TypeClipboard, TypeNotificationList),
         };
         var packet = new JsonObject { ["type"] = TypeIdentity, ["body"] = body };
         return Encoding.UTF8.GetBytes(packet.ToJsonString());
