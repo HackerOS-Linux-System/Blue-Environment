@@ -152,6 +152,7 @@ static class SelfTests
             Eq(f1.Length, 64, "identity fingerprint is a sha-256 hex");
         }
 
+        PluginsUnit();
         await EndToEndAsync();
 
         Console.WriteLine();
@@ -203,6 +204,28 @@ static class SelfTests
         var got = await Task.WhenAny(pinged.Task, Task.Delay(3000)) == pinged.Task ? pinged.Task.Result : null;
         Eq(got, "hi from B", "ping travels over the authenticated channel");
 
+        // ── plugin round trips over the real authenticated channel ──
+        var host = new TestHost();
+        a.PacketHandler = new PluginRouter(host).AsPacketHandler();
+        var bat = await b.GetBatteryAsync(a.DeviceId);
+        Check(bat is { Percent: 73, Charging: true }, "battery request → reply over mutual TLS");
+        await b.FindDeviceAsync(a.DeviceId);
+        await b.SendClipboardAsync(a.DeviceId, "zażółć gęślą jaźń 🙂");
+        await b.ShareAsync(a.DeviceId, "https://example.org/a?b=c");
+        await b.ShareAsync(a.DeviceId, "just some text");
+        await b.ShareAsync(a.DeviceId, "javascript:alert(1)"); // not a safe URL → delivered as plain text, never opened
+        for (int i = 0; i < 40 && host.Texts.Count < 2; i++) await Task.Delay(50);
+        Check(host.Rings == 1, "find-my-device rings the other side once");
+        Eq(host.Clipboard, "zażółć gęślą jaźń 🙂", "clipboard text (with Unicode) arrives intact");
+        Eq(string.Join("|", host.Opened), "https://example.org/a?b=c", "safe link is opened");
+        Eq(string.Join("|", host.Texts), "just some text|javascript:alert(1)", "other text is only received, never opened");
+        host.Clipboard = "phone clipboard";
+        Eq(await b.GetClipboardAsync(a.DeviceId), "phone clipboard", "clipboard request → reply");
+        var notes = await b.GetNotificationsAsync(a.DeviceId);
+        Check(notes.Count == 2 && notes[0].App == "Mail" && notes[1].Title == "Ping", "notification list request → reply");
+        host.Battery = null;
+        Check(await b.GetBatteryAsync(a.DeviceId) is null, "a device without a battery answers 'none'");
+
         // Another node that was never paired must be ignored on the plugin channel.
         using var c = new ConnectService(new ConnectOptions { DataDir = Tmp(), DeviceName = "Stranger", TcpPort = 43717, DiscoveryPort = 43716,
             ScanTargetPort = 41716, DiscoveryTargets = loop, BindAddress = IPAddress.Loopback });
@@ -232,6 +255,54 @@ static class SelfTests
 
         b.Forget(a.DeviceId);
         Check(b.Devices.All(d => d.Id != a.DeviceId), "Forget removes the device");
+    }
+
+    sealed class TestHost : IPluginHost
+    {
+        public BatteryStatus? Battery = new(73, true);
+        public int Rings;
+        public string? Clipboard;
+        public List<string> Opened = new(), Texts = new();
+        public BatteryStatus? GetBattery() => Battery;
+        public void Ring() => Rings++;
+        public void SetClipboard(string text) => Clipboard = text;
+        public string? GetClipboard() => Clipboard;
+        public void OpenUrl(string url) => Opened.Add(url);
+        public void ReceiveText(string text, DeviceInfo from) => Texts.Add(text);
+        public IReadOnlyList<NotificationInfo> GetNotifications() => new[]
+        {
+            new NotificationInfo("1", "Mail", "New message", "Hello", 1000), new NotificationInfo("2", "Chat", "Ping", "x", 2000),
+        };
+    }
+
+    static void PluginsUnit()
+    {
+        Console.WriteLine("Plugins (pure)");
+        Check(PluginPackets.IsSafeUrl("https://example.org/x?y=1"), "https url is safe");
+        Check(PluginPackets.IsSafeUrl("mailto:a@b.c") && PluginPackets.IsSafeUrl("tel:+48123456789"), "mailto / tel are safe");
+        Check(!PluginPackets.IsSafeUrl("javascript:alert(1)") && !PluginPackets.IsSafeUrl("file:///etc/passwd")
+              && !PluginPackets.IsSafeUrl("ms-settings:") && !PluginPackets.IsSafeUrl("smb://x/y"), "script / file / app-protocol urls are refused");
+        Check(!PluginPackets.IsSafeUrl("https://a b") && !PluginPackets.IsSafeUrl("") && !PluginPackets.IsSafeUrl(null) && !PluginPackets.IsSafeUrl("https://x/\n"), "whitespace / control characters / empty are refused");
+        Check(!PluginPackets.IsSafeUrl("https://x/" + new string('a', 3000)), "overlong urls are refused");
+
+        var cut = PluginPackets.FitUtf8("ą" + new string('x', 10), 2); // 'ą' is 2 bytes
+        Eq(cut, "ą", "FitUtf8 keeps whole characters");
+        Eq(PluginPackets.FitUtf8("🙂🙂", 5), "🙂", "FitUtf8 never splits a surrogate pair / multi-byte char");
+        Eq(PluginPackets.FitUtf8("short", 100), "short", "FitUtf8 leaves short text alone");
+
+        var big = Enumerable.Range(0, 200).Select(i => new NotificationInfo(i.ToString(), "App", new string('t', 200), new string('b', 400), i)).ToList();
+        var frame = PluginPackets.NotificationList(big);
+        Check(frame.Length <= Protocol.MaxSingleReadReplyBytes, "notification list is trimmed to fit one TLS record");
+        var parsed = PluginPackets.ParseNotifications(Protocol.Parse(Encoding.UTF8.GetString(frame))!);
+        Check(parsed.Count > 0 && parsed.Count < 200 && parsed[0].Id == "0", "…keeping the newest entries first");
+
+        var bp = Protocol.Parse(Encoding.UTF8.GetString(PluginPackets.Battery(new BatteryStatus(250, false))))!;
+        Eq(PluginPackets.ParseBattery(bp)?.Percent, 100, "battery percent is clamped");
+        Check(PluginPackets.ParseBattery(Protocol.Parse(Encoding.UTF8.GetString(PluginPackets.Battery(null)))!) is null, "no battery is reported as -1 → null");
+
+        var caps = Encoding.UTF8.GetString(Protocol.BuildIdentity("id", "n", "phone", 1717));
+        Check(caps.Contains(Protocol.TypeClipboard) && caps.Contains(Protocol.TypeFindMyPhone), "identity advertises the plugin capabilities");
+        Check(Protocol.ParseIdentity(Encoding.UTF8.GetBytes(caps)) is not null, "identity with the extra capabilities still parses (desktop compatibility)");
     }
 
     // ConnectService keeps its options private; the test only needs the data dir.
