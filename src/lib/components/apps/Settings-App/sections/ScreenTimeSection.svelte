@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { run } from 'svelte/legacy';
+
   import { onMount } from 'svelte';
   import { Hourglass, Trash2, AlertTriangle } from 'lucide-svelte';
   import { SystemBridge } from '../../../../utils/systemBridge';
@@ -20,10 +23,10 @@
   type Range = 'today' | 'week' | 'month' | 'all';
   const RANGES: Range[] = ['today', 'week', 'month', 'all'];
 
-  let range: Range = 'week';
-  let summary: ScreenTimeRangeSummary = { total_minutes: 0, by_app: {}, daily_series: [] };
-  let loading = true;
-  let confirmingClear = false;
+  let range = $state<Range>('week');
+  let summary = $state<ScreenTimeRangeSummary>({ total_minutes: 0, by_app: {}, daily_series: [] });
+  let loading = $state(true);
+  let confirmingClear = $state(false);
 
   const RANGE_LABELS: Record<Range, string> = {
     today: 'settings.screen_time.range_today',
@@ -40,7 +43,10 @@
   }
 
   onMount(load);
-  $: range, load();
+  $effect(() => {
+    void range;
+    untrack(() => load());
+  });
 
   function fmtDuration(minutes: number): string {
     const h = Math.floor(minutes / 60);
@@ -60,16 +66,16 @@
       : d.toLocaleDateString(undefined, { weekday: 'short' });
   }
 
-  $: maxDayMinutes = Math.max(1, ...summary.daily_series.map((d) => d.total_minutes));
+  let maxDayMinutes = $derived(Math.max(1, ...summary.daily_series.map((d) => d.total_minutes)));
 
   // Sorted app breakdown with a resolved title/icon from the same APPS
   // registry AppsSection.svelte/StartMenu.svelte use, so an app id like
   // "notepad" shows up as "Notepad" with its real icon instead of a raw
   // id string — falls back gracefully for ids with no registry entry
   // (external/removed apps still in old history).
-  $: appBreakdown = Object.entries(summary.by_app)
+  let appBreakdown = $derived(Object.entries(summary.by_app)
     .map(([id, minutes]) => ({ id, minutes, def: APPS[id as AppId] }))
-    .sort((a, b) => b.minutes - a.minutes);
+    .sort((a, b) => b.minutes - a.minutes));
 
   async function clearHistory() {
     if (!confirmingClear) { confirmingClear = true; return; }
@@ -89,7 +95,7 @@
   <div class="flex gap-2">
     {#each RANGES as r}
       <button
-        on:click={() => (range = r)}
+        onclick={() => (range = r)}
         class="flex-1 py-2 rounded-xl text-sm font-medium border transition-colors {range === r ? 'bg-blue-600 border-blue-500 text-white' : 'border-white/10 text-slate-400 hover:bg-white/5'}">
         {$t(RANGE_LABELS[r])}
       </button>
@@ -119,7 +125,7 @@
             <div
               class="w-full rounded-t-md bg-blue-500 transition-all"
               style="height: {Math.max(2, (day.total_minutes / maxDayMinutes) * 100)}%; opacity: {day.total_minutes === 0 ? 0.15 : 1};"
-            />
+></div>
             {#if summary.daily_series.length <= 31}
               <span class="text-[10px] text-slate-500 whitespace-nowrap">{fmtDayLabel(day.date)}</span>
             {/if}
@@ -141,14 +147,14 @@
         {#each appBreakdown as app (app.id)}
           <div class="flex items-center gap-3 py-2 border-b border-white/5 last:border-0">
             {#if app.def}
-              <svelte:component this={app.def.icon} size={16} class="text-slate-400 shrink-0" />
+              <app.def.icon size={16} class="text-slate-400 shrink-0" />
               <span class="text-white flex-1 truncate">{app.def.title}</span>
             {:else}
-              <div class="w-4 h-4 shrink-0" />
+              <div class="w-4 h-4 shrink-0"></div>
               <span class="text-slate-400 flex-1 truncate">{app.id}</span>
             {/if}
             <div class="w-28 h-1.5 rounded-full bg-white/5 overflow-hidden shrink-0">
-              <div class="h-full bg-blue-500 rounded-full" style="width: {Math.min(100, (app.minutes / summary.total_minutes) * 100)}%" />
+              <div class="h-full bg-blue-500 rounded-full" style="width: {Math.min(100, (app.minutes / summary.total_minutes) * 100)}%"></div>
             </div>
             <span class="text-sm text-slate-400 w-20 text-right shrink-0">{fmtDuration(app.minutes)}</span>
           </div>
@@ -167,8 +173,8 @@
   </div>
 
   <button
-    on:click={clearHistory}
-    on:blur={() => (confirmingClear = false)}
+    onclick={clearHistory}
+    onblur={() => (confirmingClear = false)}
     class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-colors {confirmingClear ? 'bg-red-600 border-red-500 text-white' : 'border-white/10 text-slate-400 hover:bg-white/5'}">
     <Trash2 size={15} />
     {confirmingClear ? $t('settings.screen_time.clear_confirm') : $t('settings.screen_time.clear')}
