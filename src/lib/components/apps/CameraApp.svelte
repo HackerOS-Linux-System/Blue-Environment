@@ -1,47 +1,51 @@
 <script lang="ts">
   import { trackBusy } from '../../stores/appHealth';
-  export let windowId: string | undefined = undefined;
   import { onMount, onDestroy } from 'svelte';
   import { SystemBridge, toAssetUrl } from '../../utils/systemBridge';
   import {
     Camera, Video, Image, FlipHorizontal, Settings, Circle, Square,
     RefreshCw, AlertTriangle, SwitchCamera, Grid3x3, X, Info,
   } from 'lucide-svelte';
+  interface Props {
+    windowId?: string | undefined;
+  }
+
+  let { windowId = undefined }: Props = $props();
 
   type Mode = 'photo' | 'video';
   type TimerSecs = 0 | 3 | 5 | 10;
   interface NativeDevice { path: string; name: string; }
   interface Capture { url: string; type: 'photo' | 'video'; name: string; }
 
-  let videoEl: HTMLVideoElement;
-  let canvasEl: HTMLCanvasElement;
+  let videoEl = $state() as HTMLVideoElement;
+  let canvasEl = $state() as HTMLCanvasElement;
   let mediaRecorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let stream: MediaStream | null = null;
   let recordTimer: ReturnType<typeof setInterval>;
   let pollTimer: ReturnType<typeof setInterval>;
 
-  let mode: Mode = 'photo';
-  let recording = false;
-  let recordTime = 0;
-  let captures: Capture[] = [];
-  let mirrored = false;
-  let showGrid = false;
-  let timer: TimerSecs = 0;
-  let countdown = 0;
-  let error: string | null = null;
-  let devices: MediaDeviceInfo[] = [];
-  let deviceIdx = 0;
-  let resolution = { w: 1280, h: 720 };
-  let showSettings = false;
-  let flashAnim = false;
+  let mode = $state<Mode>('photo');
+  let recording = $state(false);
+  let recordTime = $state(0);
+  let captures = $state<Capture[]>([]);
+  let mirrored = $state(false);
+  let showGrid = $state(false);
+  let timer = $state<TimerSecs>(0);
+  let countdown = $state(0);
+  let error = $state<string | null>(null);
+  let devices = $state<MediaDeviceInfo[]>([]);
+  let deviceIdx = $state(0);
+  let resolution = $state({ w: 1280, h: 720 });
+  let showSettings = $state(false);
+  let flashAnim = $state(false);
 
   // Native fallback (webview lacks getUserMedia support) — see CameraApp/mod.rs
-  let nativeMode = false;
-  let nativeDevices: NativeDevice[] = [];
-  let nativeFrame: string | null = null;
-  let ffmpegMissing = false;
-  let busy = false;
+  let nativeMode = $state(false);
+  let nativeDevices = $state<NativeDevice[]>([]);
+  let nativeFrame = $state<string | null>(null);
+  let ffmpegMissing = $state(false);
+  let busy = $state(false);
 
   function stopNativePolling() { clearInterval(pollTimer); }
 
@@ -214,8 +218,8 @@
 
   function fmtTime(s: number) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
 
-  $: deviceCount = nativeMode ? nativeDevices.length : devices.length;
-  $: timerOptions = nativeMode && mode === 'video' ? ([3, 5, 10] as TimerSecs[]) : ([0, 3, 5, 10] as TimerSecs[]);
+  let deviceCount = $derived(nativeMode ? nativeDevices.length : devices.length);
+  let timerOptions = $derived(nativeMode && mode === 'video' ? ([3, 5, 10] as TimerSecs[]) : ([0, 3, 5, 10] as TimerSecs[]));
 
   function handleDeviceChange(e: Event) {
     const v = +(e.currentTarget as HTMLSelectElement).value;
@@ -240,13 +244,13 @@
           The browser camera API isn't available in this webview, so Blue Camera captures frames via ffmpeg + V4L2 instead.
           Install ffmpeg to use the camera (e.g. <code class="bg-slate-800 px-1 rounded">sudo dnf install ffmpeg</code>).
         </p>
-        <button on:click={() => startNativeCamera()} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm mt-4">Retry</button>
+        <button onclick={() => startNativeCamera()} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm mt-4">Retry</button>
       </div>
     {:else if error}
       <div class="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
         <Camera size={48} class="text-slate-600 mb-4" />
         <p class="text-slate-300 text-sm mb-2">{error}</p>
-        <button on:click={() => startCamera()} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm mt-2">Retry</button>
+        <button onclick={() => startCamera()} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm mt-2">Retry</button>
       </div>
     {:else}
       {#if nativeMode}
@@ -269,12 +273,12 @@
 
       {#if showGrid}
         <div class="absolute inset-0 pointer-events-none">
-          {#each [1, 2] as i (i)}<div class="absolute top-0 bottom-0 border-l border-white/20" style="left:{i * 33.33}%;" />{/each}
-          {#each [1, 2] as i (i)}<div class="absolute left-0 right-0 border-t border-white/20" style="top:{i * 33.33}%;" />{/each}
+          {#each [1, 2] as i (i)}<div class="absolute top-0 bottom-0 border-l border-white/20" style="left:{i * 33.33}%;"></div>{/each}
+          {#each [1, 2] as i (i)}<div class="absolute left-0 right-0 border-t border-white/20" style="top:{i * 33.33}%;"></div>{/each}
         </div>
       {/if}
 
-      {#if flashAnim}<div class="absolute inset-0 bg-white pointer-events-none" style="animation:flash 0.3s ease-out;" />{/if}
+      {#if flashAnim}<div class="absolute inset-0 bg-white pointer-events-none" style="animation:flash 0.3s ease-out;"></div>{/if}
 
       {#if countdown > 0}
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -284,25 +288,25 @@
 
       {#if recording}
         <div class="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5">
-          <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
           <span class="text-sm font-mono text-white">{fmtTime(recordTime)}{nativeMode ? ` / ${fmtTime(timer || 5)}` : ''}</span>
         </div>
       {/if}
 
       <div class="absolute top-3 right-3 flex gap-2">
-        <button on:click={() => (mirrored = !mirrored)} class="p-2 rounded-full backdrop-blur-sm {mirrored ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><FlipHorizontal size={16} /></button>
-        <button on:click={() => (showGrid = !showGrid)} class="p-2 rounded-full backdrop-blur-sm {showGrid ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><Grid3x3 size={16} /></button>
+        <button onclick={() => (mirrored = !mirrored)} class="p-2 rounded-full backdrop-blur-sm {mirrored ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><FlipHorizontal size={16} /></button>
+        <button onclick={() => (showGrid = !showGrid)} class="p-2 rounded-full backdrop-blur-sm {showGrid ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><Grid3x3 size={16} /></button>
         {#if deviceCount > 1}
-          <button on:click={switchCamera} class="p-2 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-sm"><SwitchCamera size={16} /></button>
+          <button onclick={switchCamera} class="p-2 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-sm"><SwitchCamera size={16} /></button>
         {/if}
-        <button on:click={() => (showSettings = !showSettings)} class="p-2 rounded-full backdrop-blur-sm {showSettings ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><Settings size={16} /></button>
+        <button onclick={() => (showSettings = !showSettings)} class="p-2 rounded-full backdrop-blur-sm {showSettings ? 'bg-blue-600/80' : 'bg-black/40 hover:bg-black/60'}"><Settings size={16} /></button>
       </div>
 
       {#if showSettings}
         <div class="absolute top-14 right-3 bg-slate-900/95 backdrop-blur-sm rounded-xl border border-white/10 p-4 w-56 space-y-3">
           <div>
             <span class="text-xs text-slate-400 block mb-1">Camera</span>
-            <select value={deviceIdx} on:change={handleDeviceChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
+            <select value={deviceIdx} onchange={handleDeviceChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
               {#if nativeMode}
                 {#each nativeDevices as d, i (d.path)}<option value={i}>{d.name}</option>{/each}
               {:else}
@@ -313,13 +317,13 @@
           </div>
           <div>
             <span class="text-xs text-slate-400 block mb-1">Resolution</span>
-            <select value="{resolution.w}x{resolution.h}" on:change={handleResolutionChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
+            <select value="{resolution.w}x{resolution.h}" onchange={handleResolutionChange} class="w-full bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none">
               <option value="1920x1080">FHD (1920x1080)</option>
               <option value="1280x720">HD (1280x720)</option>
               <option value="640x480">SD (640x480)</option>
             </select>
           </div>
-          <button on:click={() => (showSettings = false)} class="w-full text-center text-xs text-slate-500 hover:text-white pt-1">Close</button>
+          <button onclick={() => (showSettings = false)} class="w-full text-center text-xs text-slate-500 hover:text-white pt-1">Close</button>
         </div>
       {/if}
     {/if}
@@ -328,13 +332,13 @@
   <div class="shrink-0 bg-slate-900 border-t border-white/5">
     <div class="flex items-center justify-between px-4 pt-3 pb-1">
       <div class="flex bg-slate-800 rounded-xl p-0.5">
-        <button on:click={() => (mode = 'photo')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {mode === 'photo' ? 'bg-white text-black' : 'text-slate-400'}"><Camera size={13} /> Photo</button>
-        <button on:click={() => (mode = 'video')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {mode === 'video' ? 'bg-white text-black' : 'text-slate-400'}"><Video size={13} /> Video</button>
+        <button onclick={() => (mode = 'photo')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {mode === 'photo' ? 'bg-white text-black' : 'text-slate-400'}"><Camera size={13} /> Photo</button>
+        <button onclick={() => (mode = 'video')} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {mode === 'video' ? 'bg-white text-black' : 'text-slate-400'}"><Video size={13} /> Video</button>
       </div>
       {#if mode === 'photo' || nativeMode}
         <div class="flex items-center gap-1">
           {#each timerOptions as t (t)}
-            <button on:click={() => (timer = t)} class="w-8 h-8 rounded-lg text-xs font-medium transition-colors {timer === t ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">
+            <button onclick={() => (timer = t)} class="w-8 h-8 rounded-lg text-xs font-medium transition-colors {timer === t ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">
               {#if t === 0}<X size={12} class="mx-auto" />{:else}{t}s{/if}
             </button>
           {/each}
@@ -364,12 +368,12 @@
 
       <div class="relative">
         {#if mode === 'photo'}
-          <button on:click={takePhoto} disabled={countdown > 0 || busy}
+          <button onclick={takePhoto} disabled={countdown > 0 || busy}
             class="w-16 h-16 rounded-full bg-white hover:bg-slate-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center shadow-lg shadow-white/20">
-            <div class="w-12 h-12 rounded-full border-2 border-slate-300" />
+            <div class="w-12 h-12 rounded-full border-2 border-slate-300"></div>
           </button>
         {:else}
-          <button on:click={recording ? stopRecording : startRecording} disabled={nativeMode && recording}
+          <button onclick={recording ? stopRecording : startRecording} disabled={nativeMode && recording}
             class="w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-95 shadow-lg disabled:opacity-60 {recording ? 'bg-red-500 hover:bg-red-400 shadow-red-500/30' : 'bg-red-600 hover:bg-red-500 shadow-red-600/30'}">
             {#if recording}<Square size={20} fill="white" />{:else}<Circle size={20} fill="white" />{/if}
           </button>
@@ -382,7 +386,7 @@
     </div>
   </div>
 
-  <canvas bind:this={canvasEl} class="hidden" />
+  <canvas bind:this={canvasEl} class="hidden"></canvas>
 </div>
 
 <style>
