@@ -74,8 +74,8 @@ export function installGlobalContextMenu(windowActions?: {
     const target = e.target as HTMLElement | null;
     if (!target?.closest) return;
 
-    // Monaco draws its own context menu.
-    if (target.closest('.monaco-editor')) return;
+    // The code editor handles its own context menu.
+    if (target.closest('.cm-editor')) return;
 
     if (isEditable(target)) {
       const field = target.closest('input, textarea, [contenteditable]') as HTMLElement;
