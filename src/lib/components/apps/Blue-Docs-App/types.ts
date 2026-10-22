@@ -38,6 +38,10 @@ export interface Slide {
    * pptxFile.ts's module doc for why this doesn't attempt arbitrary
    * image positioning. */
   images: string[];
+  /** Speaker notes (plain text, one paragraph per line). Round-trips through .pptx notes slides. */
+  notes?: string;
+  /** One optional table: rows of cell texts (first row is the header). Round-trips as a native <a:tbl>. */
+  table?: string[][];
 }
 
 export interface Presentation {
