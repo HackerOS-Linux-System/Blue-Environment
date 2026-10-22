@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { BellOff, Bell, Wifi, WifiOff, Bluetooth, BluetoothOff, Volume2, VolumeX, Sun, Moon, BatteryCharging, ChevronRight, ChevronDown, RefreshCw, Speaker, Check, Signal, SignalZero, MonitorCheck, Lock, Unlock, Loader2, Settings as SettingsIcon, Pencil, Trash2 } from 'lucide-svelte';
   import { dnd, isDndActive, toggleDnd, minutesLeft } from '../stores/doNotDisturb';
   import { SystemBridge } from '../utils/systemBridge';
@@ -13,49 +15,47 @@
   interface WifiNetwork { ssid: string; signal: number; secure: boolean; in_use: boolean; outOfRange?: boolean; }
   interface BtDevice { name: string; mac: string; connected: boolean; device_type: string; battery?: number; rssi?: number | null; }
 
-  export let isOpen = false;
 
-  // The Control Center panel itself is always mounted (see App.svelte —
-  // `isOpen` just toggles CSS visibility), so `onDestroy` never fires
-  // merely from closing it. Without this, the live Wi-Fi signal-strength
-  // poll (see `toggleWifiExpanded` below) would keep silently re-scanning
-  // in the background forever once started, even with the panel closed.
-  $: if (!isOpen) {
-    if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = undefined; }
-    if (btRssiTimer) { clearInterval(btRssiTimer); btRssiTimer = undefined; }
-    wifiExpanded = false;
-    btExpanded = false;
+  interface Props {
+    isOpen?: boolean;
+    panelPosition?: 'top' | 'bottom';
+    panelSize?: number;
+    shellThemeId?: string | undefined;
   }
-  export let panelPosition: 'top' | 'bottom' = 'top';
-  export let panelSize = 48;
-  export let shellThemeId: string | undefined = undefined;
+
+  let {
+    isOpen = false,
+    panelPosition = 'top',
+    panelSize = 48,
+    shellThemeId = undefined
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ openSettings: string | undefined }>();
 
-  let volume = 60;
-  let brightness = 80;
-  let battery = 85;
-  let isCharging = false;
-  let wifiEnabled = true;
-  let wifiSSID = '...';
-  let btEnabled = true;
-  let darkMode = true;
-  let muted = false;
-  let sinks: AudioSink[] = [];
-  let showSinks = false;
+  let volume = $state(60);
+  let brightness = $state(80);
+  let battery = $state(85);
+  let isCharging = $state(false);
+  let wifiEnabled = $state(true);
+  let wifiSSID = $state('...');
+  let btEnabled = $state(true);
+  let darkMode = $state(true);
+  let muted = $state(false);
+  let sinks = $state<AudioSink[]>([]);
+  let showSinks = $state(false);
 
   // ── Inline Wi-Fi panel (expands in place instead of jumping to
   // Settings — clicking the tile body used to always dispatch
   // 'openSettings', which fully navigated away from the Control Center
   // just to flip a network on) ────────────────────────────────────────
-  let wifiExpanded = false;
-  let wifiNetworks: WifiNetwork[] = [];
-  let wifiScanning = false;
-  let wifiConnecting: string | null = null;
-  let savedWifiConnections: string[] = [];
-  let wifiForgetting: string | null = null;
-  let wifiRenaming: string | null = null;
-  let wifiPollTimer: ReturnType<typeof setInterval> | undefined;
+  let wifiExpanded = $state(false);
+  let wifiNetworks = $state<WifiNetwork[]>([]);
+  let wifiScanning = $state(false);
+  let wifiConnecting = $state<string | null>(null);
+  let savedWifiConnections = $state<string[]>([]);
+  let wifiForgetting = $state<string | null>(null);
+  let wifiRenaming = $state<string | null>(null);
+  let wifiPollTimer = $state<ReturnType<typeof setInterval> | undefined>();
 
   async function toggleWifiExpanded() {
     if (!wifiEnabled) return; // nothing to scan/connect to with the radio off — the toggle circle (not this expand arrow) is what turns it back on
@@ -83,17 +83,6 @@
   async function refreshSavedWifi() {
     savedWifiConnections = await SystemBridge.getSavedWifiConnections();
   }
-  // Saved connections that *aren't* currently visible in a scan (e.g.
-  // work Wi-Fi while at home) previously had no way to be managed at
-  // all — the list only ever showed what was in range right now. These
-  // are synthesized as regular `WifiNetwork` entries (`outOfRange:
-  // true`, no live signal since there isn't one) so they render with
-  // the exact same row UI, just visually muted and sorted after
-  // in-range networks.
-  $: outOfRangeSaved = savedWifiConnections
-    .filter((name) => !wifiNetworks.some((n) => n.ssid === name))
-    .map((name): WifiNetwork => ({ ssid: name, signal: 0, secure: true, in_use: false, outOfRange: true }));
-  $: displayedNetworks = [...wifiNetworks, ...outOfRangeSaved];
 
   async function connectWifiNetwork(net: WifiNetwork) {
     if (net.in_use) { await SystemBridge.disconnectWifi(); await scanWifi(); return; }
@@ -193,11 +182,11 @@
   }
 
   // ── Inline Bluetooth panel (same idea) ──────────────────────────────
-  let btExpanded = false;
-  let btDevices: BtDevice[] = [];
-  let btScanning = false;
-  let btBusy: string | null = null;
-  let btRssiTimer: ReturnType<typeof setInterval> | undefined;
+  let btExpanded = $state(false);
+  let btDevices = $state<BtDevice[]>([]);
+  let btScanning = $state(false);
+  let btBusy = $state<string | null>(null);
+  let btRssiTimer = $state<ReturnType<typeof setInterval> | undefined>();
 
   async function toggleBtExpanded() {
     if (!btEnabled) return; // nothing to scan/connect to with the adapter off — the toggle circle (not this expand arrow) is what turns it back on
@@ -246,11 +235,9 @@
   }
 
   // Do Not Disturb tile (re-evaluated every 30 s so 'until' / schedule modes flip on time).
-  let dndTick = Date.now();
+  let dndTick = $state(Date.now());
   const dndTimer = setInterval(() => (dndTick = Date.now()), 30000);
   onDestroy(() => clearInterval(dndTimer));
-  $: dndActive = (void dndTick, isDndActive($dnd));
-  $: dndLeft = (void dndTick, minutesLeft($dnd));
 
   // ── Dark / Light mode. Previously this button just flipped a local
   // `darkMode` boolean that nothing else ever read — visually it looked
@@ -272,9 +259,9 @@
   // Android-style mobile data toggle — only shown on hardware that actually
   // has a WWAN/cellular modem (see SystemBridge.hasCellularModem, backed by
   // ModemManager). Laptops without one simply never see this control.
-  let hasCellular = false;
-  let cellularEnabled = false;
-  let cellularCarrier = '';
+  let hasCellular = $state(false);
+  let cellularEnabled = $state(false);
+  let cellularCarrier = $state('');
 
   // Real HDR status (not a toggle here — that lives in Settings > Monitors,
   // see MonitorsSection.svelte). This tile just reflects what the
@@ -284,7 +271,7 @@
   // module's doc comment. Reflecting the real (not optimistic) state
   // here is the whole point: no fake "HDR On" badge for a picture that
   // hasn't actually changed.
-  let hdrActive = false;
+  let hdrActive = $state(false);
   let unsubHdrPromise: Promise<() => void> | undefined;
 
   onMount(async () => {
@@ -340,7 +327,6 @@
     if (def) { volume = def.volume; muted = def.muted; }
   }
 
-  $: if (isOpen) refresh();
 
   async function handleVolume(val: number) { volume = val; await SystemBridge.setVolume(val); }
   // Brightness is applied once per ~80 ms while dragging (latest value wins)
@@ -391,10 +377,39 @@
     showSinks = false;
   }
 
-  $: batteryColor = battery < 20 ? 'text-red-400' : battery < 50 ? 'text-yellow-400' : 'text-green-400';
-  $: defaultSink = sinks.find((s) => s.is_default);
 
   onDestroy(() => { unsubHdrPromise?.then((fn) => fn()); unsubConfig?.(); if (wifiPollTimer) clearInterval(wifiPollTimer); if (btRssiTimer) clearInterval(btRssiTimer); });
+  // The Control Center panel itself is always mounted (see App.svelte —
+  // `isOpen` just toggles CSS visibility), so `onDestroy` never fires
+  // merely from closing it. Without this, the live Wi-Fi signal-strength
+  // poll (see `toggleWifiExpanded` below) would keep silently re-scanning
+  // in the background forever once started, even with the panel closed.
+  run(() => {
+    if (!isOpen) {
+      if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = undefined; }
+      if (btRssiTimer) { clearInterval(btRssiTimer); btRssiTimer = undefined; }
+      wifiExpanded = false;
+      btExpanded = false;
+    }
+  });
+  // Saved connections that *aren't* currently visible in a scan (e.g.
+  // work Wi-Fi while at home) previously had no way to be managed at
+  // all — the list only ever showed what was in range right now. These
+  // are synthesized as regular `WifiNetwork` entries (`outOfRange:
+  // true`, no live signal since there isn't one) so they render with
+  // the exact same row UI, just visually muted and sorted after
+  // in-range networks.
+  let outOfRangeSaved = $derived(savedWifiConnections
+    .filter((name) => !wifiNetworks.some((n) => n.ssid === name))
+    .map((name): WifiNetwork => ({ ssid: name, signal: 0, secure: true, in_use: false, outOfRange: true })));
+  let displayedNetworks = $derived([...wifiNetworks, ...outOfRangeSaved]);
+  let dndActive = $derived((void dndTick, isDndActive($dnd)));
+  let dndLeft = $derived((void dndTick, minutesLeft($dnd)));
+  run(() => {
+    if (isOpen) refresh();
+  });
+  let batteryColor = $derived(battery < 20 ? 'text-red-400' : battery < 50 ? 'text-yellow-400' : 'text-green-400');
+  let defaultSink = $derived(sinks.find((s) => s.is_default));
 </script>
 
 {#if isOpen}
@@ -402,8 +417,8 @@
     style="{panelPosition === 'top' ? `top:${panelSize + 8}px;` : `bottom:${panelSize + 8}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}"
   >
     <div class="grid grid-cols-2 gap-2 mb-2">
-      <button on:click={toggleWifiExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group relative {wifiEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
-        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleWifi(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleWifi(); })(e); } }}>
+      <button onclick={toggleWifiExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group relative {wifiEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+        <div class="p-1.5 rounded-full bg-white/20 shrink-0" onclick={(e) => { e.stopPropagation(); handleToggleWifi(); }} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleWifi(); })(e); } }}>
           {#if wifiEnabled}<Wifi size={14} />{:else}<WifiOff size={14} />{/if}
         </div>
         <div class="min-w-0 flex-1">
@@ -412,8 +427,8 @@
         </div>
         <ChevronDown size={12} class="opacity-60 transition-transform shrink-0 {wifiExpanded ? 'rotate-180' : ''}" />
       </button>
-      <button on:click={toggleBtExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
-        <div class="p-1.5 rounded-full bg-white/20 shrink-0" on:click={(e) => { e.stopPropagation(); handleToggleBluetooth(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleBluetooth(); })(e); } }}>
+      <button onclick={toggleBtExpanded} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left group {btEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+        <div class="p-1.5 rounded-full bg-white/20 shrink-0" onclick={(e) => { e.stopPropagation(); handleToggleBluetooth(); }} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ((e) => { e.stopPropagation(); handleToggleBluetooth(); })(e); } }}>
           {#if btEnabled}<Bluetooth size={14} />{:else}<BluetoothOff size={14} />{/if}
         </div>
         <div class="min-w-0 flex-1">
@@ -429,8 +444,8 @@
         <div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
           <span class="text-[11px] font-medium text-slate-300">{$t('settings.wifi.title')}</span>
           <div class="flex items-center gap-1">
-            <button on:click={() => scanWifi()} disabled={wifiScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={wifiScanning ? 'animate-spin' : ''} /></button>
-            <button on:click={() => dispatch('openSettings', 'wifi')} title={$t('control_center.open_settings')} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
+            <button onclick={() => scanWifi()} disabled={wifiScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={wifiScanning ? 'animate-spin' : ''} /></button>
+            <button onclick={() => dispatch('openSettings', 'wifi')} title={$t('control_center.open_settings')} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
           </div>
         </div>
         <div class="max-h-44 overflow-y-auto">
@@ -442,7 +457,7 @@
           {#each displayedNetworks as net, i (net.ssid)}
             {@const isSaved = savedWifiConnections.includes(net.ssid)}
             <div class="group relative flex items-center border-t border-white/5 first:border-0 transition-colors {net.in_use ? 'bg-blue-600/10' : 'hover:bg-white/5'} {net.outOfRange ? 'opacity-50' : ''}">
-              <button on:click={() => connectWifiNetwork(net)} disabled={wifiConnecting !== null}
+              <button onclick={() => connectWifiNetwork(net)} disabled={wifiConnecting !== null}
                 class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left">
                 <Wifi size={13} class={net.outOfRange ? 'text-slate-500 shrink-0' : net.signal > 60 ? 'text-green-400 shrink-0' : 'text-yellow-400 shrink-0'} />
                 <div class="min-w-0 flex-1">
@@ -467,9 +482,9 @@
                 {#if net.in_use}<span class="text-[10px] text-red-400 shrink-0 mr-2">{$t('settings.common.disconnect')}</span>{/if}
                 {#if isSaved}
                   <div class="hidden group-hover:flex items-center gap-0.5 shrink-0 mr-2">
-                    <button on:click={(e) => changeWifiPassword(net, e)} title={$t('settings.wifi.change_password_title') ?? 'Zmień hasło'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Lock size={11} /></button>
-                    <button on:click={(e) => renameWifiNetwork(net, e)} title={$t('settings.wifi.rename_title') ?? 'Zmień nazwę'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Pencil size={11} /></button>
-                    <button on:click={(e) => forgetWifiNetwork(net, e)} title={$t('settings.wifi.forget_action') ?? 'Zapomnij'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={11} /></button>
+                    <button onclick={(e) => changeWifiPassword(net, e)} title={$t('settings.wifi.change_password_title') ?? 'Zmień hasło'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Lock size={11} /></button>
+                    <button onclick={(e) => renameWifiNetwork(net, e)} title={$t('settings.wifi.rename_title') ?? 'Zmień nazwę'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Pencil size={11} /></button>
+                    <button onclick={(e) => forgetWifiNetwork(net, e)} title={$t('settings.wifi.forget_action') ?? 'Zapomnij'} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={11} /></button>
                   </div>
                 {/if}
               {/if}
@@ -484,8 +499,8 @@
         <div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
           <span class="text-[11px] font-medium text-slate-300">{$t('settings.bluetooth.title')}</span>
           <div class="flex items-center gap-1">
-            <button on:click={scanBt} disabled={btScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={btScanning ? 'animate-spin' : ''} /></button>
-            <button on:click={() => dispatch('openSettings', 'bluetooth')} title={$t('control_center.open_settings') ?? 'Settings'} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
+            <button onclick={scanBt} disabled={btScanning} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={11} class={btScanning ? 'animate-spin' : ''} /></button>
+            <button onclick={() => dispatch('openSettings', 'bluetooth')} title={$t('control_center.open_settings') ?? 'Settings'} class="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><SettingsIcon size={11} /></button>
           </div>
         </div>
         <div class="max-h-44 overflow-y-auto">
@@ -496,7 +511,7 @@
           {/if}
           {#each btDevices as dev, i (i)}
             <div class="group relative flex items-center border-t border-white/5 first:border-0 transition-colors hover:bg-white/5">
-              <button on:click={() => toggleBtDevice(dev)} disabled={btBusy !== null}
+              <button onclick={() => toggleBtDevice(dev)} disabled={btBusy !== null}
                 class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left">
                 <Bluetooth size={13} class="text-blue-400 shrink-0" />
                 <div class="min-w-0 flex-1">
@@ -508,7 +523,7 @@
                 <Loader2 size={12} class="animate-spin text-slate-400 shrink-0 mr-3" />
               {:else}
                 <span class="text-[10px] shrink-0 mr-2 {dev.connected ? 'text-red-400' : 'text-blue-400'}">{dev.connected ? $t('settings.common.disconnect') : $t('settings.common.connect')}</span>
-                <button on:click={(e) => forgetBtDevice(dev, e)} title={$t('settings.bluetooth.forget_action') ?? 'Zapomnij'} class="hidden group-hover:block p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors mr-2 shrink-0"><Trash2 size={11} /></button>
+                <button onclick={(e) => forgetBtDevice(dev, e)} title={$t('settings.bluetooth.forget_action') ?? 'Zapomnij'} class="hidden group-hover:block p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors mr-2 shrink-0"><Trash2 size={11} /></button>
               {/if}
             </div>
           {/each}
@@ -518,7 +533,7 @@
 
     <div class="grid grid-cols-2 gap-2 mb-2">
       {#if hasCellular}
-        <button on:click={toggleCellular} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left {cellularEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
+        <button onclick={toggleCellular} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left {cellularEnabled ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
           <div class="p-1.5 rounded-full bg-white/20 shrink-0">
             {#if cellularEnabled}<Signal size={14} />{:else}<SignalZero size={14} />{/if}
           </div>
@@ -529,7 +544,7 @@
         </button>
       {/if}
       {#if hdrActive}
-        <button on:click={() => dispatch('openSettings', 'monitors')} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left bg-blue-600 text-white">
+        <button onclick={() => dispatch('openSettings', 'monitors')} class="p-3 rounded-xl flex items-center gap-2 transition-all text-left bg-blue-600 text-white">
           <div class="p-1.5 rounded-full bg-white/20 shrink-0">
             <MonitorCheck size={14} />
           </div>
@@ -541,12 +556,12 @@
       {/if}
     </div>
     <div class="grid grid-cols-2 gap-2 mb-2">
-      <button on:click={() => toggleDnd()} aria-pressed={dndActive}
+      <button onclick={() => toggleDnd()} aria-pressed={dndActive}
         class="p-3 rounded-xl flex items-center gap-2 transition-all {dndActive ? 'bg-violet-600/30 text-violet-200' : 'bg-slate-800 text-slate-300'}">
         {#if dndActive}<BellOff size={16} />{:else}<Bell size={16} />{/if}
         <span class="text-xs font-bold">{$t('dnd.tile')}{dndLeft ? ` · ${dndLeft} min` : ''}</span>
       </button>
-      <button on:click={toggleDarkMode} class="p-3 rounded-xl flex items-center gap-2 transition-all {darkMode ? 'bg-slate-700 text-white' : 'bg-amber-400/20 text-amber-300'}">
+      <button onclick={toggleDarkMode} class="p-3 rounded-xl flex items-center gap-2 transition-all {darkMode ? 'bg-slate-700 text-white' : 'bg-amber-400/20 text-amber-300'}">
         {#if darkMode}<Moon size={16} />{:else}<Sun size={16} />{/if}
         <span class="text-xs font-bold">{darkMode ? 'Dark' : 'Light'}</span>
       </button>
@@ -562,7 +577,7 @@
     <div class="bg-slate-800 rounded-xl p-3 mb-2">
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center gap-2"><Speaker size={13} class="text-slate-400" /><span class="text-xs font-medium text-slate-300">Output</span></div>
-        <button on:click={() => (showSinks = !showSinks)} class="text-[10px] text-slate-500 hover:text-white transition-colors flex items-center gap-1">
+        <button onclick={() => (showSinks = !showSinks)} class="text-[10px] text-slate-500 hover:text-white transition-colors flex items-center gap-1">
           {defaultSink ? defaultSink.description.slice(0, 18) : 'Default'}
           <ChevronRight size={10} class="transition-transform {showSinks ? 'rotate-90' : ''}" />
         </button>
@@ -570,7 +585,7 @@
       {#if showSinks && sinks.length > 0}
         <div class="space-y-1 mb-2 border-t border-white/5 pt-2">
           {#each sinks as sink (sink.id)}
-            <button on:click={() => handleSinkSelect(sink)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs transition-colors {sink.is_default ? 'bg-blue-600/30 text-blue-300' : 'hover:bg-white/5 text-slate-400'}">
+            <button onclick={() => handleSinkSelect(sink)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs transition-colors {sink.is_default ? 'bg-blue-600/30 text-blue-300' : 'hover:bg-white/5 text-slate-400'}">
               {#if sink.is_default}<Check size={10} />{/if}
               <span class="truncate">{sink.description}</span>
             </button>
@@ -578,11 +593,11 @@
         </div>
       {/if}
       <div class="flex items-center gap-2">
-        <button on:click={handleToggleMute} class="text-slate-400 hover:text-white transition-colors shrink-0">
+        <button onclick={handleToggleMute} class="text-slate-400 hover:text-white transition-colors shrink-0">
           {#if muted}<VolumeX size={16} />{:else}<Volume2 size={16} />{/if}
         </button>
         <input type="range" min="0" max="100" value={muted ? 0 : volume}
-          on:input={(e) => handleVolume(parseInt(e.currentTarget.value))}
+          oninput={(e) => handleVolume(parseInt(e.currentTarget.value))}
           class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
         <span class="text-[10px] text-slate-400 w-7 text-right">{muted ? 0 : volume}%</span>
       </div>
@@ -591,14 +606,14 @@
       <div class="flex items-center gap-2 px-3 py-2 bg-slate-800 rounded-xl mb-2">
         <Sun size={14} class="text-slate-400 shrink-0" />
         <input type="range" min="5" max="100" value={brightness}
-          on:input={(e) => handleBrightness(parseInt(e.currentTarget.value))}
+          oninput={(e) => handleBrightness(parseInt(e.currentTarget.value))}
           class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-400" />
         <span class="text-[10px] text-slate-400 w-7 text-right">{brightness}%</span>
       </div>
     {/if}
     <div class="flex items-center justify-between pt-1">
-      <button on:click={() => dispatch('openSettings', undefined)} class="text-xs text-slate-500 hover:text-white transition-colors">All settings →</button>
-      <button on:click={refresh} class="p-1.5 rounded-full hover:bg-white/10 text-slate-500 hover:text-white transition-colors"><RefreshCw size={12} /></button>
+      <button onclick={() => dispatch('openSettings', undefined)} class="text-xs text-slate-500 hover:text-white transition-colors">All settings →</button>
+      <button onclick={refresh} class="p-1.5 rounded-full hover:bg-white/10 text-slate-500 hover:text-white transition-colors"><RefreshCw size={12} /></button>
     </div>
   </div>
 {/if}
