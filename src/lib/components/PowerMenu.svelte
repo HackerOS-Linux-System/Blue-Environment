@@ -1,19 +1,29 @@
 <script lang="ts">
+  import { createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { Power, RefreshCcw, Moon, HardDrive, X } from 'lucide-svelte';
   import type { PowerAction } from '../types';
   import { createEventDispatcher, onDestroy } from 'svelte';
 
   const dispatch = createEventDispatcher<{ action: PowerAction; close: void }>();
 
-  /** Same convention as StartMenu/ControlCenter's `shellThemeId` prop —
+  
+
+  
+  
+  interface Props {
+    /** Same convention as StartMenu/ControlCenter's `shellThemeId` prop —
    * this menu is a centered modal (not taskbar-anchored), so it doesn't
    * need their `panelPosition` fix, just the Hydra glow/border accent. */
-  export let shellThemeId: string | undefined = undefined;
+    shellThemeId?: string | undefined;
+    /** Actions to leave out (the live installer hides suspend/hibernate — pointless there). */
+    hideActions?: PowerAction[];
+    /** Stacking order; the installer overlay needs to sit above its own z-[999] layer. */
+    zIndex?: number;
+  }
 
-  /** Actions to leave out (the live installer hides suspend/hibernate — pointless there). */
-  export let hideActions: PowerAction[] = [];
-  /** Stacking order; the installer overlay needs to sit above its own z-[999] layer. */
-  export let zIndex = 50;
+  let { shellThemeId = undefined, hideActions = [], zIndex = 50 }: Props = $props();
 
   const ACTIONS = [
     { action: 'shutdown' as PowerAction, busy: 'Shutting down', label: 'Shut Down', Icon: Power, color: '#ef4444', glow: 'rgba(239,68,68,0.3)', description: 'Power off the system' },
@@ -22,10 +32,10 @@
     { action: 'hibernate' as PowerAction, busy: 'Hibernating', label: 'Hibernate', Icon: HardDrive, color: '#8b5cf6', glow: 'rgba(139,92,246,0.3)', description: 'Save state to disk' },
   ] as const;
 
-  $: visibleActions = ACTIONS.filter((a) => !hideActions.includes(a.action));
+  let visibleActions = $derived(ACTIONS.filter((a) => !hideActions.includes(a.action)));
 
-  let confirming: PowerAction | null = null;
-  let countdown = 5;
+  let confirming = $state<PowerAction | null>(null);
+  let countdown = $state(5);
   let timer: ReturnType<typeof setInterval>;
 
   function handleSelect(action: PowerAction) {
@@ -48,7 +58,7 @@
 
   onDestroy(() => clearInterval(timer));
 
-  $: selected = ACTIONS.find((a) => a.action === confirming);
+  let selected = $derived(ACTIONS.find((a) => a.action === confirming));
 
   function hoverIn(e: MouseEvent, color: string, glow: string) {
     const el = e.currentTarget as HTMLElement;
@@ -69,15 +79,15 @@
   data-shell-occluder="power-menu"
   class="fixed inset-0 flex items-center justify-center"
   style="z-index:{zIndex}; background:rgba(2,8,18,0.8); backdrop-filter:blur(20px);"
-  on:click={() => dispatch('close')} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => dispatch('close'))(); } }}
+  onclick={() => dispatch('close')} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => dispatch('close'))(); } }}
 >
   <div
     class="relative glass-card rounded-3xl p-8 w-96 animate-scale-in"
     role="presentation"
-    on:click|stopPropagation
+    onclick={stopPropagation(bubble('click'))}
     style="border:1px solid {shellThemeId === 'hydra' ? 'rgba(236,72,153,0.3)' : 'rgba(59,130,246,0.2)'}; {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25);' : ''}"
   >
-    <button on:click={() => dispatch('close')} class="absolute top-4 right-4 p-2 bedm-btn-ghost rounded-xl">
+    <button onclick={() => dispatch('close')} class="absolute top-4 right-4 p-2 bedm-btn-ghost rounded-xl">
       <X size={16} />
     </button>
 
@@ -85,7 +95,7 @@
       <div class="text-center">
         <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
              style="background:radial-gradient(circle, {selected.glow} 0%, transparent 70%); border:2px solid {selected.color}30;">
-          <svelte:component this={selected.Icon} size={36} color={selected.color}
+          <selected.Icon size={36} color={selected.color}
             style="filter:drop-shadow(0 0 8px {selected.color});" />
         </div>
         <div class="text-6xl font-light tabular-nums mb-2" style="font-family:'Oxanium', monospace; color:{selected.color};">
@@ -93,7 +103,7 @@
         </div>
         <p class="text-slate-300 mb-1 text-lg">{selected.busy}…</p>
         <p class="text-slate-500 text-sm mb-8">{selected.description}</p>
-        <button on:click={cancel} class="bedm-btn-ghost px-8 py-3 rounded-xl text-sm font-medium">
+        <button onclick={cancel} class="bedm-btn-ghost px-8 py-3 rounded-xl text-sm font-medium">
           Cancel
         </button>
       </div>
@@ -105,13 +115,13 @@
       <div class="grid grid-cols-2 gap-3">
         {#each visibleActions as { action, label, Icon, color, glow, description } (action)}
           <button
-            on:click={() => handleSelect(action)}
+            onclick={() => handleSelect(action)}
             class="group flex flex-col items-center gap-3 p-5 rounded-2xl transition-all duration-200"
             style="background:rgba(8,20,45,0.6); border:1px solid rgba(255,255,255,0.06);"
-            on:mouseenter={(e) => hoverIn(e, color, glow)}
-            on:mouseleave={hoverOut}
+            onmouseenter={(e) => hoverIn(e, color, glow)}
+            onmouseleave={hoverOut}
           >
-            <svelte:component this={Icon} size={28} class="text-slate-500 group-hover:scale-110 transition-all" />
+            <Icon size={28} class="text-slate-500 group-hover:scale-110 transition-all" />
             <div>
               <div class="text-slate-300 text-sm font-medium group-hover:text-white transition-colors">{label}</div>
               <div class="text-slate-600 text-xs mt-0.5">{description}</div>
