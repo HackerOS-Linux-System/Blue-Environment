@@ -1,20 +1,28 @@
 <script lang="ts">
-  import { afterUpdate } from 'svelte';
+  import { run } from 'svelte/legacy';
 
-  export let currentWorkspace: number;
-  export let workspaceCount: number;
-  export let windowCounts: number[] = [];
+  
 
-  let visible = false;
-  let prevWorkspace = currentWorkspace;
-  let hideTimer: ReturnType<typeof setTimeout>;
-
-  $: if (currentWorkspace !== prevWorkspace) {
-    prevWorkspace = currentWorkspace;
-    visible = true;
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => (visible = false), 1400);
+  interface Props {
+    currentWorkspace: number;
+    workspaceCount: number;
+    windowCounts?: number[];
   }
+
+  let { currentWorkspace, workspaceCount, windowCounts = [] }: Props = $props();
+
+  let visible = $state(false);
+  let prevWorkspace = $state(currentWorkspace);
+  let hideTimer = $state() as ReturnType<typeof setTimeout>;
+
+  run(() => {
+    if (currentWorkspace !== prevWorkspace) {
+      prevWorkspace = currentWorkspace;
+      visible = true;
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => (visible = false), 1400);
+    }
+  });
 </script>
 
 {#if visible}
@@ -27,7 +35,7 @@
             <div class="w-14 h-10 rounded-lg border-2 transition-all flex items-end justify-center pb-1 gap-0.5
               {i === currentWorkspace ? 'border-blue-500 bg-blue-600/20 shadow-[0_0_12px_rgba(59,130,246,0.4)]' : 'border-white/10 bg-white/5'}">
               {#each Array.from({ length: Math.min(windowCounts[i] ?? 0, 3) }, (_, wi) => wi) as wi (wi)}
-                <div class="h-3 w-3 rounded-sm {i === currentWorkspace ? 'bg-blue-400/60' : 'bg-slate-600'}" />
+                <div class="h-3 w-3 rounded-sm {i === currentWorkspace ? 'bg-blue-400/60' : 'bg-slate-600'}"></div>
               {/each}
             </div>
             <span class="text-[11px] font-bold {i === currentWorkspace ? 'text-blue-400' : 'text-slate-500'}">{i + 1}</span>
