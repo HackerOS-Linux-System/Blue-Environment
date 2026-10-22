@@ -463,4 +463,56 @@ public sealed class ConnectService : IDisposable
         }
         return result;
     }
+
+    // ── Plugin requests (battery, find my device, clipboard, share, notifications) ──
+
+    /// <summary>Sends one request packet and optionally waits for one reply packet of <paramref name="replyType"/>.</summary>
+    private async Task<Protocol.Packet?> RequestAsync(string deviceId, byte[] frame, string? replyType, TimeSpan timeout, CancellationToken ct)
+    {
+        var (tcp, ssl, dev) = await OpenAuthenticatedAsync(deviceId, ct).ConfigureAwait(false);
+        using var _t = tcp;
+        await using var _s = ssl;
+        await WriteAsync(ssl, frame, ct).ConfigureAwait(false);
+        if (replyType is null) return null;
+
+        using var rd = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        rd.CancelAfter(timeout);
+        string? line;
+        try { line = await new PacketReader(ssl).ReadAsync(rd.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new ConnectException($"{dev.Name} did not reply in time");
+        }
+        if (line is null) throw new ConnectException($"{dev.Name} closed the connection without replying");
+        var reply = Protocol.Parse(line);
+        if (reply is null || reply.Type != replyType) throw new ConnectException($"{dev.Name} sent an unexpected reply");
+        return reply;
+    }
+
+    /// <summary>Battery of the other device; null when it has none (or does not support the plugin).</summary>
+    public async Task<BatteryStatus?> GetBatteryAsync(string deviceId, CancellationToken ct = default) =>
+        PluginPackets.ParseBattery((await RequestAsync(deviceId, PluginPackets.BatteryRequest(), Protocol.TypeBattery, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false))!);
+
+    /// <summary>Makes the other device ring ("Find my phone").</summary>
+    public Task FindDeviceAsync(string deviceId, CancellationToken ct = default) =>
+        RequestAsync(deviceId, PluginPackets.FindMyPhone(), null, TimeSpan.Zero, ct);
+
+    public Task SendClipboardAsync(string deviceId, string text, CancellationToken ct = default) =>
+        RequestAsync(deviceId, PluginPackets.Clipboard(text), null, TimeSpan.Zero, ct);
+
+    public async Task<string> GetClipboardAsync(string deviceId, CancellationToken ct = default)
+    {
+        var r = await RequestAsync(deviceId, PluginPackets.ClipboardRequest(), Protocol.TypeClipboard, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
+        return r!.Body["content"]?.GetValue<string>() ?? "";
+    }
+
+    /// <summary>Pushes a link (opened on the other device) or plain text.</summary>
+    public Task ShareAsync(string deviceId, string textOrUrl, CancellationToken ct = default)
+    {
+        if (PluginPackets.IsSafeUrl(textOrUrl)) return RequestAsync(deviceId, PluginPackets.ShareUrl(textOrUrl), null, TimeSpan.Zero, ct);
+        return RequestAsync(deviceId, PluginPackets.ShareText(textOrUrl), null, TimeSpan.Zero, ct);
+    }
+
+    public async Task<IReadOnlyList<NotificationInfo>> GetNotificationsAsync(string deviceId, CancellationToken ct = default) =>
+        PluginPackets.ParseNotifications((await RequestAsync(deviceId, PluginPackets.NotificationRequest(), Protocol.TypeNotificationList, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false))!);
 }
