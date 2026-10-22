@@ -1,15 +1,17 @@
 <script lang="ts">
+  import { run as run_1, preventDefault, createBubbler } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { onMount, onDestroy, tick } from 'svelte';
   import { ChevronRight, Check } from 'lucide-svelte';
   import { contextMenu, closeContextMenu, type MenuItem } from '../stores/contextMenu';
 
-  let el: HTMLDivElement;
-  let pos = { x: 0, y: 0 };
-  let openSub: number | null = null;
-  let subPos = { x: 0, y: 0, flip: false };
-  let active = -1;
+  let el = $state() as HTMLDivElement;
+  let pos = $state({ x: 0, y: 0 });
+  let openSub = $state<number | null>(null);
+  let subPos = $state({ x: 0, y: 0, flip: false });
+  let active = $state(-1);
 
-  $: if ($contextMenu) { pos = { x: $contextMenu.x, y: $contextMenu.y }; openSub = null; active = -1; tick().then(clamp); }
 
   // Keep the menu fully inside the viewport (flip up/left near the edges).
   function clamp() {
@@ -62,25 +64,28 @@
     window.removeEventListener('resize', close);
     window.removeEventListener('wheel', close);
   });
+  run_1(() => {
+    if ($contextMenu) { pos = { x: $contextMenu.x, y: $contextMenu.y }; openSub = null; active = -1; tick().then(clamp); }
+  });
 </script>
 
 {#if $contextMenu}
   <!-- Backdrop: any click (left OR right) outside closes the menu; a right-click
        there is swallowed so it doesn't pop up the native menu either. -->
-  <div class="fixed inset-0 z-[99998]" on:mousedown={close} on:contextmenu|preventDefault={close} role="presentation" />
+  <div class="fixed inset-0 z-[99998]" onmousedown={close} oncontextmenu={preventDefault(close)} role="presentation"></div>
 
   <div bind:this={el} data-shell-occluder="context-menu" class="fixed z-[99999] min-w-[200px] max-w-[320px] bg-slate-800/95 backdrop-blur border border-white/10 rounded-xl shadow-2xl py-1 text-sm text-slate-100 select-none"
-    style="left:{pos.x}px; top:{pos.y}px;" role="menu" tabindex="-1" on:contextmenu|preventDefault>
+    style="left:{pos.x}px; top:{pos.y}px;" role="menu" tabindex="-1" oncontextmenu={preventDefault(bubble('contextmenu'))}>
     {#each $contextMenu.items as it, i}
       {#if it.separator}
-        <div class="h-px bg-white/10 my-1" />
+        <div class="h-px bg-white/10 my-1"></div>
       {:else}
         <button role="menuitem" disabled={it.disabled}
-          on:mouseenter={(e) => hoverItem(i, it, e)} on:click={() => run(it)}
+          onmouseenter={(e) => hoverItem(i, it, e)} onclick={() => run(it)}
           class="w-full text-left px-3 py-1.5 flex items-center gap-2.5 disabled:opacity-40 disabled:cursor-default
                  {it.danger ? 'text-red-400' : ''} {active === i && !it.disabled ? (it.danger ? 'bg-red-500/20' : 'bg-white/10') : ''}">
           <span class="w-4 shrink-0 flex items-center justify-center">
-            {#if it.checked}<Check size={13} />{:else if it.icon}<svelte:component this={it.icon} size={14} />{/if}
+            {#if it.checked}<Check size={13} />{:else if it.icon}<it.icon size={14} />{/if}
           </span>
           <span class="flex-1 truncate">{it.label}</span>
           {#if it.shortcut}<span class="text-xs text-slate-500 ml-4">{it.shortcut}</span>{/if}
@@ -94,11 +99,11 @@
               <div class="px-3 py-1.5 text-slate-500 text-xs">{it.emptyLabel}</div>
             {:else}
               {#each it.children as sub}
-                {#if sub.separator}<div class="h-px bg-white/10 my-1" />{:else}
-                  <button role="menuitem" disabled={sub.disabled} on:click={() => run(sub)}
+                {#if sub.separator}<div class="h-px bg-white/10 my-1"></div>{:else}
+                  <button role="menuitem" disabled={sub.disabled} onclick={() => run(sub)}
                     class="w-full text-left px-3 py-1.5 flex items-center gap-2.5 hover:bg-white/10 disabled:opacity-40">
                     <span class="w-4 shrink-0 flex items-center justify-center">
-                      {#if sub.checked}<Check size={13} />{:else if sub.icon}<svelte:component this={sub.icon} size={14} />{/if}
+                      {#if sub.checked}<Check size={13} />{:else if sub.icon}<sub.icon size={14} />{/if}
                     </span>
                     <span class="flex-1 truncate">{sub.label}</span>
                   </button>
