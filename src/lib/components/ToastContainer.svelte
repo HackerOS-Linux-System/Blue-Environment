@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   export function autoDismiss(node: HTMLElement, params: { id: string; onDismiss: (id: string) => void }) {
     const timer = setTimeout(() => params.onDismiss(params.id), 5000);
     return { destroy: () => clearTimeout(timer) };
@@ -14,7 +14,7 @@
 
   interface Toast { id: string; title: string; message: string; }
 
-  let toasts: Toast[] = [];
+  let toasts = $state<Toast[]>([]);
 
   function handler(e: Event) {
     const notif = (e as CustomEvent).detail;
@@ -45,12 +45,12 @@
               <div class="text-xs text-slate-300 mt-0.5 line-clamp-2">{toast.message}</div>
             </div>
           </div>
-          <button on:click={() => removeToast(toast.id)} class="text-slate-400 hover:text-white shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors">
+          <button onclick={() => removeToast(toast.id)} class="text-slate-400 hover:text-white shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors">
             <X size={14} />
           </button>
         </div>
         <div class="mt-2 h-0.5 bg-slate-700 rounded-full overflow-hidden">
-          <div class="h-full bg-blue-500 rounded-full" style="animation: toast-progress 5s linear forwards;" />
+          <div class="h-full bg-blue-500 rounded-full" style="animation: toast-progress 5s linear forwards;"></div>
         </div>
       </div>
     {/each}
