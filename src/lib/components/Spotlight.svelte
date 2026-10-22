@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run, self } from 'svelte/legacy';
+
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { Search, AppWindow, Settings as SettingsIcon, File as FileIcon, Folder, CalendarDays, Mail, Calculator, Copy, Loader2 } from 'lucide-svelte';
   import { t } from '../stores/language';
@@ -9,8 +11,12 @@
   import { rank, evalMath, formatNumber, buildSections, flatten, moveSelection, scoreText, tokens, type ResultItem, type ResultSection } from '../utils/spotlight';
   import { SETTINGS_PAGES } from '../utils/settingsPages';
 
-  export let isOpen = false;
-  export let zIndex = 9000;
+  interface Props {
+    isOpen?: boolean;
+    zIndex?: number;
+  }
+
+  let { isOpen = false, zIndex = 9000 }: Props = $props();
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -20,18 +26,16 @@
   interface MailHit { accountId: string; folder: string; uid: string; from: string; subject: string; date: string }
   interface SearchResults { files: FileHit[]; events: EventHit[]; mails: MailHit[] }
 
-  let query = '';
-  let input: HTMLInputElement | undefined;
-  let sections: ResultSection[] = [];
-  let selected = 0;
-  let loading = false;
+  let query = $state('');
+  let input = $state<HTMLInputElement | undefined>();
+  let sections = $state<ResultSection[]>([]);
+  let selected = $state(0);
+  let loading = $state(false);
   let systemApps: DesktopApp[] = [];
   let debounce: ReturnType<typeof setTimeout> | undefined;
   let token = 0;
 
-  $: flat = flatten(sections);
 
-  $: if (isOpen) { void onOpen(); }
   async function onOpen() {
     query = ''; sections = []; selected = 0;
     await tick(); input?.focus();
@@ -119,15 +123,19 @@
   const iconFor = (item: ResultItem) => (item.kind === 'file' && (item.payload as { isDir?: boolean } | undefined)?.isDir ? Folder : icons[item.kind]);
   const icons = { calc: Calculator, app: AppWindow, setting: SettingsIcon, file: FileIcon, event: CalendarDays, mail: Mail, action: Copy } as const;
   const sectionLabel: Record<string, string> = { calc: 'spotlight.calc', app: 'spotlight.apps', setting: 'spotlight.settings', file: 'spotlight.files', event: 'spotlight.events', mail: 'spotlight.mail', action: 'spotlight.actions' };
+  let flat = $derived(flatten(sections));
+  run(() => {
+    if (isOpen) { void onOpen(); }
+  });
 </script>
 
 {#if isOpen}
-  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-  <div class="fixed inset-0 flex items-start justify-center pt-[12vh] bg-black/45 backdrop-blur-sm" style="z-index:{zIndex}" on:click|self={close}>
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="fixed inset-0 flex items-start justify-center pt-[12vh] bg-black/45 backdrop-blur-sm" style="z-index:{zIndex}" onclick={self(close)}>
     <div class="w-[min(680px,92vw)] rounded-2xl bg-slate-900/95 border border-white/10 shadow-2xl overflow-hidden" role="dialog" aria-modal="true" aria-label={$t('spotlight.title')}>
       <div class="flex items-center gap-3 px-4 py-3 border-b border-white/10">
         <Search size={18} class="text-slate-400 shrink-0" />
-        <input bind:this={input} bind:value={query} on:input={onInput} on:keydown={onKey} placeholder={$t('spotlight.placeholder')}
+        <input bind:this={input} bind:value={query} oninput={onInput} onkeydown={onKey} placeholder={$t('spotlight.placeholder')}
           class="flex-1 bg-transparent outline-none text-lg text-white placeholder:text-slate-500" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
         {#if loading}<Loader2 size={16} class="animate-spin text-slate-400" />{/if}
       </div>
@@ -141,10 +149,11 @@
           <div class="px-4 pt-2 pb-1 text-[11px] uppercase tracking-wide text-slate-500">{$t(sectionLabel[sec.kind])}</div>
           {#each sec.items as item (item.id)}
             {@const i = flat.indexOf(item)}
+            {@const SvelteComponent = iconFor(item)}
             <button role="option" aria-selected={i === selected} data-spot-selected={i === selected}
               class="w-full flex items-center gap-3 px-4 py-2 text-left {i === selected ? 'bg-blue-600/30' : 'hover:bg-white/5'}"
-              on:click={() => activate(item)} on:mousemove={() => (selected = i)}>
-              <svelte:component this={iconFor(item)} size={16} class="text-slate-300 shrink-0" />
+              onclick={() => activate(item)} onmousemove={() => (selected = i)}>
+              <SvelteComponent size={16} class="text-slate-300 shrink-0" />
               <span class="min-w-0 flex-1"><span class="block text-sm text-white truncate">{item.title}</span>{#if item.subtitle}<span class="block text-[11px] text-slate-500 truncate">{item.subtitle}</span>{/if}</span>
               {#if item.kind === 'calc'}<span class="text-[11px] text-slate-500">{$t('spotlight.copy')}</span>{/if}
             </button>
