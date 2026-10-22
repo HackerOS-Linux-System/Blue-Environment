@@ -1,15 +1,19 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { conflictRequest, type FmConflict, type FmDecision, type FmPolicy, type ExistsAnswer } from '../stores/conflictDialog';
   import { Folder, File, AlertTriangle } from 'lucide-svelte';
 
-  let idx = 0;
-  let applyAll = false;
-  let inner: FmPolicy = 'skip';
-  let decisions: Record<string, FmDecision> = {};
-  let lastReq: unknown = null;
+  let idx = $state(0);
+  let applyAll = $state(false);
+  let inner = $state<FmPolicy>('skip');
+  let decisions = $state<Record<string, FmDecision>>({});
+  let lastReq = $state<unknown>(null);
 
   // nowe pytanie → wyzeruj stan
-  $: if ($conflictRequest !== lastReq) { lastReq = $conflictRequest; idx = 0; applyAll = false; inner = 'skip'; decisions = {}; }
+  run(() => {
+    if ($conflictRequest !== lastReq) { lastReq = $conflictRequest; idx = 0; applyAll = false; inner = 'skip'; decisions = {}; }
+  });
 
   const fmtSize = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : b >= 1e3 ? `${Math.round(b / 1e3)} kB` : `${b} B`);
   const fmtDate = (t: number | null) => (t ? new Date(t * 1000).toLocaleString() : '—');
@@ -39,10 +43,10 @@
     e.stopPropagation();
     if ($conflictRequest.kind === 'transfer') cancelTransfer(); else answerExists('cancel');
   }
-  $: cur = $conflictRequest?.kind === 'transfer' ? $conflictRequest.conflicts[idx] as FmConflict | undefined : undefined;
+  let cur = $derived($conflictRequest?.kind === 'transfer' ? $conflictRequest.conflicts[idx] as FmConflict | undefined : undefined);
 </script>
 
-<svelte:window on:keydown|capture={onKey} />
+<svelte:window onkeydowncapture={onKey} />
 
 {#if $conflictRequest?.kind === 'transfer' && cur}
   {@const req = $conflictRequest}
@@ -97,13 +101,13 @@
       {/if}
 
       <div class="flex flex-wrap gap-2 justify-end">
-        <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" on:click={cancelTransfer}>Anuluj</button>
-        {#if !cur.same_location}<button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" on:click={() => chooseTransfer('skip')}>Pomiń</button>{/if}
-        <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" on:click={() => chooseTransfer('keep_both')}>Zachowaj oba</button>
+        <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" onclick={cancelTransfer}>Anuluj</button>
+        {#if !cur.same_location}<button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" onclick={() => chooseTransfer('skip')}>Pomiń</button>{/if}
+        <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" onclick={() => chooseTransfer('keep_both')}>Zachowaj oba</button>
         {#if cur.src_is_dir && cur.dest_is_dir && !cur.same_location}
-          <button class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white" on:click={() => chooseTransfer('merge')}>Scal</button>
+          <button class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white" onclick={() => chooseTransfer('merge')}>Scal</button>
         {/if}
-        {#if !cur.same_location}<button class="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white" on:click={() => chooseTransfer('replace')}>Zastąp</button>{/if}
+        {#if !cur.same_location}<button class="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white" onclick={() => chooseTransfer('replace')}>Zastąp</button>{/if}
       </div>
     </div>
   </div>
@@ -119,10 +123,10 @@
         </div>
       </div>
       <div class="flex flex-wrap gap-2 justify-end">
-        <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" on:click={() => answerExists('cancel')}>Anuluj</button>
-        <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" on:click={() => answerExists('rename')}>Zmień nazwę…</button>
-        {#if req.canKeepBoth}<button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" on:click={() => answerExists('keep_both')}>Zachowaj oba</button>{/if}
-        {#if req.canReplace}<button class="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white" on:click={() => answerExists('replace')}>Zastąp</button>{/if}
+        <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" onclick={() => answerExists('cancel')}>Anuluj</button>
+        <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" onclick={() => answerExists('rename')}>Zmień nazwę…</button>
+        {#if req.canKeepBoth}<button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20" onclick={() => answerExists('keep_both')}>Zachowaj oba</button>{/if}
+        {#if req.canReplace}<button class="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white" onclick={() => answerExists('replace')}>Zastąp</button>{/if}
       </div>
     </div>
   </div>
