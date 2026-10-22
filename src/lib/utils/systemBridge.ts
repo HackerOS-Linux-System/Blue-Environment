@@ -1,5 +1,22 @@
 import { noteLocalChange } from '../stores/osd';
 
+/** An image or file-list entry of the clipboard history (see src-tauri/src/clipboard_rich.rs). */
+export interface RichClipboardItem {
+    id: string;
+    kind: 'image' | 'files';
+    timestamp: number;
+    file_name: string;
+    mime: string;
+    size: number;
+    paths: string[];
+    hash: string;
+}
+export interface ClipboardPoll {
+    kind: 'text' | 'image' | 'files' | 'empty';
+    text: string | null;
+    item: RichClipboardItem | null;
+}
+
 export interface DesktopEntry {
     id: string;
     name: string;
@@ -37,6 +54,14 @@ export interface ClonedAppEntry {
     id: string;
     baseAppId: string;
     label: string;
+    /** 'external' = an installed desktop app (Flatpak/native) launched through the isolation wrapper;
+     * omitted/'builtin' = one of the shell's own apps. */
+    kind?: 'builtin' | 'external';
+    /** External clones: the desktop entry's Exec line. */
+    exec?: string;
+    /** External clones: what is isolated. 'env' = own HOME/XDG_* dirs, 'bwrap' = bubblewrap container,
+     * 'none' = shared profile. Default 'env'. */
+    isolation?: 'none' | 'env' | 'bwrap';
 }
 
 export interface UserConfig {
@@ -648,6 +673,24 @@ export const SystemBridge = {
         console.log(`[Mock] Launch: ${exec}`);
     },
 
+    /** Launches an installed app with its own private profile (HOME/XDG_* or bubblewrap).
+     * Resolves to the isolation mode actually used ('bwrap' degrades to 'env' without bubblewrap). */
+    launchCloneApp: async (exec: string, cloneId: string, mode: 'env' | 'bwrap', appId?: string): Promise<string> => {
+        if (isTauri) return invoke<string>('launch_clone_process', { command: exec, cloneId, mode, appId: appId ?? null });
+        console.log(`[Mock] Launch clone ${cloneId} (${mode}): ${exec}`);
+        return mode;
+    },
+    cloneIsolationStatus: async (): Promise<{ bwrapAvailable: boolean; root: string }> => {
+        if (isTauri) {
+            const r = await invoke<{ bwrap_available: boolean; root: string }>('clone_isolation_status');
+            return { bwrapAvailable: r.bwrap_available, root: r.root };
+        }
+        return { bwrapAvailable: false, root: '~/.local/share/blue-clones' };
+    },
+    deleteCloneProfile: async (cloneId: string): Promise<void> => {
+        if (isTauri) await invoke('clone_profile_delete', { cloneId });
+    },
+
     getAllApps: async (): Promise<DesktopEntry[]> => SystemBridge.getSystemApps(false),
 
     // --- External windows ---
@@ -1139,6 +1182,35 @@ export const SystemBridge = {
     async clearClipboardHistory(): Promise<void> {
         if (isTauri) await invoke('clear_clipboard_history');
         else localStorage.removeItem('clipboard_history');
+    },
+
+    // --- Flatpak / portal permissions (see app_permissions.rs for the allow-list) ---
+    /** Runs a whitelisted `flatpak` subcommand and returns its stdout. Rejects with stderr on failure. */
+    async flatpak(args: string[]): Promise<string> {
+        if (!isTauri) throw new Error('flatpak requires the Tauri backend');
+        return invoke<string>('flatpak_exec', { args });
+    },
+
+    // --- Clipboard history: images & files ---
+    async pollClipboardRich(): Promise<ClipboardPoll> {
+        if (!isTauri) return { kind: 'text', text: await SystemBridge.readText(), item: null };
+        return invoke<ClipboardPoll>('clipboard_poll_rich');
+    },
+    async getRichClipboardHistory(): Promise<RichClipboardItem[]> {
+        if (!isTauri) return [];
+        return (await invoke<RichClipboardItem[]>('clipboard_rich_history')) ?? [];
+    },
+    async getRichClipboardImage(id: string): Promise<string> {
+        return invoke<string>('clipboard_rich_image', { id });
+    },
+    async copyRichClipboardItem(id: string): Promise<void> {
+        if (isTauri) await invoke('clipboard_rich_copy', { id });
+    },
+    async deleteRichClipboardItem(id: string): Promise<void> {
+        if (isTauri) await invoke('clipboard_rich_delete', { id });
+    },
+    async clearRichClipboard(): Promise<void> {
+        if (isTauri) await invoke('clipboard_rich_clear');
     },
 
     // --- Night light ---
