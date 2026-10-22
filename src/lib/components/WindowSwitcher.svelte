@@ -3,9 +3,13 @@
   import { APPS } from '../constants';
   import AppIconGlyph from './AppIconGlyph.svelte';
 
-  export let windows: SwitcherItem[] = [];
-  export let selectedIndex = 0;
-  export let isVisible = false;
+  interface Props {
+    windows?: SwitcherItem[];
+    selectedIndex?: number;
+    isVisible?: boolean;
+  }
+
+  let { windows = [], selectedIndex = 0, isVisible = false }: Props = $props();
 
   // Resolves to whatever AppIconGlyph.svelte itself accepts: a lucide
   // component for a real Blue Environment app, or a `file://`/`http(s)`
@@ -20,7 +24,7 @@
 
 {#if isVisible && windows.length > 0}
   <div data-shell-occluder="switcher" class="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none">
-    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
     <div class="relative bg-slate-900/95 border border-white/10 p-5 rounded-2xl shadow-2xl shadow-black/50 flex flex-col items-center gap-4 max-w-[88vw]">
       <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
         <kbd class="px-2 py-0.5 bg-slate-800 border border-white/10 rounded text-slate-400">Alt</kbd>
