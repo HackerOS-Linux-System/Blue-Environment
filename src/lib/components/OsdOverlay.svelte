@@ -11,25 +11,32 @@
   import { osd, volumeIconKind, brightnessIconKind, barFill } from '../stores/osd';
   import { t } from '../stores/language';
 
-  /** Above every window / overlay, see App.svelte's `startMenuZIndex`. */
-  export let zIndex = 9400;
-  /** Space the top bar takes at the bottom edge (0 when it sits at the top). */
-  export let bottomInset = 0;
+  
+  
+  interface Props {
+    /** Above every window / overlay, see App.svelte's `startMenuZIndex`. */
+    zIndex?: number;
+    /** Space the top bar takes at the bottom edge (0 when it sits at the top). */
+    bottomInset?: number;
+  }
+
+  let { zIndex = 9400, bottomInset = 0 }: Props = $props();
 
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const VOLUME_ICONS = { muted: VolumeX, low: Volume, medium: Volume1, high: Volume2 } as const;
   const BRIGHTNESS_ICONS = { dim: SunDim, medium: SunMedium, full: Sun } as const;
 
-  $: isVolume = $osd.kind === 'volume';
-  $: icon = isVolume ? VOLUME_ICONS[volumeIconKind($osd.value, $osd.muted)] : BRIGHTNESS_ICONS[brightnessIconKind($osd.value)];
-  $: fill = barFill($osd.value, isVolume && $osd.muted);
-  $: amplified = isVolume && !$osd.muted && $osd.value > 100;
-  $: label = isVolume ? $t('osd.volume') : $t('osd.brightness');
-  $: valueText = isVolume && $osd.muted ? $t('osd.muted') : `${$osd.value}%`;
+  let isVolume = $derived($osd.kind === 'volume');
+  let icon = $derived(isVolume ? VOLUME_ICONS[volumeIconKind($osd.value, $osd.muted)] : BRIGHTNESS_ICONS[brightnessIconKind($osd.value)]);
+  let fill = $derived(barFill($osd.value, isVolume && $osd.muted));
+  let amplified = $derived(isVolume && !$osd.muted && $osd.value > 100);
+  let label = $derived(isVolume ? $t('osd.volume') : $t('osd.brightness'));
+  let valueText = $derived(isVolume && $osd.muted ? $t('osd.muted') : `${$osd.value}%`);
 </script>
 
 {#if $osd.visible}
+  {@const SvelteComponent = icon}
   <div
     class="osd"
     role="status"
@@ -41,7 +48,7 @@
     out:fade={{ duration: reduceMotion ? 0 : 200 }}
   >
     <span class="glyph" class:dim={isVolume && $osd.muted} aria-hidden="true">
-      <svelte:component this={icon} size={22} strokeWidth={1.9} />
+      <SvelteComponent size={22} strokeWidth={1.9} />
     </span>
     <span class="track" aria-hidden="true">
       <span class="fill" class:amplified style="width:{fill}%;"></span>
