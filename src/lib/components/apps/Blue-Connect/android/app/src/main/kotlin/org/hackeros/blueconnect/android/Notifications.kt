@@ -19,10 +19,12 @@ object Notifications {
     const val CHANNEL_SERVICE = "service"
     const val CHANNEL_PAIRING = "pairing"
     const val CHANNEL_PING = "ping"
+    const val CHANNEL_SHARE = "share"
 
     const val ID_SERVICE = 1
     const val ID_PAIRING = 2
     private var nextPingId = 100
+    private var nextShareId = 1000
 
     fun createChannels(c: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -30,6 +32,7 @@ object Notifications {
         nm.createNotificationChannel(NotificationChannel(CHANNEL_SERVICE, c.getString(R.string.channel_service), NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel(CHANNEL_PAIRING, c.getString(R.string.channel_pairing), NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CHANNEL_PING, c.getString(R.string.channel_ping), NotificationManager.IMPORTANCE_DEFAULT))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL_SHARE, "Shared from other devices", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
     private fun openApp(c: Context): PendingIntent =
@@ -89,6 +92,24 @@ object Notifications {
                 .setContentTitle("Ping from $deviceName")
                 .setContentText(message?.takeIf { it.isNotBlank() } ?: "Ping!")
                 .setContentIntent(openApp(c))
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    /** A link / text pushed from a paired computer. Tapping opens [open] (a link) or the app. */
+    fun shared(c: Context, title: String, text: String, open: Intent?) {
+        val target = if (open != null)
+            PendingIntent.getActivity(c, nextShareId, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        else openApp(c)
+        post(
+            c, nextShareId++,
+            NotificationCompat.Builder(c, CHANNEL_SHARE)
+                .setSmallIcon(R.drawable.ic_stat_blue)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(target)
                 .setAutoCancel(true)
                 .build(),
         )
