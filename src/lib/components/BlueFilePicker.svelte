@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run, stopPropagation } from 'svelte/legacy';
+
   /**
    * Blue Environment's own file/folder picker — see stores/filePicker.ts's
    * doc comment for why this exists (previously every "Open Folder"/
@@ -26,31 +28,27 @@
 
   const BM_ICONS: Record<string, any> = { Home, Folder, FileText, Download, Image, Music, Video };
   ensureUserDirsLoaded();
-  $: bookmarks = [
-    ...buildPlaces($userDirs).map((b) => ({ ...b, icon: BM_ICONS[b.iconName] ?? Folder })),
-    { name: 'Filesystem', path: '/', icon: HardDrive },
-  ];
 
-  let currentPath = 'HOME';
-  let rawEntries: FileEntry[] = [];
-  let loading = false;
-  let history: string[] = [];
-  let future: string[] = [];
-  let filenameInput = '';
-  let errorMsg = '';
-  let listEl: HTMLDivElement;
+  let currentPath = $state('HOME');
+  let rawEntries = $state<FileEntry[]>([]);
+  let loading = $state(false);
+  let history = $state<string[]>([]);
+  let future = $state<string[]>([]);
+  let filenameInput = $state('');
+  let errorMsg = $state('');
+  let listEl = $state() as HTMLDivElement;
 
   // ── Selection ────────────────────────────────────────────────────────
   // A Set even in single-select mode (rather than a plain `string |
   // null`) so multi-select ("multiple: true", e.g. Blue Video/Images'
   // "open files" flows) and single-select share one code path instead
   // of two parallel ones that could drift apart.
-  let selectedPaths = new Set<string>();
+  let selectedPaths = $state(new Set<string>());
   // Which row keyboard navigation (arrows) is currently sitting on —
   // independent from `selectedPaths` because arrowing through the list
   // shouldn't itself change what's selected until Enter/Space commits it,
   // same as a native file dialog's list box.
-  let activeIndex = -1;
+  let activeIndex = $state(-1);
 
   function isPickable(entry: FileEntry): boolean {
     return mode === 'directory' ? entry.is_dir : !entry.is_dir;
@@ -77,12 +75,12 @@
 
   // ── Live search — filters the current folder's listing as you type,
   // rather than requiring Enter or a separate search mode. ────────────
-  let searchQuery = '';
+  let searchQuery = $state('');
 
   // ── Sorting ──────────────────────────────────────────────────────────
   type SortKey = 'name' | 'size' | 'modified';
-  let sortKey: SortKey = 'name';
-  let sortAsc = true;
+  let sortKey = $state<SortKey>('name');
+  let sortAsc = $state(true);
   const SORT_LABELS: Record<SortKey, string> = { name: 'Nazwa', size: 'Rozmiar', modified: 'Data' };
   function cycleSortKey() {
     const keys: SortKey[] = ['name', 'size', 'modified'];
@@ -93,7 +91,7 @@
   // (SystemBridge.readFileAsDataURL), just scoped to this component so a
   // picker used to choose an image shows an actual preview instead of a
   // generic file icon for every entry. ─────────────────────────────────
-  let thumbnails: Record<string, string> = {};
+  let thumbnails = $state<Record<string, string>>({});
   function loadThumbnails(list: FileEntry[]) {
     for (const f of list) {
       if (!f.is_dir && f.mime_type?.startsWith('image/') && !thumbnails[f.path]) {
@@ -104,13 +102,7 @@
     }
   }
 
-  $: picker = $activeFilePicker;
-  $: mode = picker?.options.mode ?? 'file';
-  $: filters = picker?.options.filters ?? [];
-  $: rememberKey = picker?.options.rememberKey;
-  $: multiple = !!picker?.options.multiple;
 
-  $: if (picker) init(picker.options);
 
   async function init(options: NonNullable<typeof picker>['options']) {
     searchQuery = '';
@@ -171,21 +163,6 @@
     return unit === 'GB' ? n * 1e9 : unit === 'MB' ? n * 1e6 : unit === 'KB' ? n * 1e3 : n;
   }
 
-  // Folders always float to the top regardless of sort — the one
-  // Explorer/Finder/Nautilus convention this deliberately keeps rather
-  // than a "pure" sort, since interleaving files and folders by size or
-  // date makes a picker much harder to scan.
-  $: entries = rawEntries
-    .filter((f) => !searchQuery.trim() || f.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    .slice()
-    .sort((a, b) => {
-      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-      let cmp = 0;
-      if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
-      else if (sortKey === 'size') cmp = parseSize(a.size) - parseSize(b.size);
-      else cmp = (a.modified ?? '').localeCompare(b.modified ?? '');
-      return sortAsc ? cmp : -cmp;
-    });
 
   function navigate(path: string, pushHistory = true) {
     if (pushHistory) { history = [...history, currentPath]; future = []; }
@@ -241,7 +218,7 @@
   // really modal). Scoped to `pickerRootEl` rather than `document`
   // since this is a much bigger surface (sidebar, search box, list,
   // footer buttons) than DialogHost's single input+two-buttons.
-  let pickerRootEl: HTMLDivElement;
+  let pickerRootEl = $state() as HTMLDivElement;
   function getFocusable(): HTMLElement[] {
     if (!pickerRootEl) return [];
     return Array.from(
@@ -298,9 +275,6 @@
     try { if (await createWithDialog(currentPath, name.trim(), 'folder')) await load(); } catch { /* best effort */ }
   }
 
-  // ── Rename / delete directly from the picker — previously only
-  // possible by cancelling out to a real Explorer window first. ───────
-  $: selectedEntries = entries.filter((f) => selectedPaths.has(f.path));
 
   async function renameSelected() {
     if (selectedEntries.length !== 1) return;
@@ -333,7 +307,7 @@
   // ── Drag-and-drop between folders — drag a row onto a folder row (or
   // a sidebar bookmark) in the same listing to move it there, same
   // gesture ExplorerApp.svelte already supports in its own windows. ───
-  let dragOverPath: string | null = null;
+  let dragOverPath = $state<string | null>(null);
   function handleRowDragStart(e: DragEvent, entry: FileEntry) {
     if (!selectedPaths.has(entry.path)) setSingleSelection(entry.path);
     e.dataTransfer?.setData('text/plain', JSON.stringify([...selectedPaths]));
@@ -377,11 +351,41 @@
     closeFilePicker(picker, []);
   }
 
-  $: canConfirm = mode === 'directory' ? true : selectedPaths.size > 0;
+  let bookmarks = $derived([
+    ...buildPlaces($userDirs).map((b) => ({ ...b, icon: BM_ICONS[b.iconName] ?? Folder })),
+    { name: 'Filesystem', path: '/', icon: HardDrive },
+  ]);
+  let picker = $derived($activeFilePicker);
+  let mode = $derived(picker?.options.mode ?? 'file');
+  let filters = $derived(picker?.options.filters ?? []);
+  let rememberKey = $derived(picker?.options.rememberKey);
+  let multiple = $derived(!!picker?.options.multiple);
+  run(() => {
+    if (picker) init(picker.options);
+  });
+  // Folders always float to the top regardless of sort — the one
+  // Explorer/Finder/Nautilus convention this deliberately keeps rather
+  // than a "pure" sort, since interleaving files and folders by size or
+  // date makes a picker much harder to scan.
+  let entries = $derived(rawEntries
+    .filter((f) => !searchQuery.trim() || f.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    .slice()
+    .sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      let cmp = 0;
+      if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sortKey === 'size') cmp = parseSize(a.size) - parseSize(b.size);
+      else cmp = (a.modified ?? '').localeCompare(b.modified ?? '');
+      return sortAsc ? cmp : -cmp;
+    }));
+  // ── Rename / delete directly from the picker — previously only
+  // possible by cancelling out to a real Explorer window first. ───────
+  let selectedEntries = $derived(entries.filter((f) => selectedPaths.has(f.path)));
+  let canConfirm = $derived(mode === 'directory' ? true : selectedPaths.size > 0);
 </script>
 
 {#if picker}
-  <div data-shell-occluder="file-picker" role="presentation" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
+  <div data-shell-occluder="file-picker" role="presentation" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onmousedown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
     <div bind:this={pickerRootEl} use:onKeydown={handleRootKeydown} role="dialog" aria-modal="true" class="w-[760px] h-[540px] bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <!-- Title bar -->
       <div class="h-11 flex items-center gap-2 px-4 border-b border-white/10 shrink-0">
@@ -389,15 +393,15 @@
           {picker.options.title ?? (mode === 'directory' ? 'Wybierz katalog' : 'Wybierz plik')}
         </h3>
         {#if selectedEntries.length === 1}
-          <button on:click={renameSelected} title="Zmień nazwę" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Pencil size={13} /></button>
+          <button onclick={renameSelected} title="Zmień nazwę" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><Pencil size={13} /></button>
         {/if}
         {#if selectedEntries.length > 0}
-          <button on:click={deleteSelected} title="Usuń" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
+          <button onclick={deleteSelected} title="Usuń" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors"><Trash2 size={13} /></button>
         {/if}
-        <button on:click={goBack} disabled={!history.length} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ArrowLeft size={14} /></button>
-        <button on:click={goForward} disabled={!future.length} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ArrowRight size={14} /></button>
-        <button on:click={goUp} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><ArrowUp size={14} /></button>
-        <button on:click={load} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={13} class={loading ? 'animate-spin' : ''} /></button>
+        <button onclick={goBack} disabled={!history.length} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ArrowLeft size={14} /></button>
+        <button onclick={goForward} disabled={!future.length} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ArrowRight size={14} /></button>
+        <button onclick={goUp} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><ArrowUp size={14} /></button>
+        <button onclick={load} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"><RefreshCw size={13} class={loading ? 'animate-spin' : ''} /></button>
       </div>
 
       <div class="flex flex-1 min-h-0">
@@ -405,13 +409,13 @@
         <div class="w-44 border-r border-white/10 p-2 overflow-y-auto shrink-0">
           {#each bookmarks as bm (bm.path)}
             <button
-              on:click={() => navigate(bm.path)}
-              on:dragover={(e) => handleBookmarkDragOver(e, bm.path)}
-              on:dragleave={handleDragLeave}
-              on:drop={(e) => handleDropOnFolder(e, bm.path)}
+              onclick={() => navigate(bm.path)}
+              ondragover={(e) => handleBookmarkDragOver(e, bm.path)}
+              ondragleave={handleDragLeave}
+              ondrop={(e) => handleDropOnFolder(e, bm.path)}
               class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors {currentPath === bm.path ? 'bg-blue-600/30 text-blue-300' : dragOverPath === bm.path ? 'bg-blue-500/20 ring-1 ring-blue-400' : 'text-slate-300 hover:bg-white/5'}"
             >
-              <svelte:component this={bm.icon} size={13} class="shrink-0" />
+              <bm.icon size={13} class="shrink-0" />
               <span class="truncate">{bm.name}</span>
             </button>
           {/each}
@@ -431,16 +435,16 @@
                 class="w-full bg-slate-800 border border-white/10 rounded-lg pl-7 pr-7 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/60"
               />
               {#if searchQuery}
-                <button on:click={() => (searchQuery = '')} class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"><X size={12} /></button>
+                <button onclick={() => (searchQuery = '')} class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"><X size={12} /></button>
               {/if}
             </div>
             {#if multiple && selectedEntries.length > 0}
               <span class="text-[11px] text-slate-500 shrink-0">{selectedEntries.length} wybrane</span>
             {/if}
-            <button on:click={cycleSortKey} title="Zmień kolejność sortowania" class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 text-[11px] text-slate-400 hover:text-white transition-colors shrink-0">
+            <button onclick={cycleSortKey} title="Zmień kolejność sortowania" class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 text-[11px] text-slate-400 hover:text-white transition-colors shrink-0">
               <ArrowUpDown size={11} /> {SORT_LABELS[sortKey]}
             </button>
-            <button on:click={() => (sortAsc = !sortAsc)} title={sortAsc ? 'Rosnąco' : 'Malejąco'} class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors shrink-0">
+            <button onclick={() => (sortAsc = !sortAsc)} title={sortAsc ? 'Rosnąco' : 'Malejąco'} class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors shrink-0">
               <ArrowUp size={12} class="transition-transform {sortAsc ? '' : 'rotate-180'}" />
             </button>
           </div>
@@ -465,12 +469,12 @@
                 <button
                   data-index={i}
                   draggable="true"
-                  on:dragstart={(e) => handleRowDragStart(e, entry)}
-                  on:dragover={(e) => handleRowDragOver(e, entry)}
-                  on:dragleave={handleDragLeave}
-                  on:drop={(e) => entry.is_dir && handleDropOnFolder(e, entry.path)}
-                  on:click={(e) => rowClick(entry, i, e)}
-                  on:dblclick={() => rowDblClick(entry)}
+                  ondragstart={(e) => handleRowDragStart(e, entry)}
+                  ondragover={(e) => handleRowDragOver(e, entry)}
+                  ondragleave={handleDragLeave}
+                  ondrop={(e) => entry.is_dir && handleDropOnFolder(e, entry.path)}
+                  onclick={(e) => rowClick(entry, i, e)}
+                  ondblclick={() => rowDblClick(entry)}
                   class="w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors {isSelected ? 'bg-blue-600/20' : activeIndex === i ? 'bg-white/5' : 'hover:bg-white/5'} {isDragTarget ? 'ring-1 ring-inset ring-blue-400 bg-blue-500/10' : ''}"
                 >
                   {#if multiple && isPickable(entry)}
@@ -478,8 +482,8 @@
                       role="checkbox"
                       aria-checked={isSelected}
                       tabindex="-1"
-                      on:click|stopPropagation={() => { activeIndex = i; toggleSelection(entry.path); }}
-                      on:keydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); activeIndex = i; toggleSelection(entry.path); } }}
+                      onclick={stopPropagation(() => { activeIndex = i; toggleSelection(entry.path); })}
+                      onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); activeIndex = i; toggleSelection(entry.path); } }}
                       class="w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors {isSelected ? 'bg-blue-600 border-blue-500' : 'border-white/20 hover:border-white/40'}"
                     >
                       {#if isSelected}<Check size={10} class="text-white" />{/if}
@@ -502,15 +506,15 @@
 
       <!-- Footer -->
       <div class="border-t border-white/10 p-3 flex items-center gap-2 shrink-0">
-        <button on:click={newFolder} title="Nowy folder" class="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors shrink-0"><FolderPlus size={14} /></button>
+        <button onclick={newFolder} title="Nowy folder" class="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors shrink-0"><FolderPlus size={14} /></button>
         <input
           bind:value={filenameInput}
           readonly={mode === 'file'}
           placeholder={mode === 'directory' ? 'Nazwa folderu' : (multiple ? `${selectedEntries.length || ''} plik(ów)`.trim() : 'Nazwa pliku')}
           class="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/60"
         />
-        <button on:click={cancel} class="px-3.5 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-slate-200">{$t('settings.common.cancel')}</button>
-        <button on:click={confirm} disabled={!canConfirm} class="px-3.5 py-1.5 text-xs rounded-lg transition-colors text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600">
+        <button onclick={cancel} class="px-3.5 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-slate-200">{$t('settings.common.cancel')}</button>
+        <button onclick={confirm} disabled={!canConfirm} class="px-3.5 py-1.5 text-xs rounded-lg transition-colors text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600">
           {picker.options.confirmLabel ?? (mode === 'directory' ? 'Otwórz' : 'Otwórz')}
         </button>
       </div>
