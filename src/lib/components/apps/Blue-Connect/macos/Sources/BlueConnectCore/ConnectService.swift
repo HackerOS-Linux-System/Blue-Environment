@@ -96,6 +96,8 @@ public final class ConnectService: @unchecked Sendable {
     public var deviceName: String { options.deviceName }
     public var fingerprint: String { identity.fingerprint }
     public weak var delegate: ConnectDelegate?
+    /// Serves battery / find-my-device / clipboard / share / notification requests of paired devices.
+    public var pluginRouter: PluginRouter?
 
     public init(options: ConnectOptions, identity: TLSIdentity) {
         self.options = options
@@ -224,7 +226,10 @@ public final class ConnectService: @unchecked Sendable {
             if p.type == Proto.typePing {
                 delegate?.connectPing(from: dev, message: p.body["message"] as? String)
             }
-            // Other plugins (SMS gateway etc.) only exist on the phone; a desktop ignores them.
+            else if let router = pluginRouter {
+                // SMS gateway etc. only exist on the phone; everything else a paired device may ask for is a plugin.
+                _ = await router.handle(from: dev, packet: p) { data in try await tls.send(data) }
+            }
             tls.readTimeout = 10
             guard let next = try? await reader.readLine() else { break }
             packet = Proto.parse(next)
@@ -375,5 +380,55 @@ public final class ConnectService: @unchecked Sendable {
             guard let body = row["body"] as? String else { return nil }
             return SMSMessage(address: row["address"] as? String ?? "", body: body)
         }
+    }
+
+    // MARK: plugin requests (battery, find my device, clipboard, share, notifications)
+
+    /// Sends one request packet and, when `replyType` is set, waits for one reply packet of that type.
+    private func request(_ id: String, frame: Data, replyType: String?, timeout: TimeInterval = 8) async throws -> Proto.Packet? {
+        let (tls, dev) = try await openAuthenticated(id)
+        defer { tls.close() }
+        try await tls.send(frame)
+        guard let replyType else { return nil }
+        tls.readTimeout = timeout
+        let line: Data?
+        do { line = try await tls.makeReader().readLine() }
+        catch { throw ConnectError.message("\(dev.name) did not reply in time") }
+        guard let line else { throw ConnectError.message("\(dev.name) closed the connection without replying") }
+        guard let reply = Proto.parse(line), reply.type == replyType else {
+            throw ConnectError.message("\(dev.name) sent an unexpected reply")
+        }
+        return reply
+    }
+
+    /// Battery of the other device; nil when it has none.
+    public func battery(deviceId id: String) async throws -> BatteryStatus? {
+        let r = try await request(id, frame: PluginPackets.batteryRequest(), replyType: Proto.typeBattery)
+        return r.flatMap(PluginPackets.parseBattery)
+    }
+
+    /// Makes the other device ring ("Find my phone").
+    public func findDevice(deviceId id: String) async throws {
+        _ = try await request(id, frame: PluginPackets.findMyPhone(), replyType: nil)
+    }
+
+    public func sendClipboard(deviceId id: String, text: String) async throws {
+        _ = try await request(id, frame: PluginPackets.clipboard(text), replyType: nil)
+    }
+
+    public func clipboard(deviceId id: String) async throws -> String {
+        let r = try await request(id, frame: PluginPackets.clipboardRequest(), replyType: Proto.typeClipboard)
+        return (r?.body["content"] as? String) ?? ""
+    }
+
+    /// Pushes a link (opened on the other device) or plain text.
+    public func share(deviceId id: String, textOrURL: String) async throws {
+        let frame = PluginPackets.isSafeURL(textOrURL) ? PluginPackets.shareURL(textOrURL) : PluginPackets.shareText(textOrURL)
+        _ = try await request(id, frame: frame, replyType: nil)
+    }
+
+    public func notifications(deviceId id: String) async throws -> [NotificationInfo] {
+        let r = try await request(id, frame: PluginPackets.notificationRequest(), replyType: Proto.typeNotificationList)
+        return r.map(PluginPackets.parseNotifications) ?? []
     }
 }
