@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { onMount } from 'svelte';
   import { HardDrive,
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
@@ -35,6 +37,7 @@
   import ScreenTimeSection from './sections/ScreenTimeSection.svelte';
   import KeyboardSection from './sections/KeyboardSection.svelte';
   import ClonedAppsSection from './sections/ClonedAppsSection.svelte';
+  import AppPermissionsSection from './sections/AppPermissionsSection.svelte';
   import DefaultAppsSection from './sections/DefaultAppsSection.svelte';
   import CustomFileTypesSection from './sections/CustomFileTypesSection.svelte';
   import MonitorsSection from '../../settings/MonitorsSection.svelte';
@@ -72,6 +75,7 @@
     { id: 'security', labelKey: 'settings.tab.security', icon: Shield, group: 'Account' },
     { id: 'parental_controls', labelKey: 'settings.tab.parental_controls', icon: ShieldCheck, group: 'Account' },
     { id: 'screen_time', labelKey: 'settings.tab.screen_time', icon: Clock, group: 'Account' },
+    { id: 'app_permissions', labelKey: 'settings.tab.app_permissions', icon: ShieldCheck, group: 'Account' },
     { id: 'cloned_apps', labelKey: 'settings.tab.cloned_apps', icon: Copy, group: 'Account' },
     { id: 'accounts', labelKey: 'settings.tab.accounts', icon: UserCircle, group: 'Account' },
     { id: 'about', labelKey: 'settings.tab.about', icon: Info, group: 'Account' },
@@ -85,19 +89,23 @@
     Account: 'settings.group.account',
   };
 
-  export let initialTab: SettingsTab | undefined = undefined;
-  let activeTab: SettingsTab = initialTab ?? 'display';
-  let query = '';
-  let config: UserConfig | null = null;
-  let customThemeCount = 0;
+  interface Props {
+    initialTab?: SettingsTab | undefined;
+  }
 
-  let wallpapers: string[] = [];
-  let wallpaperPreviews = new Map<string, string>();
-  let wallpaperPreviewsLoading = new Set<string>();
-  let brightness = 80;
-  let resolution = '1920x1080';
-  let refreshRate = 60;
-  let modes: { resolution: string; rates: number[] }[] = [{ resolution: '1920x1080', rates: [60] }];
+  let { initialTab = undefined }: Props = $props();
+  let activeTab = $state<SettingsTab>(initialTab ?? 'display');
+  let query = $state('');
+  let config = $state<UserConfig | null>(null);
+  let customThemeCount = $state(0);
+
+  let wallpapers = $state<string[]>([]);
+  let wallpaperPreviews = $state(new Map<string, string>());
+  let wallpaperPreviewsLoading = $state(new Set<string>());
+  let brightness = $state(80);
+  let resolution = $state('1920x1080');
+  let refreshRate = $state(60);
+  let modes = $state<{ resolution: string; rates: number[] }[]>([{ resolution: '1920x1080', rates: [60] }]);
 
   onMount(() => {
     configStore.init().then((c) => (config = c));
@@ -161,19 +169,21 @@
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker));
   }
 
-  $: resolutionList = modes.map((m) => m.resolution);
-  $: rateList = modes.find((m) => m.resolution === resolution)?.rates ?? [60];
+  let resolutionList = $derived(modes.map((m) => m.resolution));
+  let rateList = $derived(modes.find((m) => m.resolution === resolution)?.rates ?? [60]);
   // ── Compact layout: list → detail ─────────────────────────────────────
   // Narrow (phone shell / narrow window): show EITHER the list of sections OR
   // the chosen section with a Back button — like Android/iOS Settings.
-  let rootW = 0;
-  $: compact = isCompactWidth(rootW);
-  let showDetail = false;
-  $: if (!compact) showDetail = false;
+  let rootW = $state(0);
+  let compact = $derived(isCompactWidth(rootW));
+  let showDetail = $state(false);
+  run(() => {
+    if (!compact) showDetail = false;
+  });
   const openTab = (id: typeof activeTab) => { activeTab = id; showDetail = true; };
-  $: activeTabLabel = (() => { const tab = TABS.find((x) => x.id === activeTab); return tab ? (tab.label ?? $t(tab.labelKey)) : ''; })();
+  let activeTabLabel = $derived((() => { const tab = TABS.find((x) => x.id === activeTab); return tab ? (tab.label ?? $t(tab.labelKey)) : ''; })());
 
-  $: filteredTabs = query.trim() ? TABS.filter((tab) => (tab.label ?? $t(tab.labelKey)).toLowerCase().includes(query.trim().toLowerCase())) : TABS;
+  let filteredTabs = $derived(query.trim() ? TABS.filter((tab) => (tab.label ?? $t(tab.labelKey)).toLowerCase().includes(query.trim().toLowerCase())) : TABS);
 </script>
 
 {#if !config}
@@ -195,7 +205,7 @@
               <div class="px-2.5 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">{$t(GROUP_LABEL_KEYS[group])}</div>
               <div class="space-y-0.5">
                 {#each groupTabs as tab (tab.id)}
-                  <TabButton icon={tab.icon} label={tab.label ?? $t(tab.labelKey)} isActive={activeTab === tab.id} on:click={() => openTab(tab.id)} />
+                  <TabButton icon={tab.icon} label={tab.label ?? $t(tab.labelKey)} isActive={activeTab === tab.id} onclick={() => openTab(tab.id)} />
                 {/each}
               </div>
             </div>
@@ -208,7 +218,7 @@
 
     <div class="flex-1 overflow-y-auto {compact ? 'p-4' : 'p-6'} {compact && !showDetail ? 'hidden' : ''}">
       {#if compact}
-        <button class="flex items-center gap-1.5 -mt-1 mb-4 text-sm text-blue-400 active:text-blue-300" on:click={() => (showDetail = false)}>
+        <button class="flex items-center gap-1.5 -mt-1 mb-4 text-sm text-blue-400 active:text-blue-300" onclick={() => (showDetail = false)}>
           <ChevronLeft size={16} /> {$t('altui.back')} <span class="text-slate-500">· {activeTabLabel}</span>
         </button>
       {/if}
@@ -241,6 +251,7 @@
       {:else if activeTab === 'parental_controls'}<ParentalControlsSection />
       {:else if activeTab === 'screen_time'}<ScreenTimeSection />
       {:else if activeTab === 'keyboard'}<KeyboardSection {config} {onSave} />
+      {:else if activeTab === 'app_permissions'}<AppPermissionsSection />
       {:else if activeTab === 'cloned_apps'}<ClonedAppsSection {config} {onSave} />
       {:else if activeTab === 'about'}<AboutSection />
       {/if}
