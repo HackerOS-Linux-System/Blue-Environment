@@ -437,3 +437,23 @@ sudo usermod -aG seat $USER
 ```
 
 © 2026 HackerOS Team
+
+## What's new in this build
+
+* **Svelte 5** (runes) across the whole shell – `svelte@5`, `vite-plugin-svelte@4`, `svelte-check@4`. A few components that use
+  `afterUpdate` or a variable called `state` stay in Svelte-4 syntax (legacy mode, fully supported).
+* **Blue Code → CodeMirror 6** instead of Monaco: ~50 languages loaded lazily, Emmet (`!` + Tab → HTML5 boilerplate,
+  `div.a>p*3` + Tab …), VS-Code-style snippets, Prettier-based *Format Document*, minimap, LSP completion/hover/go-to-definition
+  (TypeScript/JavaScript now go through `typescript-language-server`).
+* **Blue Docs**: speaker notes and native tables in `.pptx` import/export, comments with replies, tracked changes
+  (accept/reject), switchable author profiles.
+* **Desktop widgets** (clock, weather, notes, system monitor, calendar) – right-click the desktop → *Desktop widgets…*
+* **App permissions** panel (Settings → Account) for Flatpak apps: camera, microphone, location, network, files … via
+  the XDG portal permission store and Flatpak overrides.
+* **Clipboard history** with images (PNG/JPEG/…) and copied files (`text/uri-list`).
+* **Cloned apps** can now be installed desktop apps with an isolated profile (own `HOME`/`XDG_*`, or a bubblewrap container).
+* **GPU workarounds** for WebKitGTK are chosen automatically at start-up (NVIDIA proprietary driver, virtual GPUs);
+  opt out with `BLUE_GPU_WORKAROUNDS=off`.
+* **Blue Connect**: phone audio on the desktop (PipeWire), and device tools – battery, find my device, clipboard, share,
+  notifications – implemented in the desktop app and in the Android (Kotlin), Windows (C#) and macOS (Swift) clients.
+  See `src/lib/components/apps/Blue-Connect/PLUGINS.md`.
