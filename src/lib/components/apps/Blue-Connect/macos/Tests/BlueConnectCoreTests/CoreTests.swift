@@ -150,3 +150,97 @@ final class DERTests: XCTestCase {
         XCTAssertEqual(Sas.fingerprint(SecCertificateCopyData(cert) as Data).count, 64)
     }
 }
+
+
+final class PluginTests: XCTestCase {
+    private final class FakeHost: PluginHost {
+        var battery: BatteryStatus? = BatteryStatus(percent: 55, charging: false)
+        var rings = 0
+        var clipboard: String?
+        var opened: [String] = []
+        var texts: [String] = []
+        func batteryStatus() -> BatteryStatus? { battery }
+        func ring() { rings += 1 }
+        func setClipboard(_ text: String) { clipboard = text }
+        func currentClipboard() -> String? { clipboard }
+        func open(url: String, from: DeviceInfo) { opened.append(url) }
+        func receive(text: String, from: DeviceInfo) { texts.append(text) }
+        func currentNotifications() -> [NotificationInfo] { [NotificationInfo(id: "1", app: "Mail", title: "Hi", text: "Body", timeMs: 1)] }
+    }
+
+    private let dev = DeviceInfo(id: "d", name: "Phone", deviceType: "phone", address: "127.0.0.1", tcpPort: 1717)
+
+    private func run(_ host: FakeHost, _ type: String, _ body: [String: Any] = [:]) async -> Proto.Packet? {
+        var out: Data?
+        let handled = await PluginRouter(host: host).handle(from: dev, packet: Proto.Packet(type: type, body: body)) { out = $0 }
+        _ = handled
+        return out.flatMap { Proto.parse(String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .newlines)) }
+    }
+
+    func testBatteryRequestIsAnswered() async throws {
+        let host = FakeHost()
+        let r = try XCTUnwrap(await run(host, Proto.typeBatteryRequest))
+        XCTAssertEqual(PluginPackets.parseBattery(r), BatteryStatus(percent: 55, charging: false))
+        host.battery = nil
+        let none = try XCTUnwrap(await run(host, Proto.typeBatteryRequest))
+        XCTAssertNil(PluginPackets.parseBattery(none))
+    }
+
+    func testFindMyPhoneRingsWithoutReply() async {
+        let host = FakeHost()
+        let r = await run(host, Proto.typeFindMyPhone)
+        XCTAssertNil(r)
+        XCTAssertEqual(host.rings, 1)
+    }
+
+    func testClipboardRoundTripKeepsUnicode() async throws {
+        let host = FakeHost()
+        _ = await run(host, Proto.typeClipboard, ["content": "zażółć 🙂"])
+        XCTAssertEqual(host.clipboard, "zażółć 🙂")
+        let r = try XCTUnwrap(await run(host, Proto.typeClipboardRequest))
+        XCTAssertEqual(r.type, Proto.typeClipboard)
+        XCTAssertEqual(r.body["content"] as? String, "zażółć 🙂")
+    }
+
+    func testOnlySafeURLsAreOpened() async {
+        let host = FakeHost()
+        _ = await run(host, Proto.typeShare, ["url": "https://example.org/a?b=c"])
+        _ = await run(host, Proto.typeShare, ["url": "javascript:alert(1)"])
+        _ = await run(host, Proto.typeShare, ["url": "file:///etc/passwd"])
+        _ = await run(host, Proto.typeShare, ["text": "plain note"])
+        XCTAssertEqual(host.opened, ["https://example.org/a?b=c"])
+        XCTAssertEqual(host.texts, ["plain note"])
+    }
+
+    func testURLValidation() {
+        XCTAssertTrue(PluginPackets.isSafeURL("mailto:a@b.c"))
+        XCTAssertTrue(PluginPackets.isSafeURL("tel:+48123456789"))
+        XCTAssertFalse(PluginPackets.isSafeURL("https://a b"))
+        XCTAssertFalse(PluginPackets.isSafeURL("x-apple.systempreferences:"))
+        XCTAssertFalse(PluginPackets.isSafeURL(""))
+        XCTAssertFalse(PluginPackets.isSafeURL(nil))
+        XCTAssertFalse(PluginPackets.isSafeURL("https://x/" + String(repeating: "a", count: 3000)))
+    }
+
+    func testFitUTF8NeverSplitsCharacters() {
+        XCTAssertEqual(PluginPackets.fitUTF8("ą" + String(repeating: "x", count: 10), maxBytes: 2), "ą")
+        XCTAssertEqual(PluginPackets.fitUTF8("🙂🙂", maxBytes: 5), "🙂")
+        XCTAssertEqual(PluginPackets.fitUTF8("short", maxBytes: 100), "short")
+    }
+
+    func testNotificationListFitsOneRecord() throws {
+        let big = (0..<200).map { NotificationInfo(id: "\($0)", app: "App", title: String(repeating: "t", count: 200), text: String(repeating: "b", count: 400), timeMs: Int64($0)) }
+        let frame = PluginPackets.notificationList(big)
+        XCTAssertLessThanOrEqual(frame.count, Proto.maxSingleReadReplyBytes)
+        let parsed = PluginPackets.parseNotifications(try XCTUnwrap(Proto.parse(String(decoding: frame, as: UTF8.self).trimmingCharacters(in: .newlines))))
+        XCTAssertTrue(parsed.count > 0 && parsed.count < 200)
+        XCTAssertEqual(parsed.first?.id, "0")
+    }
+
+    func testIdentityAdvertisesPlugins() throws {
+        let id = Proto.buildIdentity(deviceId: "id", deviceName: "n", deviceType: "laptop", tcpPort: 1717)
+        let text = String(decoding: id, as: UTF8.self)
+        XCTAssertTrue(text.contains(Proto.typeClipboard) && text.contains(Proto.typeFindMyPhone))
+        XCTAssertNotNil(Proto.parseIdentity(id))
+    }
+}
