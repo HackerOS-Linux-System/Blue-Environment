@@ -38,6 +38,8 @@ public partial class App : System.Windows.Application
                 DeviceType = "laptop",
             });
             _service.ConfirmPairing = ConfirmPairingOnUiThread;
+            // Battery / find-my-device / clipboard / share requests from paired phones.
+            _service.PacketHandler = new PluginRouter(new WindowsPluginHost(Dispatcher, Balloon)).AsPacketHandler();
             _service.PingReceived += (dev, msg) => Balloon($"Ping from {dev.Name}", string.IsNullOrWhiteSpace(msg) ? "Ping!" : msg);
             _service.Start();
         }
