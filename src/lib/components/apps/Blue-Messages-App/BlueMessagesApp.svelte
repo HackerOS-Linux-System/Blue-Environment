@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run, stopPropagation } from 'svelte/legacy';
+
   // Blue Messages — new app. Two-pane conversation list + thread view,
   // local-storage-backed (see src-tauri/src/BlueMessagesApp/mod.rs's
   // module doc for exactly what "local" means today and what a real
@@ -9,34 +11,38 @@
   import { CHANNEL_LABELS, type Channel } from './types';
   import { t } from '../../../stores/language';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
 
   const store = createMessagesStore();
   const { conversations, activeId, thread, loading, sending, error, matrixLoggedIn, matrixBusy, matrixRooms, xmppLoggedIn, xmppBusy, smsAvailable, pairedPhones } = store;
 
-  let search = '';
-  let composeText = '';
-  let showNewConversation = false;
-  let newTitle = '';
-  let newParticipant = '';
+  let search = $state('');
+  let composeText = $state('');
+  let showNewConversation = $state(false);
+  let newTitle = $state('');
+  let newParticipant = $state('');
   /** For `newChannel === 'sms'`: which transport to use — a local modem
    * (ModemManager, the original path) or a specific paired phone via
    * Blue Connect (see sms.rs's two conversation-creation commands).
    * `null` means "use the modem". */
-  let smsViaDeviceId: string | null = null;
-  let newChannel: Channel = 'local';
-  let threadEl: HTMLDivElement | null = null;
+  let smsViaDeviceId = $state<string | null>(null);
+  let newChannel = $state<Channel>('local');
+  let threadEl = $state<HTMLDivElement | null>(null);
 
-  let showMatrixLogin = false;
-  let matrixHomeserver = 'https://matrix.org';
-  let matrixUsername = '';
-  let matrixPassword = '';
-  let matrixLoginError = '';
+  let showMatrixLogin = $state(false);
+  let matrixHomeserver = $state('https://matrix.org');
+  let matrixUsername = $state('');
+  let matrixPassword = $state('');
+  let matrixLoginError = $state('');
 
-  let showXmppLogin = false;
-  let xmppJid = '';
-  let xmppPassword = '';
-  let xmppLoginError = '';
+  let showXmppLogin = $state(false);
+  let xmppJid = $state('');
+  let xmppPassword = $state('');
+  let xmppLoginError = $state('');
 
   async function submitXmppLogin() {
     xmppLoginError = '';
@@ -65,19 +71,21 @@
     showNewConversation = false;
   }
 
-  $: filteredConversations = ($conversations || []).filter((c) =>
+  let filteredConversations = $derived(($conversations || []).filter((c) =>
     !search.trim() || c.title.toLowerCase().includes(search.toLowerCase()) || c.participant.toLowerCase().includes(search.toLowerCase())
-  );
-  $: activeConversation = ($conversations || []).find((c) => c.id === $activeId) ?? null;
+  ));
+  let activeConversation = $derived(($conversations || []).find((c) => c.id === $activeId) ?? null);
 
   onMount(() => { store.load(); });
 
   // Keep the thread scrolled to the newest message whenever it changes
   // (new message sent/received, or switching conversations) — a chat
   // view that doesn't auto-scroll reads as broken, not calm.
-  $: if (threadEl && $thread) {
-    queueMicrotask(() => { if (threadEl) threadEl.scrollTop = threadEl.scrollHeight; });
-  }
+  run(() => {
+    if (threadEl && $thread) {
+      queueMicrotask(() => { if (threadEl) threadEl.scrollTop = threadEl.scrollHeight; });
+    }
+  });
 
   async function handleSend() {
     const body = composeText;
@@ -133,21 +141,21 @@
         />
       </div>
       <button
-        on:click={() => (showNewConversation = true)}
+        onclick={() => (showNewConversation = true)}
         class="shrink-0 w-7 h-7 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500 transition-colors"
         title="New conversation"
       >
         <Plus class="w-4 h-4" />
       </button>
       <button
-        on:click={() => ($matrixLoggedIn ? store.matrixLogout() : (showMatrixLogin = true))}
+        onclick={() => ($matrixLoggedIn ? store.matrixLogout() : (showMatrixLogin = true))}
         class="shrink-0 w-7 h-7 flex items-center justify-center rounded transition-colors {$matrixLoggedIn ? 'bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'}"
         title={$matrixLoggedIn ? 'Connected to Matrix — click to log out' : 'Connect a Matrix account'}
       >
         {#if $matrixBusy}<Loader2 class="w-4 h-4 animate-spin" />{:else if $matrixLoggedIn}<LogOut class="w-4 h-4" />{:else}<Link2 class="w-4 h-4" />{/if}
       </button>
       <button
-        on:click={() => ($xmppLoggedIn ? store.xmppLogout() : (showXmppLogin = true))}
+        onclick={() => ($xmppLoggedIn ? store.xmppLogout() : (showXmppLogin = true))}
         class="shrink-0 w-7 h-7 flex items-center justify-center rounded transition-colors {$xmppLoggedIn ? 'bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'}"
         title={$xmppLoggedIn ? 'Connected to XMPP — click to log out' : 'Connect an XMPP account'}
       >
@@ -165,9 +173,12 @@
         </div>
       {:else}
         {#each filteredConversations as c (c.id)}
-          <button
-            class="w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors flex items-start gap-2 group {c.id === $activeId ? 'bg-white/10' : ''}"
-            on:click={() => store.openConversation(c.id)}
+          <div
+            role="button"
+            tabindex="0"
+            class="w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors flex items-start gap-2 group cursor-pointer {c.id === $activeId ? 'bg-white/10' : ''}"
+            onclick={() => store.openConversation(c.id)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); store.openConversation(c.id); } }}
           >
             <div class="w-8 h-8 rounded-full bg-blue-600/30 flex items-center justify-center text-xs font-medium shrink-0 mt-0.5">
               {c.title.slice(0, 1).toUpperCase()}
@@ -191,19 +202,19 @@
               <button
                 class="w-5 h-5 flex items-center justify-center rounded hover:bg-white/10"
                 title={c.pinned ? 'Unpin' : 'Pin'}
-                on:click|stopPropagation={() => store.togglePinned(c.id)}
+                onclick={stopPropagation(() => store.togglePinned(c.id))}
               >
                 <Pin class="w-3 h-3 {c.pinned ? 'text-blue-400' : 'text-slate-500'}" />
               </button>
               <button
                 class="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/20"
                 title="Delete"
-                on:click|stopPropagation={() => store.deleteConversation(c.id)}
+                onclick={stopPropagation(() => store.deleteConversation(c.id))}
               >
                 <Trash2 class="w-3 h-3 text-slate-500 hover:text-red-400" />
               </button>
             </div>
-          </button>
+          </div>
         {/each}
       {/if}
     </div>
@@ -237,13 +248,13 @@
       <div class="p-3 border-t border-white/10 flex items-end gap-2">
         <textarea
           bind:value={composeText}
-          on:keydown={handleComposeKeydown}
+          onkeydown={handleComposeKeydown}
           rows="1"
           placeholder="Type a message… (Enter to send, Shift+Enter for a new line)"
           class="flex-1 resize-none bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 max-h-28"
-        />
+></textarea>
         <button
-          on:click={handleSend}
+          onclick={handleSend}
           disabled={!composeText.trim() || $sending}
           class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
@@ -263,7 +274,7 @@
       <div class="bg-slate-900 border border-white/10 rounded-lg w-80 p-4 flex flex-col gap-3 max-h-[80%] overflow-y-auto">
         <div class="flex items-center justify-between">
           <span class="font-medium text-sm">New conversation</span>
-          <button on:click={() => (showNewConversation = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
+          <button onclick={() => (showNewConversation = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -278,7 +289,7 @@
           {#if !$matrixLoggedIn}
             <p class="text-[11px] text-slate-400">
               Not connected to Matrix yet.
-              <button class="text-blue-400 hover:underline" on:click={() => { showNewConversation = false; showMatrixLogin = true; }}>Connect an account</button>
+              <button class="text-blue-400 hover:underline" onclick={() => { showNewConversation = false; showMatrixLogin = true; }}>Connect an account</button>
               first.
             </p>
           {:else}
@@ -287,12 +298,12 @@
               <div class="flex items-center gap-2 text-xs text-slate-400 py-3 justify-center"><Loader2 class="w-3.5 h-3.5 animate-spin" /> Loading rooms…</div>
             {:else if $matrixRooms.length === 0}
               <p class="text-xs text-slate-500 py-2">No joined rooms found (or none loaded yet).</p>
-              <button on:click={() => store.matrixLoadRooms()} class="text-xs text-blue-400 hover:underline self-start">Refresh room list</button>
+              <button onclick={() => store.matrixLoadRooms()} class="text-xs text-blue-400 hover:underline self-start">Refresh room list</button>
             {:else}
               <div class="flex flex-col gap-1 max-h-48 overflow-y-auto">
                 {#each $matrixRooms as room (room.roomId)}
                   <button
-                    on:click={() => importRoom(room.roomId, room.name)}
+                    onclick={() => importRoom(room.roomId, room.name)}
                     class="text-left px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs truncate transition-colors"
                   >
                     {room.name}
@@ -304,7 +315,7 @@
         {:else if newChannel === 'xmpp' && !$xmppLoggedIn}
           <p class="text-[11px] text-slate-400">
             Not connected to XMPP yet.
-            <button class="text-blue-400 hover:underline" on:click={() => { showNewConversation = false; showXmppLogin = true; }}>Connect an account</button>
+            <button class="text-blue-400 hover:underline" onclick={() => { showNewConversation = false; showXmppLogin = true; }}>Connect an account</button>
             first.
           </p>
         {:else}
@@ -343,7 +354,7 @@
             </p>
           {/if}
           <button
-            on:click={submitNewConversation}
+            onclick={submitNewConversation}
             disabled={!newTitle.trim()}
             class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium transition-colors"
           >
@@ -359,7 +370,7 @@
       <div class="bg-slate-900 border border-white/10 rounded-lg w-80 p-4 flex flex-col gap-3">
         <div class="flex items-center justify-between">
           <span class="font-medium text-sm flex items-center gap-1.5"><Link2 class="w-3.5 h-3.5" /> Connect Matrix account</span>
-          <button on:click={() => (showMatrixLogin = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
+          <button onclick={() => (showMatrixLogin = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -380,14 +391,14 @@
           bind:value={matrixPassword}
           type="password"
           placeholder="Password"
-          on:keydown={(e) => e.key === 'Enter' && submitMatrixLogin()}
+          onkeydown={(e) => e.key === 'Enter' && submitMatrixLogin()}
           class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
         />
         {#if matrixLoginError}
           <p class="text-[11px] text-red-400">{matrixLoginError}</p>
         {/if}
         <button
-          on:click={submitMatrixLogin}
+          onclick={submitMatrixLogin}
           disabled={!matrixHomeserver.trim() || !matrixUsername.trim() || !matrixPassword || $matrixBusy}
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
@@ -402,7 +413,7 @@
       <div class="bg-slate-900 border border-white/10 rounded-lg w-80 p-4 flex flex-col gap-3">
         <div class="flex items-center justify-between">
           <span class="font-medium text-sm flex items-center gap-1.5"><Link2 class="w-3.5 h-3.5" /> Connect XMPP account</span>
-          <button on:click={() => (showXmppLogin = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
+          <button onclick={() => (showXmppLogin = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -419,14 +430,14 @@
           bind:value={xmppPassword}
           type="password"
           placeholder="Password"
-          on:keydown={(e) => e.key === 'Enter' && submitXmppLogin()}
+          onkeydown={(e) => e.key === 'Enter' && submitXmppLogin()}
           class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
         />
         {#if xmppLoginError}
           <p class="text-[11px] text-red-400">{xmppLoginError}</p>
         {/if}
         <button
-          on:click={submitXmppLogin}
+          onclick={submitXmppLogin}
           disabled={!xmppJid.trim() || !xmppPassword || $xmppBusy}
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded px-3 py-1.5 text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
