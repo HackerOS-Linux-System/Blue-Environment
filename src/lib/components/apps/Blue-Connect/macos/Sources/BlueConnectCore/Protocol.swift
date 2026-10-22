@@ -22,6 +22,19 @@ public enum Proto {
     public static let typeSMSRequest = "kdeconnect.sms.request"
     public static let typeSMSMessages = "kdeconnect.sms.messages"
 
+    // Plugin packets (see ../../PLUGINS.md — shared by desktop, Windows, Android and macOS).
+    public static let typeBatteryRequest = "kdeconnect.battery.request"
+    public static let typeBattery = "kdeconnect.battery"
+    public static let typeFindMyPhone = "kdeconnect.findmyphone.request"
+    public static let typeClipboard = "kdeconnect.clipboard"
+    public static let typeClipboardRequest = "kdeconnect.clipboard.request"
+    public static let typeShare = "kdeconnect.share.request"
+    public static let typeNotificationRequest = "kdeconnect.notification.request"
+    public static let typeNotificationList = "kdeconnect.notification.list"
+
+    /// Replies must fit one TLS record — the desktop reads each answer with a single read().
+    public static let maxSingleReadReplyBytes = 14_000
+
     /// How long either side waits for the other person to answer a pairing request.
     public static let pairingDecisionTimeout: TimeInterval = 120
     /// Upper bound for one packet we are willing to buffer.
@@ -44,8 +57,9 @@ public enum Proto {
             "tcpPort": tcpPort,
             // Extra fields: ignored by the desktop (serde skips unknown keys),
             // but let real KDE Connect negotiate plugins.
-            "incomingCapabilities": [typePair, typePing, typeSMSMessages],
-            "outgoingCapabilities": [typePair, typePing, typeSMSRequest],
+            "incomingCapabilities": [typePair, typePing, typeSMSMessages, typeBatteryRequest, typeFindMyPhone,
+                                     typeClipboard, typeClipboardRequest, typeShare, typeNotificationRequest],
+            "outgoingCapabilities": [typePair, typePing, typeSMSRequest, typeBattery, typeClipboard, typeNotificationList],
         ]
         return encode(["type": typeIdentity, "body": body])
     }
