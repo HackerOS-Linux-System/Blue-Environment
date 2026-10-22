@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run, self } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { configStore } from './lib/utils/configStore';
@@ -76,11 +78,11 @@
   // instead of a broken-image icon.
   // Which compositor backend the shell runs on (hackeros-comp | labwc | sway | wayfire) —
   // exposed as `data-backend` on the root element for CSS/debugging.
-  let backendActive = '';
-  let wallpaper = '';
-  let theme = 'dark';
-  let desktopPath = 'HOME/Desktop';
-  let appsEnabled: Record<string, boolean> = {};
+  let backendActive = $state('');
+  let wallpaper = $state('');
+  let theme = $state('dark');
+  let desktopPath = $state('HOME/Desktop');
+  let appsEnabled = $state<Record<string, boolean>>({});
 
   // Panel (top bar) settings — previously `panelEnabled`/`panelPosition`
   // existed in the config type/defaults but nothing actually read them;
@@ -88,11 +90,11 @@
   // reserve space on the correct edge (or none, if the panel is
   // disabled — safe to do since the Super-key shortcut still opens the
   // start menu with no panel visible at all, see keyboardShortcuts.ts).
-  let panelEnabled = true;
-  let panelPosition: 'top' | 'bottom' = 'top';
-  let panelSize = 48;
-  $: barHeight = panelEnabled ? panelSize : 0;
-  let shellThemeId: string | undefined;
+  let panelEnabled = $state(true);
+  let panelPosition = $state<'top' | 'bottom'>('top');
+  let panelSize = $state(48);
+  let barHeight = $derived(panelEnabled ? panelSize : 0);
+  let shellThemeId = $state<string | undefined>();
 
   // On-screen keyboard — see OnscreenKeyboard.svelte's module doc for
   // what this can and can't type into. `enabled` is the Settings
@@ -103,9 +105,11 @@
   // never triggers this, since each key handler uses
   // `on:mousedown|preventDefault` specifically so it never steals DOM
   // focus away from the field being typed into).
-  let onscreenKeyboardEnabled = false;
-  let onscreenKeyboardVisible = false;
-  $: if (!onscreenKeyboardEnabled) onscreenKeyboardVisible = false;
+  let onscreenKeyboardEnabled = $state(false);
+  let onscreenKeyboardVisible = $state(false);
+  run(() => {
+    if (!onscreenKeyboardEnabled) onscreenKeyboardVisible = false;
+  });
   function isTextEditableTarget(el: Element | null): boolean {
     if (!el) return false;
     if (el.tagName === 'TEXTAREA') return true;
@@ -119,22 +123,22 @@
     if (!onscreenKeyboardEnabled) return;
     onscreenKeyboardVisible = isTextEditableTarget(e.target as Element | null);
   }
-  let systemThemeId: string | null | undefined;
+  let systemThemeId = $state<string | null | undefined>();
 
   // Active shell theme (Hydra etc. — see builtinThemes.ts) overrides the
   // person's own wallpaper/panel-position choices while selected, same
   // way `data-shell-theme`'s CSS overrides work in ShellThemeStyle.svelte
   // — `resolveActiveShellTheme` is the single shared source of truth
   // both use for "is there a real override active right now".
-  $: activeShellTheme = resolveActiveShellTheme(shellThemeId);
-  $: effectiveWallpaper = activeShellTheme?.wallpaper || wallpaper;
+  let activeShellTheme = $derived(resolveActiveShellTheme(shellThemeId));
+  let effectiveWallpaper = $derived(activeShellTheme?.wallpaper || wallpaper);
 
   // Wallpaper loading with a safety net. The primary path is the `asset:`
   // protocol (cheap, streamed by the webview). If that can't load the file
   // (scope mismatch, unusual webview build...) we fall back to reading the
   // file through a Rust command and feeding it as a data: URL, instead of
   // silently showing only the gradient like before.
-  let wallpaperCss = '';
+  let wallpaperCss = $state('');
   let wallpaperToken = 0;
   async function resolveWallpaperCss(path: string) {
     const token = ++wallpaperToken;
@@ -152,16 +156,18 @@
     if (token !== wallpaperToken) return;
     wallpaperCss = data ?? '';
   }
-  $: resolveWallpaperCss(effectiveWallpaper);
+  run(() => {
+    resolveWallpaperCss(effectiveWallpaper);
+  });
   // Theme layout's panelPosition can in principle be 'left'/'right' too
   // (richer future themes) — TopBar only understands 'top'/'bottom'
   // today, so only override with the theme's own choice when it's one
   // of those two; otherwise fall back to the person's setting rather
   // than silently doing nothing with a 'left'/'right' theme value.
-  $: effectivePanelPosition =
-    activeShellTheme && (activeShellTheme.layout.panelPosition === 'top' || activeShellTheme.layout.panelPosition === 'bottom')
+  let effectivePanelPosition =
+    $derived(activeShellTheme && (activeShellTheme.layout.panelPosition === 'top' || activeShellTheme.layout.panelPosition === 'bottom')
       ? activeShellTheme.layout.panelPosition
-      : panelPosition;
+      : panelPosition);
 
   function getAppDef(appId: string) {
     // Installed Blue Store apps/plugins have no static APPS entry (they're
@@ -176,33 +182,35 @@
     return APPS[appId as AppId];
   }
 
-  let isStartMenuOpen = false;
+  let isStartMenuOpen = $state(false);
   /** Spotlight search (Super+S, Ctrl+Alt+Space or `blue-environment --ctl toggle-spotlight`). */
-  let isSpotlightOpen = false;
-  let isStartMenuFullScreen = false;
-  let hotCornersCfg: HotCornersConfig = DEFAULT_HOT_CORNERS;
+  let isSpotlightOpen = $state(false);
+  let isStartMenuFullScreen = $state(false);
+  let hotCornersCfg = $state<HotCornersConfig>(DEFAULT_HOT_CORNERS);
   let superDoubleTapMs = 350;
   let deviceNotifications = true;
-  let showTransferProgress = true;
+  let showTransferProgress = $state(true);
   let lastSuperTap = 0;
-  let cornerHandler: (slot: HotCornerSlot) => void = () => {};
-  let isClipboardOpen = false;
-  let isControlCenterOpen = false;
-  let isNotificationsOpen = false;
-  let showPowerMenu = false;
+  let cornerHandler = $state<(slot: HotCornerSlot) => void>(() => {});
+  let isClipboardOpen = $state(false);
+  let isControlCenterOpen = $state(false);
+  let isNotificationsOpen = $state(false);
+  let showPowerMenu = $state(false);
 
-  let switcherVisible = false;
-  let switcherIndex = 0;
+  let switcherVisible = $state(false);
+  let switcherIndex = $state(0);
 
   // Mirrors the overlay booleans above into `shellOverlayOpen` — see
   // `overlayState.ts`'s doc comment for why (BlueWebApp.svelte's
   // embedded-webview visibility gating needs to observe this from
   // outside App.svelte, and a plain component-local `let` can't be
   // imported elsewhere).
-  $: shellOverlayOpen.set(
-    isStartMenuOpen || isClipboardOpen || isControlCenterOpen ||
-    isNotificationsOpen || showPowerMenu || switcherVisible
-  );
+  run(() => {
+    shellOverlayOpen.set(
+      isStartMenuOpen || isClipboardOpen || isControlCenterOpen ||
+      isNotificationsOpen || showPowerMenu || switcherVisible
+    );
+  });
 
   // ── Auto-dismiss of transient popups ────────────────────────────────────
   // Clicking an app, Alt+Tab, focusing a native window… must hide the Start
@@ -218,15 +226,17 @@
   }
   // Remember when a popup last opened: a focus/blur wobble that arrives in the same
   // instant (the compositor raising the shell for Super) must not close it again.
-  let anyPopupOpen = false;
-  let popupOpenedAt = 0;
-  $: {
+  let anyPopupOpen = $state(false);
+  let popupOpenedAt = $state(0);
+  run(() => {
     const open = isStartMenuOpen || isControlCenterOpen || isNotificationsOpen || isClipboardOpen || showPowerMenu;
     if (open && !anyPopupOpen) popupOpenedAt = Date.now();
     anyPopupOpen = open;
-  }
+  });
   // Alt+Tab switcher appearing = the user is leaving whatever popup was open.
-  $: if (switcherVisible) closePopupsNow();
+  run(() => {
+    if (switcherVisible) closePopupsNow();
+  });
 
   let cleanupKeyboard: () => void;
 
@@ -603,7 +613,7 @@
     SystemBridge.powerAction(e.detail);
   }
 
-  $: openWindowSummaries = [
+  let openWindowSummaries = $derived([
     ...$windows.map((w) => ({
       id: w.id,
       appId: w.appId as AppId | undefined,
@@ -625,18 +635,18 @@
       isActive: false,
       workspace: w.desktop ?? 0,
     })),
-  ];
+  ]);
 
-  $: windowCounts = Array.from({ length: $workspaceCount }, (_, i) => $windows.filter((w) => w.workspace === i).length);
+  let windowCounts = $derived(Array.from({ length: $workspaceCount }, (_, i) => $windows.filter((w) => w.workspace === i).length));
 
   // `getSwitcherItems` takes both lists as plain arguments (see its own
   // doc in windowManager.ts for why) — referencing `$windows`/
   // `$externalWindows` directly here is what makes this recompute
   // whenever either list changes.
-  $: switcherItems = getSwitcherItems($windows, $externalWindows);
+  let switcherItems = $derived(getSwitcherItems($windows, $externalWindows));
 
   // Top bar's running-apps strip: one entry per open window (Blue + native).
-  $: runningItems = buildRunningItems($windows, $externalWindows, $activeWindowId);
+  let runningItems = $derived(buildRunningItems($windows, $externalWindows, $activeWindowId));
 
   function activateRunning(item: RunningItem) {
     const otherWorkspace = item.workspace !== get(currentWorkspace);
@@ -667,18 +677,18 @@
   // perfectly ordinary usage (well under 40 focus events). This instead
   // always stays a fixed margin above whatever the highest window
   // zIndex currently is, so it can never be silently overtaken again.
-  $: startMenuZIndex = Math.max(50, ...$windows.map((w) => w.zIndex)) + 100;
+  let startMenuZIndex = $derived(Math.max(50, ...$windows.map((w) => w.zIndex)) + 100);
   // The desktop backdrop's fallback gradient (used whenever no
   // wallpaper image is set) was hardcoded to a dark navy gradient
   // regardless of light/dark mode — the very first thing rendered, and
   // wrong for anyone on light mode with no wallpaper picked yet.
-  $: fallbackBgColor = theme === 'light-glass' ? '#f1f5f9' : '#0f172a';
-  $: fallbackGradient = theme === 'light-glass'
+  let fallbackBgColor = $derived(theme === 'light-glass' ? '#f1f5f9' : '#0f172a');
+  let fallbackGradient = $derived(theme === 'light-glass'
     ? 'linear-gradient(160deg, #f1f5f9, #e2e8f0)'
-    : 'linear-gradient(160deg, #0f172a, #1e293b)';
+    : 'linear-gradient(160deg, #0f172a, #1e293b)');
 </script>
 
-<svelte:window on:keydown={onGlobalKey} />
+<svelte:window onkeydown={onGlobalKey} />
 
 {#if $liveModeChecked && $isLiveMode}
   <!-- Live session: the installer stays mounted (just hidden) while the
@@ -695,7 +705,7 @@
   data-theme={theme}
   data-backend={backendActive}
   style="background-color:{fallbackBgColor}; font-family:var(--shell-font, inherit);"
-  on:click|self={() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; }}
+  onclick={self(() => { isStartMenuOpen = false; isControlCenterOpen = false; isNotificationsOpen = false; })}
 >
   <!-- Dedicated wallpaper layer, separate from the content below it, so
        a theme's `wallpaperBlur` (extras.wallpaperBlur — see
@@ -784,7 +794,7 @@
   <ControlCenter isOpen={isControlCenterOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:openSettings={() => { openApp(AppId.SETTINGS); isControlCenterOpen = false; }} />
   <NotificationCenter isOpen={isNotificationsOpen} panelPosition={effectivePanelPosition} panelSize={barHeight} shellThemeId={activeShellTheme?.id} on:close={() => (isNotificationsOpen = false)} />
   {#if isClipboardOpen}
-    <ClipboardPanel on:close={() => (isClipboardOpen = false)} />
+    <ClipboardPanel onclose={() => (isClipboardOpen = false)} />
   {/if}
 
   {#if showPowerMenu}
