@@ -17,7 +17,9 @@ import org.hackeros.blueconnect.core.ConnectOptions
 import org.hackeros.blueconnect.core.DeviceInfo
 import org.hackeros.blueconnect.core.IncomingPairingRequest
 import org.hackeros.blueconnect.core.OutgoingPairingSas
+import org.hackeros.blueconnect.core.CompositeHandler
 import org.hackeros.blueconnect.core.PairingDecision
+import org.hackeros.blueconnect.core.PluginRouter
 import java.io.File
 
 /**
@@ -76,7 +78,11 @@ class ConnectService : Service() {
             val identity = AndroidKeystoreIdentity.loadOrCreate()
             val options = ConnectOptions(dataDir = File(filesDir, "blue-connect"), deviceName = deviceName(), deviceType = deviceType())
             val e = ConnectEngine(options, identity, UiListener())
-            e.packetHandler = SmsPlugin(applicationContext) { msg -> Log.i(TAG, msg); BlueConnectRuntime.postMessage(msg) }
+            // Plugins (battery, find my phone, clipboard, share, notifications) first, then the SMS relay.
+            e.packetHandler = CompositeHandler(
+                PluginRouter(AndroidPluginHost(applicationContext)),
+                SmsPlugin(applicationContext) { msg -> Log.i(TAG, msg); BlueConnectRuntime.postMessage(msg) },
+            )
             e.start()
             engine = e
             BlueConnectRuntime.attach(e)
