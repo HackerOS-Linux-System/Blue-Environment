@@ -1,31 +1,45 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { X, Bell, Trash2, Check } from 'lucide-svelte';
   import { notificationManager } from '../utils/notificationManager';
   import type { Notification } from '../types';
   import { createEventDispatcher } from 'svelte';
 
-  export let isOpen = false;
   // Same hardcoded-`top-14` bug ControlCenter.svelte had (found while
   // fixing that one, for the same reason — a bottom-positioned panel,
   // e.g. the Hydra shell theme, needs this popup to open from the
   // bottom instead) — fixed here too rather than leaving one sibling
-  // popup correct and the other still broken.
-  export let panelPosition: 'top' | 'bottom' = 'top';
-  export let panelSize = 48;
-  export let shellThemeId: string | undefined = undefined;
+  
+  interface Props {
+    isOpen?: boolean;
+    // popup correct and the other still broken.
+    panelPosition?: 'top' | 'bottom';
+    panelSize?: number;
+    shellThemeId?: string | undefined;
+  }
+
+  let {
+    isOpen = false,
+    panelPosition = 'top',
+    panelSize = 48,
+    shellThemeId = undefined
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
-  let notifications: Notification[] = [];
-  let unsub: (() => void) | undefined;
+  let notifications = $state<Notification[]>([]);
+  let unsub = $state<(() => void) | undefined>();
 
-  $: if (isOpen) {
-    unsub?.();
-    unsub = notificationManager.subscribe((n) => (notifications = n));
-  } else {
-    unsub?.();
-    unsub = undefined;
-  }
+  run(() => {
+    if (isOpen) {
+      unsub?.();
+      unsub = notificationManager.subscribe((n) => (notifications = n));
+    } else {
+      unsub?.();
+      unsub = undefined;
+    }
+  });
 
   function formatTime(ts: number) {
     return new Date(ts).toLocaleTimeString();
@@ -41,10 +55,10 @@
         <Bell size={18} /> Notifications
       </h2>
       <div class="flex gap-2">
-        <button on:click={() => notificationManager.clearAll()} class="text-slate-400 hover:text-white bg-white/5 p-1.5 rounded-full transition-colors" title="Clear all">
+        <button onclick={() => notificationManager.clearAll()} class="text-slate-400 hover:text-white bg-white/5 p-1.5 rounded-full transition-colors" title="Clear all">
           <Trash2 size={15} />
         </button>
-        <button on:click={() => dispatch('close')} class="text-slate-400 hover:text-white bg-white/5 p-1.5 rounded-full transition-colors">
+        <button onclick={() => dispatch('close')} class="text-slate-400 hover:text-white bg-white/5 p-1.5 rounded-full transition-colors">
           <X size={15} />
         </button>
       </div>
@@ -67,7 +81,7 @@
                 <div class="flex gap-2 mt-2">
                   {#each notif.actions as act}
                     <button
-                      on:click={() => { window.dispatchEvent(new CustomEvent('blue:notification-action', { detail: { id: notif.id, action: act.action } })); notificationManager.markAsRead(notif.id); }}
+                      onclick={() => { window.dispatchEvent(new CustomEvent('blue:notification-action', { detail: { id: notif.id, action: act.action } })); notificationManager.markAsRead(notif.id); }}
                       class="px-3 py-1 text-xs rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white transition-colors">
                       {act.label}
                     </button>
@@ -77,7 +91,7 @@
               <div class="text-[10px] text-slate-500 mt-2">{formatTime(notif.timestamp)}</div>
             </div>
             {#if !notif.read}
-              <button on:click={() => notificationManager.markAsRead(notif.id)} class="p-1 hover:bg-white/10 rounded transition-colors" title="Mark as read">
+              <button onclick={() => notificationManager.markAsRead(notif.id)} class="p-1 hover:bg-white/10 rounded transition-colors" title="Mark as read">
                 <Check size={14} class="text-blue-400" />
               </button>
             {/if}
