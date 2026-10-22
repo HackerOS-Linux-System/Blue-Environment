@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { onMount, onDestroy, tick } from 'svelte';
   import { SystemBridge, shellQuote } from '../../../utils/systemBridge';
   import {
@@ -8,43 +10,48 @@
   import SaveAsDialog from './SaveAsDialog.svelte';
   import { autocorrectAt } from '../../../utils/autocorrect';
   // Reused straight from Blue Code rather than pulling in a second
-  // highlighting engine — Monaco is already a dependency this app ships
-  // (Blue-Code-App/MonacoEditor.svelte), so "syntax highlighting in
+  // highlighting engine — CodeMirror is already a dependency this app ships
+  // (Blue-Code-App/CodeEditor.svelte), so "syntax highlighting in
   // Notepad" is a toggle between the plain `<textarea>` below and this
   // same editor component, not a separate implementation to maintain.
-  // `getLang` maps a filename's extension to a Monaco language id —
+  // `getLang` maps a filename's extension to a CodeMirror language id —
   // see languageMap.ts.
-  import MonacoEditor from '../Blue-Code-App/MonacoEditor.svelte';
+  import CodeEditor from '../Blue-Code-App/CodeEditor.svelte';
   import { getLang } from '../Blue-Code-App/languageMap';
   import { HACKER_LANG_IDS } from '../Blue-Code-App/hackerLanguages';
 
-  /** Set when launched from Explorer with "open this file" — see
+  
+  interface Props {
+    /** Set when launched from Explorer with "open this file" — see
    * ExplorerApp.svelte's handleOpen and windowManager.ts's launchArgs. */
-  export let openPath: string | undefined = undefined;
+    openPath?: string | undefined;
+  }
+
+  let { openPath = undefined }: Props = $props();
 
   interface NoteTab { id: string; title: string; content: string; path?: string; modified: boolean; }
   interface FindState { query: string; replace: string; show: boolean; matchCase: boolean; count: number; }
 
-  let tabs: NoteTab[] = [];
-  let activeId: string | null = null;
-  let find: FindState = { query: '', replace: '', show: false, matchCase: false, count: 0 };
-  let wordCount = 0;
-  let lineCount = 0;
-  let cursorPos = { line: 1, col: 1 };
-  let saveAsTarget: NoteTab | null = null;
-  let textareaEl: HTMLTextAreaElement;
+  let tabs = $state<NoteTab[]>([]);
+  let activeId = $state<string | null>(null);
+  let find = $state<FindState>({ query: '', replace: '', show: false, matchCase: false, count: 0 });
+  let wordCount = $state(0);
+  let lineCount = $state(0);
+  let cursorPos = $state({ line: 1, col: 1 });
+  let saveAsTarget = $state<NoteTab | null>(null);
+  let textareaEl = $state() as HTMLTextAreaElement;
   let autosaveTimer: ReturnType<typeof setInterval>;
-  let findInputEl: HTMLInputElement;
-  let autocorrectEnabled = true;
+  let findInputEl = $state() as HTMLInputElement;
+  let autocorrectEnabled = $state(true);
   // Notepad's own setting (not the global Settings app — this is a
   // per-app preference, toggled from Notepad's own toolbar, the way
   // the request asked for) for whether to render the active tab through
-  // Monaco (real tokenizer-based syntax highlighting) instead of the
+  // CodeMirror (real tokenizer-based syntax highlighting) instead of the
   // plain textarea. Off by default: Notepad's whole appeal for a quick
   // note is being a plain text box, not an IDE — this is opt-in, not a
   // replacement for Blue Code.
   const HIGHLIGHT_PREF_KEY = 'blue-notepad-syntax-highlighting';
-  let syntaxHighlightingEnabled = false;
+  let syntaxHighlightingEnabled = $state(false);
   try { syntaxHighlightingEnabled = localStorage.getItem(HIGHLIGHT_PREF_KEY) === '1'; } catch {}
 
   function toggleSyntaxHighlighting() {
@@ -52,25 +59,6 @@
     try { localStorage.setItem(HIGHLIGHT_PREF_KEY, syntaxHighlightingEnabled ? '1' : '0'); } catch {}
   }
 
-  // Monaco needs a real language id (falls back to 'plaintext' for a
-  // name with no recognized extension, e.g. a still-untitled tab) —
-  // highlighting only actually activates when both the setting is on
-  // AND there's a real language to highlight, so an untitled/plaintext
-  // note still gets the plain textarea even with the setting enabled.
-  $: activeLang = activeTab ? getLang(activeTab.title) : 'plaintext';
-  // The HackerOS formats (.h# .hl .hcs .hk .hacker) and Blue's own .blue are
-  // always highlighted — nothing else in the system can show them readably,
-  // so unlike general code files this doesn't wait for the toolbar toggle.
-  $: isHackerFamily = (HACKER_LANG_IDS as readonly string[]).includes(activeLang);
-  $: monacoActive = (syntaxHighlightingEnabled || isHackerFamily) && activeLang !== 'plaintext';
-
-  function handleMonacoMount(e: CustomEvent<{ editor: any; monaco: any }>) {
-    e.detail.editor.onDidChangeCursorPosition((ev: any) => {
-      cursorPos = { line: ev.position.lineNumber, col: ev.position.column };
-    });
-  }
-
-  $: activeTab = tabs.find((t) => t.id === activeId) ?? null;
 
   onMount(() => {
     const id = `note-${Date.now()}`;
@@ -97,7 +85,7 @@
     if (openPath) openFileByPath(openPath);
 
     // handleKeyDown below is bound directly to the plain textarea, so it
-    // never fires while Monaco has focus (Monaco owns its own DOM node
+    // never fires while the editor has focus (CodeMirror owns its own DOM node
     // and its own keydown handling for things like its find widget) —
     // without this, Ctrl+S would silently do nothing the moment syntax
     // highlighting is turned on for a tab.
@@ -308,7 +296,21 @@
     if (e.ctrlKey && e.key === 'f') { e.preventDefault(); find = { ...find, show: !find.show }; }
   }
 
-  $: if (find.show) tick().then(() => findInputEl?.focus());
+  let activeTab = $derived(tabs.find((t) => t.id === activeId) ?? null);
+  // Monaco needs a real language id (falls back to 'plaintext' for a
+  // name with no recognized extension, e.g. a still-untitled tab) —
+  // highlighting only actually activates when both the setting is on
+  // AND there's a real language to highlight, so an untitled/plaintext
+  // note still gets the plain textarea even with the setting enabled.
+  let activeLang = $derived(activeTab ? getLang(activeTab.title) : 'plaintext');
+  // The HackerOS formats (.h# .hl .hcs .hk .hacker) and Blue's own .blue are
+  // always highlighted — nothing else in the system can show them readably,
+  // so unlike general code files this doesn't wait for the toolbar toggle.
+  let isHackerFamily = $derived((HACKER_LANG_IDS as readonly string[]).includes(activeLang));
+  let monacoActive = $derived((syntaxHighlightingEnabled || isHackerFamily) && activeLang !== 'plaintext');
+  run(() => {
+    if (find.show) tick().then(() => findInputEl?.focus());
+  });
 </script>
 
 <div class="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
@@ -317,24 +319,24 @@
   {/if}
 
   <div class="shrink-0 flex items-center gap-1 px-3 py-2 bg-slate-800 border-b border-white/5">
-    <button on:click={newTab} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="New Tab (Ctrl+T)"><Plus size={15} /></button>
-    <button on:click={openFile} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Open file"><FolderOpen size={15} /></button>
-    <button on:click={() => saveFile()} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Save (Ctrl+S)"><Save size={15} /></button>
-    <button on:click={() => saveAs()} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Save As (Ctrl+Shift+S)"><Download size={15} /></button>
-    <div class="w-px h-5 bg-white/10 mx-1" />
-    <button on:click={() => insertText('**', '**')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Bold"><Bold size={15} /></button>
-    <button on:click={() => insertText('*', '*')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Italic"><Italic size={15} /></button>
-    <button on:click={() => insertText('# ')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Heading"><Hash size={15} /></button>
-    <div class="w-px h-5 bg-white/10 mx-1" />
-    <button on:click={() => (find = { ...find, show: !find.show })} class="p-1.5 rounded-lg {find.show ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-400'}" title="Find (Ctrl+F)">
+    <button onclick={newTab} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="New Tab (Ctrl+T)"><Plus size={15} /></button>
+    <button onclick={openFile} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Open file"><FolderOpen size={15} /></button>
+    <button onclick={() => saveFile()} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Save (Ctrl+S)"><Save size={15} /></button>
+    <button onclick={() => saveAs()} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Save As (Ctrl+Shift+S)"><Download size={15} /></button>
+    <div class="w-px h-5 bg-white/10 mx-1"></div>
+    <button onclick={() => insertText('**', '**')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Bold"><Bold size={15} /></button>
+    <button onclick={() => insertText('*', '*')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Italic"><Italic size={15} /></button>
+    <button onclick={() => insertText('# ')} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" title="Heading"><Hash size={15} /></button>
+    <div class="w-px h-5 bg-white/10 mx-1"></div>
+    <button onclick={() => (find = { ...find, show: !find.show })} class="p-1.5 rounded-lg {find.show ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-400'}" title="Find (Ctrl+F)">
       <Search size={15} />
     </button>
-    <button on:click={() => (autocorrectEnabled = !autocorrectEnabled)}
+    <button onclick={() => (autocorrectEnabled = !autocorrectEnabled)}
       class="p-1.5 rounded-lg text-xs font-medium {autocorrectEnabled ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-500'}"
       title={autocorrectEnabled ? 'Autocorrect: on — fixes common typos as you type' : 'Autocorrect: off'}>
       <SpellCheck size={15} />
     </button>
-    <button on:click={toggleSyntaxHighlighting}
+    <button onclick={toggleSyntaxHighlighting}
       class="p-1.5 rounded-lg text-xs font-medium {syntaxHighlightingEnabled ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/10 text-slate-500'}"
       title={syntaxHighlightingEnabled
         ? `Syntax highlighting: on — active for recognized file types (currently: ${activeLang})`
@@ -348,32 +350,32 @@
 
   <div class="shrink-0 flex bg-slate-800/50 border-b border-white/5 overflow-x-auto scrollbar-hide">
     {#each tabs as tab (tab.id)}
-      <div on:click={() => (activeId = tab.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (activeId = tab.id))(); } }}
+      <div onclick={() => (activeId = tab.id)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (activeId = tab.id))(); } }}
         class="flex items-center gap-1.5 px-4 py-2 cursor-pointer shrink-0 border-r border-white/5 text-sm group max-w-[150px] {activeId === tab.id ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
         <FileText size={13} class="shrink-0" />
         <span class="truncate">{tab.title}</span>
-        {#if tab.modified}<span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />{/if}
-        <button on:click={(e) => closeTab(tab.id, e)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-0.5 shrink-0"><X size={11} /></button>
+        {#if tab.modified}<span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>{/if}
+        <button onclick={(e) => closeTab(tab.id, e)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-0.5 shrink-0"><X size={11} /></button>
       </div>
     {/each}
-    <button on:click={newTab} class="p-2.5 hover:bg-slate-700/50 text-slate-500 hover:text-white shrink-0"><Plus size={13} /></button>
+    <button onclick={newTab} class="p-2.5 hover:bg-slate-700/50 text-slate-500 hover:text-white shrink-0"><Plus size={13} /></button>
   </div>
 
   {#if find.show}
     <div class="shrink-0 flex items-center gap-2 px-3 py-2 bg-slate-800/80 border-b border-white/5">
       <div class="relative">
         <Search size={13} class="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input bind:this={findInputEl} bind:value={find.query} on:keydown={(e) => e.key === 'Enter' && doFind()} placeholder="Find..."
+        <input bind:this={findInputEl} bind:value={find.query} onkeydown={(e) => e.key === 'Enter' && doFind()} placeholder="Find..."
           class="bg-slate-900 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-sm text-white w-44 focus:outline-none focus:border-blue-500/50" />
       </div>
       <input bind:value={find.replace} placeholder="Replace with..." class="bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white w-40 focus:outline-none" />
-      <button on:click={doFind} class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs transition-colors">Find</button>
-      <button on:click={doReplace} class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs transition-colors">Replace All</button>
+      <button onclick={doFind} class="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs transition-colors">Find</button>
+      <button onclick={doReplace} class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs transition-colors">Replace All</button>
       <label class="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
         <input type="checkbox" bind:checked={find.matchCase} class="accent-blue-500" /> Aa
       </label>
       {#if find.count > 0}<span class="text-xs text-slate-500">{find.count} matches</span>{/if}
-      <button on:click={() => (find = { ...find, show: false })} class="ml-auto text-slate-500 hover:text-white"><X size={14} /></button>
+      <button onclick={() => (find = { ...find, show: false })} class="ml-auto text-slate-500 hover:text-white"><X size={14} /></button>
     </div>
   {/if}
 
@@ -386,28 +388,30 @@
            is the expected trade-off of turning a note into "a bit of code
            being edited" rather than a hidden bug. -->
       {#key activeTab.id}
-        <MonacoEditor
+        <CodeEditor
           language={activeLang}
           value={activeTab.content}
-          theme="vs-dark"
+          theme="blue-dark"
           fontSize={13}
-          on:change={(e) => updateContent(activeTab.id, e.detail)}
-          on:mount={handleMonacoMount}
+          minimal
+          onchange={(v) => updateContent(activeTab.id, v)}
+          oncursor={(p) => (cursorPos = p)}
+          onsave={() => saveFile()}
         />
       {/key}
     {:else if activeTab}
       <textarea
         bind:this={textareaEl}
         value={activeTab.content}
-        on:input={handleInput}
-        on:keydown={handleKeyDown}
-        on:keyup={handleCursorMove}
-        on:click={handleCursorMove}
+        oninput={handleInput}
+        onkeydown={handleKeyDown}
+        onkeyup={handleCursorMove}
+        onclick={handleCursorMove}
         spellcheck="false"
         class="w-full h-full bg-slate-950 text-slate-100 font-mono text-sm p-4 resize-none focus:outline-none leading-relaxed"
         placeholder="Start typing…  •  Ctrl+S to save  •  Ctrl+Shift+S for Save As"
         style="font-family:'JetBrains Mono','Fira Code',monospace; tab-size:4;"
-      />
+></textarea>
     {/if}
   </div>
 
@@ -420,7 +424,7 @@
     </div>
     <div class="flex gap-3">
       {#if activeTab?.modified}
-        <span class="text-yellow-500 cursor-pointer hover:text-yellow-300" on:click={() => saveFile()} title="Click to save">● Unsaved</span>
+        <span class="text-yellow-500 cursor-pointer hover:text-yellow-300" onclick={() => saveFile()} title="Click to save">● Unsaved</span>
       {/if}
       {#if activeTab?.path}
         <span class="text-green-600" title={activeTab.path}>Saved</span>
