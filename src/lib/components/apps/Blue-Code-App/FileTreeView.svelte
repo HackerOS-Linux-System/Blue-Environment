@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { stopPropagation } from 'svelte/legacy';
+
   import { Folder, ChevronRight, ChevronDown, FileCode, Trash2, Edit2 } from 'lucide-svelte';
   import type { FileNode } from './types';
   import { createEventDispatcher } from 'svelte';
@@ -23,16 +25,27 @@
     ]);
   }
 
-  export let nodes: FileNode[];
-  export let level = 0;
-  export let selectedDir: string;
-  /** relative-path (from the workspace root) → single-letter git status
+  
+  interface Props {
+    nodes: FileNode[];
+    level?: number;
+    selectedDir: string;
+    /** relative-path (from the workspace root) → single-letter git status
    * ('M'/'A'/'D'/'U'/'?') — see Sidebar.svelte's `gitStatusMap`, built
    * from `git_repo_status` (BlueCodeApp/git.rs). Empty object when the
    * workspace isn't a git repo or hasn't loaded yet; every lookup below
    * is `?? undefined`-safe for that case. */
-  export let gitStatus: Record<string, string> = {};
-  export let rootPath = '';
+    gitStatus?: Record<string, string>;
+    rootPath?: string;
+  }
+
+  let {
+    nodes,
+    level = 0,
+    selectedDir,
+    gitStatus = {},
+    rootPath = ''
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ openFile: string; toggleDir: FileNode; rename: FileNode; delete: FileNode; newFile: void; newFolder: void; refresh: void }>();
 
@@ -64,16 +77,16 @@
     <div
       class="flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-white/5 group text-sm {node.type === 'directory' && node.path === selectedDir ? 'bg-blue-600/10' : ''}"
       style="padding-left:{level * 12 + 4}px;"
-      on:contextmenu={(e) => nodeMenu(e, node)}
-      on:dblclick={() => node.type === 'file' && dispatch('openFile', node.path)}
-      on:click={() => {
+      oncontextmenu={(e) => nodeMenu(e, node)}
+      ondblclick={() => node.type === 'file' && dispatch('openFile', node.path)}
+      onclick={() => {
         if (node.type === 'directory') dispatch('toggleDir', node);
         // Default: one click opens the file. A double-click then re-fires
         // openFile for an already-open path, which is a harmless tab switch.
         else if ($blueCodeSettings.openOnSingleClick) dispatch('openFile', node.path);
       }}
       role="button" tabindex="0"
-      on:keydown={(e) => {
+      onkeydown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           if (node.type === 'directory') dispatch('toggleDir', node); else dispatch('openFile', node.path);
@@ -93,10 +106,10 @@
       {/if}
       <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 ml-auto shrink-0">
         {#if node.type === 'file'}
-          <button on:click|stopPropagation={() => dispatch('openFile', node.path)} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Open"><FileCode size={11} /></button>
+          <button onclick={stopPropagation(() => dispatch('openFile', node.path))} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Open"><FileCode size={11} /></button>
         {/if}
-        <button on:click|stopPropagation={() => dispatch('rename', node)} class="p-0.5 hover:bg-white/10 rounded text-slate-500 hover:text-blue-400" title="Rename"><Edit2 size={11} /></button>
-        <button on:click|stopPropagation={() => dispatch('delete', node)} class="p-0.5 hover:bg-white/10 rounded text-slate-500 hover:text-red-400" title="Delete"><Trash2 size={11} /></button>
+        <button onclick={stopPropagation(() => dispatch('rename', node))} class="p-0.5 hover:bg-white/10 rounded text-slate-500 hover:text-blue-400" title="Rename"><Edit2 size={11} /></button>
+        <button onclick={stopPropagation(() => dispatch('delete', node))} class="p-0.5 hover:bg-white/10 rounded text-slate-500 hover:text-red-400" title="Delete"><Trash2 size={11} /></button>
       </div>
     </div>
     {#if node.type === 'directory' && node.expanded && node.children}
