@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { run, stopPropagation, createBubbler } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { t } from '../stores/language';
   import { ICON_THEME_APPLIED } from '../utils/iconThemes';
   import { APPS } from '../constants';
@@ -52,26 +55,34 @@
   interface InternalApp { id: string; name: string; icon: any; categories: string[]; isInternal: true; cloneId?: string; communityReceipt?: Receipt; }
   type AnyApp = SystemApp | InternalApp;
 
-  export let isOpen = false;
-  export let isFullScreen = false;
-  export let appsEnabled: Record<string, boolean> = {};
   // See App.svelte's `startMenuZIndex` computation — always kept above
   // every currently-open window instead of a hardcoded value that a
-  // long session's window zIndex counter could eventually climb past.
-  export let zIndex = 9040;
-  export let panelPosition: 'top' | 'bottom' = 'top';
-  export let panelSize = 48;
-  /** See ShellThemeStyle.svelte / TopBar.svelte's `shellThemeId` prop —
+  
+  
+  interface Props {
+    isOpen?: boolean;
+    isFullScreen?: boolean;
+    appsEnabled?: Record<string, boolean>;
+    // long session's window zIndex counter could eventually climb past.
+    zIndex?: number;
+    panelPosition?: 'top' | 'bottom';
+    panelSize?: number;
+    /** See ShellThemeStyle.svelte / TopBar.svelte's `shellThemeId` prop —
    * same convention, just here it drives a border/glow treatment on
    * this menu's own panel rather than the taskbar's background. */
-  export let shellThemeId: string | undefined = undefined;
+    shellThemeId?: string | undefined;
+  }
 
-  // Themes can restyle the full-screen menu (colour/opacity/blur/sidebar/tile
-  // size & shape/search shape — see ShellThemeExtras.menu*). Colours and shapes
-  // arrive as CSS variables on <html>; the tile size also changes the glyph and
-  // the grid density, so it is resolved here.
-  $: menuTheme = $previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes);
-  $: tile = menuTileMetrics(menuTheme?.extras?.menuTileSize);
+  let {
+    isOpen = false,
+    isFullScreen = false,
+    appsEnabled = {},
+    zIndex = 9040,
+    panelPosition = 'top',
+    panelSize = 48,
+    shellThemeId = undefined
+  }: Props = $props();
+
 
   const dispatch = createEventDispatcher<{ openApp: { appId: string; isExternal?: boolean; exec?: string }; close: void; toggleFullScreen: void }>();
 
@@ -136,18 +147,13 @@
   // `searchTerm` instead, so fast typing doesn't re-run
   // filter/sort/group over a potentially large `systemApps` list (every
   // installed .desktop app) on every single keystroke.
-  let searchInput = '';
-  let searchTerm = '';
-  let searchDebounceHandle: ReturnType<typeof setTimeout> | undefined;
-  $: {
-    clearTimeout(searchDebounceHandle);
-    const next = searchInput;
-    searchDebounceHandle = setTimeout(() => (searchTerm = next), 90);
-  }
+  let searchInput = $state('');
+  let searchTerm = $state('');
+  let searchDebounceHandle = $state<ReturnType<typeof setTimeout> | undefined>();
 
   /** Keyboard selection (Arrow keys / Enter). -1 = nothing highlighted. */
-  let selectedIndex = -1;
-  let searchEl: HTMLInputElement | undefined;
+  let selectedIndex = $state(-1);
+  let searchEl = $state<HTMLInputElement | undefined>();
 
   /** The "×" in the search fields: wipes the text (and the active filter) and keeps typing possible. */
   function clearSearch() {
@@ -155,29 +161,21 @@
     searchTerm = '';
     (isFullScreen ? searchEl : popupSearchEl)?.focus({ preventScroll: true });
   }
-  let popupSearchEl: HTMLInputElement | undefined;
-  let gridInnerEl: HTMLDivElement | undefined;
+  let popupSearchEl = $state<HTMLInputElement | undefined>();
+  let gridInnerEl = $state<HTMLDivElement | undefined>();
 
-  // A finished (or abandoned) search must not greet the next opening.
-  $: if (!isOpen) { searchInput = ''; searchTerm = ''; selectedIndex = -1; }
-  // Searching always highlights the best match so Enter launches it.
-  $: highlightBestMatch(searchTerm);
   function highlightBestMatch(term: string) { selectedIndex = term ? 0 : -1; }
-  // Focus the field the moment the menu shows (and when it switches between the
-  // dropdown and the full-screen layout), so typing works without a click.
-  $: if (isOpen) { isFullScreen; focusSearch(); }
   async function focusSearch() {
     await tick();
     (isFullScreen ? searchEl : popupSearchEl)?.focus({ preventScroll: true });
   }
 
-  let systemApps: SystemApp[] = [];
-  let recentApps: string[] = [];
-  let loading = false;
-  let activeCategory = 'Recent';
-  let showPowerMenu = false;
+  let systemApps = $state<SystemApp[]>([]);
+  let recentApps = $state<string[]>([]);
+  let loading = $state(false);
+  let activeCategory = $state('Recent');
+  let showPowerMenu = $state(false);
 
-  $: if (isOpen) loadApps();
 
   // Stale-while-revalidate: once the list has been loaded, re-opening the
   // menu shows it instantly and only refreshes it in the background if it
@@ -189,7 +187,7 @@
    * listed here exactly like any other launchable app; only their click
    * handling differs (see `launchApp` below), since they carry no
    * `AppId`/`APPS` registry entry to resolve a title/size from. */
-  let communityApps: Receipt[] = [];
+  let communityApps = $state<Receipt[]>([]);
   function loadCommunityApps() {
     listInstalled('app').then((r) => (communityApps = Array.isArray(r) ? r : [])).catch(() => {});
   }
@@ -214,113 +212,12 @@
       .finally(() => (loading = false));
   }
 
-  $: internalApps = Object.values(APPS)
-    .filter((app) => {
-      if (app.isExternal || !app.component) return false;
-      // Every internal app is now individually toggleable in Settings →
-      // Applications, keyed directly by its AppId (`app.id`) — see
-      // AppsSection.svelte, which used to only expose a fixed 12-app
-      // subset. `APP_ENABLED_KEYS` is kept as a fallback purely so
-      // configs saved under the old key names (e.g. `blueAI` instead of
-      // `ai_assistant`) still work.
-      const id = app.id as string;
-      const legacyKey = APP_ENABLED_KEYS[id];
-      if (appsEnabled[id] === false) return false;
-      if (legacyKey && appsEnabled[legacyKey] === false) return false;
-      return true;
-    })
-    .map(
-      (app): InternalApp => ({
-        id: app.id as string,
-        name: app.title,
-        icon: app.icon,
-        categories: INTERNAL_APP_CATEGORIES[app.id as string] || ['Other'],
-        isInternal: true,
-      })
-    )
-    .concat(
-      // "Cloned Apps" (Settings → Cloned Apps) show up here as their own
-      // launchable entries, not just from inside Settings — see
-      // windowManager.ts's openApp(), which already resolves a
-      // `clone:<id>` app id back to the underlying app + custom title.
-      // Filed under "Other" rather than inheriting the base app's own
-      // category, since a clone is more of a personal shortcut than a
-      // fresh instance of "a browser" or "an office app".
-      ($configStore.clonedApps ?? []).map(
-        (entry): InternalApp => ({
-          id: `clone:${entry.id}`,
-          name: entry.label,
-          icon: APPS[entry.baseAppId as AppId]?.icon ?? Box,
-          categories: ['Other'],
-          isInternal: true,
-          cloneId: entry.id,
-        })
-      )
-    )
-    .concat(
-      communityApps.map(
-        (r): InternalApp => ({
-          id: `community:${r.kind}:${r.id}`,
-          name: r.name,
-          icon: (r.icon && /^[A-Za-z0-9]+$/.test(r.icon) && (Icons as any)[r.icon]) || Box,
-          categories: [r.category || 'Other'],
-          isInternal: true,
-          communityReceipt: r,
-        })
-      )
-    );
 
-  $: allApps = (() => {
-    const combined: AnyApp[] = [...internalApps, ...systemApps];
-    // Token-based, ranked, diacritics-insensitive — see utils/appSearch.ts.
-    // "system mon" (a space!) is just two tokens, not a reason to give up.
-    return searchApps(combined, searchTerm, (app) => ({
-      name: app.name,
-      extra: 'isInternal' in app ? app.categories.join(' ') : `${app.comment ?? ''} ${execBasename(app.exec)} ${app.categories.join(' ')}`,
-    }));
-  })();
 
-  $: groupedApps = (() => {
-    const groups: Record<string, AnyApp[]> = {};
-    // Only internal Blue apps get grouped into the fixed categories
-    // (System/Internet/Multimedia/...). External .desktop apps already
-    // have their own dedicated "Installed apps" view (see
-    // `externalAppCount`/`currentTiles` below) — showing them here too
-    // would just duplicate every installed app under "System" et al.
-    for (const app of internalApps) {
-      const cat = getCategory(app);
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(app);
-    }
-    for (const cat in groups) groups[cat].sort((a, b) => a.name.localeCompare(b.name));
-    if (!searchTerm && recentApps.length > 0) {
-      const recentList = recentApps.map((id) => allApps.find((a) => a.id === id)).filter(Boolean) as AnyApp[];
-      if (recentList.length) groups['Recent'] = recentList.slice(0, 8);
-    }
-    return groups;
-  })();
 
-  $: visibleCategories = CATEGORY_ORDER.filter((cat) => groupedApps[cat.key]?.length > 0);
 
-  $: externalAppCount = systemApps.length;
 
-  // The dropdown's lists, computed once so rendering and keyboard selection agree
-  // on what is where (recent apps first, then the rest).
-  $: popupRecent = !searchTerm && recentApps.length > 0
-    ? (recentApps.slice(0, 3).map((id) => allApps.find((a) => a.id === id)).filter(Boolean) as AnyApp[])
-    : [];
-  $: popupRest = (searchTerm ? allApps : allApps.filter((a) => !recentApps.slice(0, 3).includes(a.id))).slice(0, 12);
-  $: popupItems = [...popupRecent, ...popupRest];
 
-  // Powers the fullscreen grid: search always shows every match; otherwise
-  // "All Apps" and "Installed apps" (external/system .desktop apps) are
-  // synthetic views layered on top of the per-category groups above.
-  $: currentTiles = (() => {
-    if (searchTerm) return allApps;
-    if (activeCategory === 'All') return [...allApps].sort((a, b) => a.name.localeCompare(b.name));
-    if (activeCategory === 'External') return [...systemApps].sort((a, b) => a.name.localeCompare(b.name));
-    return groupedApps[activeCategory] || [];
-  })();
 
   // ── Incremental grid rendering ─────────────────────────────────────
   // "Installed apps" can hold several hundred entries. Mounting every tile
@@ -328,11 +225,8 @@
   // render a first screenful and add more as the person scrolls (or right
   // away while the viewport isn't full yet).
   const TILE_CHUNK = 48;
-  let visibleLimit = TILE_CHUNK;
-  let gridEl: HTMLDivElement | undefined;
-  $: { activeCategory; searchTerm; isOpen; visibleLimit = TILE_CHUNK; }
-  $: shownTiles = currentTiles.slice(0, visibleLimit);
-  $: if (isOpen && isFullScreen && shownTiles.length < currentTiles.length) fillViewport();
+  let visibleLimit = $state(TILE_CHUNK);
+  let gridEl = $state<HTMLDivElement | undefined>();
 
   async function fillViewport() {
     await tick();
@@ -345,8 +239,6 @@
     if (gridEl.scrollTop + gridEl.clientHeight > gridEl.scrollHeight - 500) visibleLimit += TILE_CHUNK;
   }
 
-  /** Items the keyboard moves over right now. */
-  $: navItems = (isFullScreen ? shownTiles : popupItems) as AnyApp[];
 
   function gridColumns(): number {
     if (!isFullScreen || !gridInnerEl) return 1;
@@ -434,38 +326,173 @@
     { action: 'suspend', icon: Moon, label: 'Suspend', cls: 'hover:bg-white/10' },
     { action: 'hibernate', icon: HardDrive, label: 'Hibernate', cls: 'hover:bg-white/10' },
   ];
+  // Themes can restyle the full-screen menu (colour/opacity/blur/sidebar/tile
+  // size & shape/search shape — see ShellThemeExtras.menu*). Colours and shapes
+  // arrive as CSS variables on <html>; the tile size also changes the glyph and
+  // the grid density, so it is resolved here.
+  let menuTheme = $derived($previewShellTheme ?? resolveActiveShellThemeWithCustom(shellThemeId, $customShellThemes));
+  let tile = $derived(menuTileMetrics(menuTheme?.extras?.menuTileSize));
+  // A finished (or abandoned) search must not greet the next opening.
+  run(() => {
+    if (!isOpen) { searchInput = ''; searchTerm = ''; selectedIndex = -1; }
+  });
+  run(() => {
+    clearTimeout(searchDebounceHandle);
+    const next = searchInput;
+    searchDebounceHandle = setTimeout(() => (searchTerm = next), 90);
+  });
+  // Searching always highlights the best match so Enter launches it.
+  run(() => {
+    highlightBestMatch(searchTerm);
+  });
+  // Focus the field the moment the menu shows (and when it switches between the
+  // dropdown and the full-screen layout), so typing works without a click.
+  run(() => {
+    if (isOpen) { isFullScreen; focusSearch(); }
+  });
+  run(() => {
+    if (isOpen) loadApps();
+  });
+  let internalApps = $derived(Object.values(APPS)
+    .filter((app) => {
+      if (app.isExternal || !app.component) return false;
+      // Every internal app is now individually toggleable in Settings →
+      // Applications, keyed directly by its AppId (`app.id`) — see
+      // AppsSection.svelte, which used to only expose a fixed 12-app
+      // subset. `APP_ENABLED_KEYS` is kept as a fallback purely so
+      // configs saved under the old key names (e.g. `blueAI` instead of
+      // `ai_assistant`) still work.
+      const id = app.id as string;
+      const legacyKey = APP_ENABLED_KEYS[id];
+      if (appsEnabled[id] === false) return false;
+      if (legacyKey && appsEnabled[legacyKey] === false) return false;
+      return true;
+    })
+    .map(
+      (app): InternalApp => ({
+        id: app.id as string,
+        name: app.title,
+        icon: app.icon,
+        categories: INTERNAL_APP_CATEGORIES[app.id as string] || ['Other'],
+        isInternal: true,
+      })
+    )
+    .concat(
+      // "Cloned Apps" (Settings → Cloned Apps) show up here as their own
+      // launchable entries, not just from inside Settings — see
+      // windowManager.ts's openApp(), which already resolves a
+      // `clone:<id>` app id back to the underlying app + custom title.
+      // Filed under "Other" rather than inheriting the base app's own
+      // category, since a clone is more of a personal shortcut than a
+      // fresh instance of "a browser" or "an office app".
+      ($configStore.clonedApps ?? []).map(
+        (entry): InternalApp => ({
+          id: `clone:${entry.id}`,
+          name: entry.label,
+          icon: APPS[entry.baseAppId as AppId]?.icon ?? Box,
+          categories: ['Other'],
+          isInternal: true,
+          cloneId: entry.id,
+        })
+      )
+    )
+    .concat(
+      communityApps.map(
+        (r): InternalApp => ({
+          id: `community:${r.kind}:${r.id}`,
+          name: r.name,
+          icon: (r.icon && /^[A-Za-z0-9]+$/.test(r.icon) && (Icons as any)[r.icon]) || Box,
+          categories: [r.category || 'Other'],
+          isInternal: true,
+          communityReceipt: r,
+        })
+      )
+    ));
+  let allApps = $derived((() => {
+    const combined: AnyApp[] = [...internalApps, ...systemApps];
+    // Token-based, ranked, diacritics-insensitive — see utils/appSearch.ts.
+    // "system mon" (a space!) is just two tokens, not a reason to give up.
+    return searchApps(combined, searchTerm, (app) => ({
+      name: app.name,
+      extra: 'isInternal' in app ? app.categories.join(' ') : `${app.comment ?? ''} ${execBasename(app.exec)} ${app.categories.join(' ')}`,
+    }));
+  })());
+  let groupedApps = $derived((() => {
+    const groups: Record<string, AnyApp[]> = {};
+    // Only internal Blue apps get grouped into the fixed categories
+    // (System/Internet/Multimedia/...). External .desktop apps already
+    // have their own dedicated "Installed apps" view (see
+    // `externalAppCount`/`currentTiles` below) — showing them here too
+    // would just duplicate every installed app under "System" et al.
+    for (const app of internalApps) {
+      const cat = getCategory(app);
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(app);
+    }
+    for (const cat in groups) groups[cat].sort((a, b) => a.name.localeCompare(b.name));
+    if (!searchTerm && recentApps.length > 0) {
+      const recentList = recentApps.map((id) => allApps.find((a) => a.id === id)).filter(Boolean) as AnyApp[];
+      if (recentList.length) groups['Recent'] = recentList.slice(0, 8);
+    }
+    return groups;
+  })());
+  let visibleCategories = $derived(CATEGORY_ORDER.filter((cat) => groupedApps[cat.key]?.length > 0));
+  let externalAppCount = $derived(systemApps.length);
+  // The dropdown's lists, computed once so rendering and keyboard selection agree
+  // on what is where (recent apps first, then the rest).
+  let popupRecent = $derived(!searchTerm && recentApps.length > 0
+    ? (recentApps.slice(0, 3).map((id) => allApps.find((a) => a.id === id)).filter(Boolean) as AnyApp[])
+    : []);
+  let popupRest = $derived((searchTerm ? allApps : allApps.filter((a) => !recentApps.slice(0, 3).includes(a.id))).slice(0, 12));
+  let popupItems = $derived([...popupRecent, ...popupRest]);
+  // Powers the fullscreen grid: search always shows every match; otherwise
+  // "All Apps" and "Installed apps" (external/system .desktop apps) are
+  // synthetic views layered on top of the per-category groups above.
+  let currentTiles = $derived((() => {
+    if (searchTerm) return allApps;
+    if (activeCategory === 'All') return [...allApps].sort((a, b) => a.name.localeCompare(b.name));
+    if (activeCategory === 'External') return [...systemApps].sort((a, b) => a.name.localeCompare(b.name));
+    return groupedApps[activeCategory] || [];
+  })());
+  run(() => { activeCategory; searchTerm; isOpen; visibleLimit = TILE_CHUNK; });
+  let shownTiles = $derived(currentTiles.slice(0, visibleLimit));
+  run(() => {
+    if (isOpen && isFullScreen && shownTiles.length < currentTiles.length) fillViewport();
+  });
+  /** Items the keyboard moves over right now. */
+  let navItems = $derived((isFullScreen ? shownTiles : popupItems) as AnyApp[]);
 </script>
 
 {#if isOpen && isFullScreen}
   <!-- Backdrop: a click on empty space closes. Keyboard handling deliberately lives on the
        search field (and Escape is global) — a keydown handler HERE would also receive every key
        typed into the field, which is exactly how the space bar used to close the whole menu. -->
-  <div class="absolute inset-0 flex" data-shell-occluder="startmenu" on:click={() => dispatch('close')} role="presentation"
+  <div class="absolute inset-0 flex" data-shell-occluder="startmenu" onclick={() => dispatch('close')} role="presentation"
     style="z-index:{zIndex}; background-color:rgba(var(--menu-bg-rgb, 15, 23, 42), var(--menu-opacity, 0.7)); backdrop-filter:blur(var(--menu-blur, 40px)); -webkit-backdrop-filter:blur(var(--menu-blur, 40px));">
     <!-- Top-right "–": closes the full-screen menu (Esc and a click on empty space do too). -->
-    <button on:click|stopPropagation={() => dispatch('close')} title={$t('startmenu.close')} aria-label={$t('startmenu.close')}
+    <button onclick={stopPropagation(() => dispatch('close'))} title={$t('startmenu.close')} aria-label={$t('startmenu.close')}
       class="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/15 transition-colors">
       <Minus size={18} />
     </button>
-    <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" style="background-color:var(--menu-sidebar-bg, rgba(2, 6, 23, 0.3));" role="presentation" on:click|stopPropagation>
-      <button on:click={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
+    <div class="w-60 border-r border-white/5 flex flex-col pt-16 px-3 gap-1 shrink-0" style="background-color:var(--menu-sidebar-bg, rgba(2, 6, 23, 0.3));" role="presentation" onclick={stopPropagation(bubble('click'))}>
+      <button onclick={() => { activeCategory = 'All'; searchInput = ''; searchTerm = ''; }}
         class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all mb-1 {activeCategory === 'All' ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-300 hover:bg-white/5 hover:text-white'}">
         <LayoutGrid size={18} />
         <span>{$t('startmenu.all_apps')}</span>
         <span class="ml-auto text-xs opacity-50">{allApps.length}</span>
       </button>
-      <div class="h-px bg-white/5 my-1.5" />
+      <div class="h-px bg-white/5 my-1.5"></div>
       {#each visibleCategories as cat (cat.key)}
-        <button on:click={() => (activeCategory = cat.key)}
+        <button onclick={() => (activeCategory = cat.key)}
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === cat.key ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
-          <svelte:component this={cat.icon} size={18} />
+          <cat.icon size={18} />
           <span class="truncate">{catLabel(cat.key, $t)}</span>
           <span class="ml-auto text-xs opacity-50">{groupedApps[cat.key]?.length || 0}</span>
         </button>
       {/each}
       {#if externalAppCount > 0}
-        <div class="h-px bg-white/5 my-1.5" />
-        <button on:click={() => (activeCategory = 'External')}
+        <div class="h-px bg-white/5 my-1.5"></div>
+        <button onclick={() => (activeCategory = 'External')}
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all {activeCategory === 'External' ? 'text-white shadow-lg menu-accent-bg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
           <ExternalLink size={18} />
           <span class="truncate">{$t('startmenu.installed_apps')}</span>
@@ -473,24 +500,24 @@
         </button>
       {/if}
     </div>
-    <div class="flex-1 flex flex-col min-w-0" role="presentation" on:click|stopPropagation>
+    <div class="flex-1 flex flex-col min-w-0" role="presentation" onclick={stopPropagation(bubble('click'))}>
       <div class="px-8 pt-10 pb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-xl">
           <Search class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input type="text" bind:this={searchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
-            on:keydown={onSearchKeydown}
+            onkeydown={onSearchKeydown}
             class="w-full bg-slate-800/60 backdrop-blur border border-white/10 py-3 pl-12 pr-12 text-white text-lg focus:outline-none focus:border-blue-500/60 transition-colors"
             style="border-radius:var(--menu-search-radius, 1rem);"
             bind:value={searchInput} />
           {#if searchInput}
-            <button on:click={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
+            <button onclick={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
               class="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
               <X size={16} />
             </button>
           {/if}
         </div>
       </div>
-      <div class="flex-1 overflow-y-auto px-8 pb-8" bind:this={gridEl} on:scroll={onGridScroll}>
+      <div class="flex-1 overflow-y-auto px-8 pb-8" bind:this={gridEl} onscroll={onGridScroll}>
         {#if loading}
           <div class="flex items-center gap-2 text-slate-500 text-sm"><Loader2 size={16} class="animate-spin" /> {$t('startmenu.loading')}</div>
         {:else}
@@ -511,7 +538,7 @@
             <div class="grid {tile.gridClass} gap-3" bind:this={gridInnerEl}>
               {#each shownTiles as app, i (app.id)}
                 {@const external = !('isInternal' in app)}
-                <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+                <button oncontextmenu={(e) => appMenu(e, app)} onclick={() => handleLaunch(app)}
                   data-start-selected={selectedIndex === i ? 'true' : undefined}
                   title={external ? app.comment || app.name : app.name}
                   style="content-visibility:auto; contain-intrinsic-size:auto 112px;"
@@ -540,7 +567,7 @@
     </div>
   </div>
 {:else if isOpen}
-  <div data-shell-occluder="startmenu" role="presentation" class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" on:click|stopPropagation>
+  <div data-shell-occluder="startmenu" role="presentation" class="absolute left-3 w-80 bg-slate-900/97 backdrop-blur-md border rounded-2xl shadow-2xl overflow-visible flex flex-col {shellThemeId === 'hydra' ? 'border-pink-500/30' : 'border-white/10'}" style="z-index:{zIndex}; {panelPosition === 'top' ? `top:${panelSize + 6}px;` : `bottom:${panelSize + 6}px;`} {shellThemeId === 'hydra' ? 'box-shadow: 0 0 40px rgba(236,72,153,0.25), 0 25px 50px -12px rgba(0,0,0,0.7);' : ''}" onclick={stopPropagation(bubble('click'))}>
     <div class="p-4 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg">
@@ -552,10 +579,10 @@
         </div>
       </div>
       <div class="flex gap-1">
-        <button on:click={handleRefresh} class="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
+        <button onclick={handleRefresh} class="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
           <RefreshCcw size={14} class={loading ? 'animate-spin' : ''} />
         </button>
-        <button on:click={() => dispatch('toggleFullScreen')} class="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
+        <button onclick={() => dispatch('toggleFullScreen')} class="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors">
           <Grid size={16} />
         </button>
       </div>
@@ -563,7 +590,7 @@
 
     <div class="p-2 grid grid-cols-5 gap-1 border-b border-white/5">
       {#each internalApps.slice(0, 5) as app (app.id)}
-        <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)} class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 transition-colors group" title={app.name}>
+        <button oncontextmenu={(e) => appMenu(e, app)} onclick={() => handleLaunch(app)} class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 transition-colors group" title={app.name}>
           <div class="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 group-hover:bg-blue-600/30 transition-colors">
             <AppIconGlyph icon={app.icon} name={app.name} size={18} />
           </div>
@@ -576,11 +603,11 @@
       <div class="relative">
         <Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
         <input type="text" bind:this={popupSearchEl} placeholder={$t('topbar.search')} autocomplete="off" spellcheck="false"
-          on:keydown={onSearchKeydown}
+          onkeydown={onSearchKeydown}
           class="w-full bg-slate-800 border border-white/10 rounded-xl py-2 pl-8 pr-8 text-sm text-white focus:outline-none focus:border-blue-500/50 placeholder-slate-500"
           bind:value={searchInput} />
         {#if searchInput}
-          <button on:click={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
+          <button onclick={clearSearch} title={$t('startmenu.clear_search')} aria-label={$t('startmenu.clear_search')}
             class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-500 hover:text-white hover:bg-white/10 transition-colors">
             <X size={12} />
           </button>
@@ -595,7 +622,7 @@
         {#if popupRecent.length > 0}
           <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Clock size={10} /> {$t('startmenu.recent')}</div>
           {#each popupRecent as app, i (app.id)}
-            <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+            <button oncontextmenu={(e) => appMenu(e, app)} onclick={() => handleLaunch(app)}
               data-start-selected={selectedIndex === i ? 'true' : undefined}
               class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group {selectedIndex === i ? 'bg-white/10' : ''}">
               <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
@@ -609,11 +636,11 @@
               </div>
             </button>
           {/each}
-          <div class="h-px bg-white/5 my-1" />
+          <div class="h-px bg-white/5 my-1"></div>
         {/if}
         {#each popupRest as app, j (app.id)}
           {@const idx = popupRecent.length + j}
-          <button on:contextmenu={(e) => appMenu(e, app)} on:click={() => handleLaunch(app)}
+          <button oncontextmenu={(e) => appMenu(e, app)} onclick={() => handleLaunch(app)}
             data-start-selected={selectedIndex === idx ? 'true' : undefined}
             class="w-full flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors group {selectedIndex === idx ? 'bg-white/10' : ''}">
             <div class="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center border border-white/5 shrink-0 overflow-hidden">
@@ -628,7 +655,7 @@
           </button>
         {/each}
         {#if allApps.length === 0 && searchTerm}
-          <button on:click={() => { openInBlueWeb(normalizeUrl(searchTerm, getConfiguredSearchEngine())); dispatch('close'); }}
+          <button onclick={() => { openInBlueWeb(normalizeUrl(searchTerm, getConfiguredSearchEngine())); dispatch('close'); }}
             class="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-white/5 transition-colors group text-left">
             <div class="w-8 h-8 bg-blue-500/15 rounded-xl flex items-center justify-center border border-blue-500/20 shrink-0">
               <Globe size={16} class="text-blue-400" />
@@ -643,22 +670,23 @@
     </div>
 
     <div class="mt-auto p-3 border-t border-white/5 bg-slate-950/50 rounded-b-2xl flex items-center justify-between relative">
-      <button on:click={() => dispatch('toggleFullScreen')} class="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1">
+      <button onclick={() => dispatch('toggleFullScreen')} class="text-xs text-slate-500 hover:text-white transition-colors flex items-center gap-1">
         {$t('startmenu.all_apps')} <ChevronRight size={12} />
       </button>
-      <button on:click={() => (showPowerMenu = !showPowerMenu)} class="p-2 rounded-full bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white transition-all">
+      <button onclick={() => (showPowerMenu = !showPowerMenu)} class="p-2 rounded-full bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white transition-all">
         <Power size={15} />
       </button>
       {#if showPowerMenu}
         <div class="absolute bottom-14 left-4 border rounded-xl shadow-2xl p-2 flex flex-col gap-1 w-48 {shellThemeId === 'hydra' ? 'bg-slate-800 border-pink-500/30' : 'bg-slate-800 border-white/10'}"
           style="z-index:{zIndex + 1}; {shellThemeId === 'hydra' ? 'box-shadow: 0 0 24px rgba(236,72,153,0.25);' : ''}">
           {#each POWER_ITEMS as { action, icon, label, cls } (action)}
-            <button on:click={() => SystemBridge.powerAction(action)} class="flex items-center gap-3 p-2 {cls} rounded-lg transition-colors text-left text-sm text-slate-200">
-              <svelte:component this={icon} size={16} /> {label}
+            {@const SvelteComponent = icon}
+            <button onclick={() => SystemBridge.powerAction(action)} class="flex items-center gap-3 p-2 {cls} rounded-lg transition-colors text-left text-sm text-slate-200">
+              <SvelteComponent size={16} /> {label}
             </button>
           {/each}
-          <div class="h-px bg-white/10 my-1" />
-          <button on:click={() => SystemBridge.powerAction('logout')} class="flex items-center gap-3 p-2 hover:bg-white/10 rounded-lg transition-colors text-left text-sm text-slate-200">
+          <div class="h-px bg-white/10 my-1"></div>
+          <button onclick={() => SystemBridge.powerAction('logout')} class="flex items-center gap-3 p-2 hover:bg-white/10 rounded-lg transition-colors text-left text-sm text-slate-200">
             <LogOut size={16} /> {$t('startmenu.logout')}
           </button>
         </div>
