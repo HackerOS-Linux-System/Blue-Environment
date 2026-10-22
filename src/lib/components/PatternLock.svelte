@@ -1,16 +1,20 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
 
-  export let disabled = false;
-  export let error = false;
+  interface Props {
+    disabled?: boolean;
+    error?: boolean;
+  }
+
+  let { disabled = false, error = false }: Props = $props();
 
   const dispatch = createEventDispatcher<{ complete: number[] }>();
 
-  let svgEl: SVGSVGElement;
-  let dots: { x: number; y: number }[] = [];
-  let path: number[] = [];
-  let dragging = false;
-  let cursor = { x: 0, y: 0 };
+  let svgEl = $state() as SVGSVGElement;
+  let dots = $state<{ x: number; y: number }[]>([]);
+  let path = $state<number[]>([]);
+  let dragging = $state(false);
+  let cursor = $state({ x: 0, y: 0 });
 
   const SIZE = 260;
   const PAD = 40;
@@ -58,12 +62,12 @@
     else path = [];
   }
 
-  $: lineColor = error ? '#ef4444' : '#3b82f6';
+  let lineColor = $derived(error ? '#ef4444' : '#3b82f6');
 </script>
 
 <svg bind:this={svgEl} viewBox="0 0 {SIZE} {SIZE}" width={SIZE} height={SIZE}
   class="touch-none select-none {disabled ? 'opacity-50' : ''}"
-  on:pointerdown={handlePointerDown} on:pointermove={handlePointerMove} on:pointerup={handlePointerUp} on:pointercancel={handlePointerUp}>
+  onpointerdown={handlePointerDown} onpointermove={handlePointerMove} onpointerup={handlePointerUp} onpointercancel={handlePointerUp}>
 
   {#each path.slice(0, -1) as idx, i (i)}
     <line x1={dots[idx]?.x} y1={dots[idx]?.y} x2={dots[path[i + 1]]?.x} y2={dots[path[i + 1]]?.y}
