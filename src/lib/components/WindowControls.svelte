@@ -65,24 +65,36 @@
   import type { WindowControlsStyle, WindowControlsPosition, WindowControlId, WindowControlsOrder } from '../data/builtinThemes';
   import { DEFAULT_WINDOW_CONTROLS_ORDER, MACOS_DEFAULT_WINDOW_CONTROLS_ORDER } from '../data/builtinThemes';
 
-  export let isMaximized: boolean;
-  export let isPiP: boolean | undefined = false;
-  export let style: WindowControlsStyle = 'windows';
-  export let position: WindowControlsPosition = 'right';
-  export let accentGlow: string | undefined = undefined;
-  /** Custom button order override (see this file's doc comment above).
+  
+  interface Props {
+    isMaximized: boolean;
+    isPiP?: boolean | undefined;
+    style?: WindowControlsStyle;
+    position?: WindowControlsPosition;
+    accentGlow?: string | undefined;
+    /** Custom button order override (see this file's doc comment above).
    * Falls back to the style's own sensible default when not provided. */
-  export let order: WindowControlsOrder | undefined = undefined;
+    order?: WindowControlsOrder | undefined;
+  }
+
+  let {
+    isMaximized,
+    isPiP = false,
+    style = 'windows',
+    position = 'right',
+    accentGlow = undefined,
+    order = undefined
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ close: void; minimize: void; maximize: void; pip: void }>();
 
-  let effectiveOrder: WindowControlsOrder;
-  $: effectiveOrder = (order && order.length === 4)
+  let effectiveOrder: WindowControlsOrder = $derived((order && order.length === 4)
     ? order
-    : (style === 'macos' ? MACOS_DEFAULT_WINDOW_CONTROLS_ORDER : DEFAULT_WINDOW_CONTROLS_ORDER);
+    : (style === 'macos' ? MACOS_DEFAULT_WINDOW_CONTROLS_ORDER : DEFAULT_WINDOW_CONTROLS_ORDER));
+  
 
-  $: orderClass = position === 'left' ? 'flex-row' : 'flex-row-reverse';
-  $: glowStyle = accentGlow ? `--ctl-glow:${accentGlow};` : '';
+  let orderClass = $derived(position === 'left' ? 'flex-row' : 'flex-row-reverse');
+  let glowStyle = $derived(accentGlow ? `--ctl-glow:${accentGlow};` : '');
 
   function fire(id: WindowControlId) {
     dispatch(id);
@@ -107,26 +119,26 @@
   <div class="group flex items-center gap-2 {orderClass}" style={glowStyle}>
     {#each effectiveOrder as id (id)}
       {#if id === 'close'}
-        <button on:click={() => fire('close')} title="{$t('window.close')} (Alt+F4)"
+        <button onclick={() => fire('close')} title="{$t('window.close')} (Alt+F4)"
           class="w-3 h-3 rounded-full bg-[#ff5f57] flex items-center justify-center transition-shadow"
           style={accentGlow ? 'box-shadow: 0 0 0 rgba(0,0,0,0);' : ''}
-          on:mouseenter={glowOn}
-          on:mouseleave={glowOff}>
+          onmouseenter={glowOn}
+          onmouseleave={glowOff}>
           <X size={7} class="opacity-0 group-hover:opacity-70 text-black" />
         </button>
       {:else if id === 'minimize'}
-        <button on:click={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)"
+        <button onclick={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)"
           class="w-3 h-3 rounded-full bg-[#febc2e] flex items-center justify-center">
           <Minus size={7} class="opacity-0 group-hover:opacity-70 text-black" />
         </button>
       {:else if id === 'maximize'}
-        <button on:click={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)"
+        <button onclick={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)"
           class="w-3 h-3 rounded-full bg-[#28c840] flex items-center justify-center">
           {#if isMaximized}<Square size={6} class="opacity-0 group-hover:opacity-70 text-black" />
           {:else}<Maximize2 size={6} class="opacity-0 group-hover:opacity-70 text-black" />{/if}
         </button>
       {:else}
-        <button on:click={() => fire('pip')} title="{$t('window.pip')}"
+        <button onclick={() => fire('pip')} title="{$t('window.pip')}"
           class="w-3 h-3 rounded-full flex items-center justify-center transition-colors {isPiP ? 'bg-blue-400' : 'bg-slate-500'}">
           <PictureInPicture2 size={6} class="opacity-0 group-hover:opacity-70 text-black" />
         </button>
@@ -137,26 +149,26 @@
   <div class="flex items-center gap-1 {orderClass}" style={glowStyle}>
     {#each effectiveOrder as id (id)}
       {#if id === 'minimize'}
-        <button on:click={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)"
+        <button onclick={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)"
           class="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded-full theme-text-secondary hover:text-white transition-colors opacity-70 hover:opacity-100">
           <Minus size={11} />
         </button>
       {:else if id === 'maximize'}
-        <button on:click={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)"
+        <button onclick={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)"
           class="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded-full theme-text-secondary hover:text-white transition-colors opacity-70 hover:opacity-100">
           {#if isMaximized}<Square size={10} />{:else}<Maximize2 size={10} />{/if}
         </button>
       {:else if id === 'pip'}
-        <button on:click={() => fire('pip')} title="{$t('window.pip')}"
+        <button onclick={() => fire('pip')} title="{$t('window.pip')}"
           class="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded-full theme-text-secondary transition-colors opacity-70 hover:opacity-100 {isPiP ? 'text-blue-400' : ''}">
           <PictureInPicture2 size={10} />
         </button>
       {:else}
-        <button on:click={() => fire('close')} title="{$t('window.close')} (Alt+F4)"
+        <button onclick={() => fire('close')} title="{$t('window.close')} (Alt+F4)"
           class="w-7 h-7 flex items-center justify-center hover:bg-red-500 rounded-full text-white/90 hover:text-white transition-colors ml-1"
           style={accentGlow ? 'background: rgba(255,255,255,0.08);' : 'background: rgba(255,255,255,0.08);'}
-          on:mouseenter={glowOn}
-          on:mouseleave={glowOff}>
+          onmouseenter={glowOn}
+          onmouseleave={glowOff}>
           <X size={13} />
         </button>
       {/if}
@@ -166,19 +178,19 @@
   <div class="flex items-center gap-2.5 {orderClass}" style={glowStyle}>
     {#each effectiveOrder as id (id)}
       {#if id === 'minimize'}
-        <button on:click={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)" class="theme-text-secondary hover:text-yellow-400 transition-colors">
+        <button onclick={() => fire('minimize')} title="{$t('window.minimize')} (Super+↓)" class="theme-text-secondary hover:text-yellow-400 transition-colors">
           <Minus size={13} />
         </button>
       {:else if id === 'pip'}
-        <button on:click={() => fire('pip')} title="{$t('window.pip')}" class="theme-text-secondary transition-colors {isPiP ? 'text-blue-400' : 'hover:text-blue-400'}">
+        <button onclick={() => fire('pip')} title="{$t('window.pip')}" class="theme-text-secondary transition-colors {isPiP ? 'text-blue-400' : 'hover:text-blue-400'}">
           <PictureInPicture2 size={12} />
         </button>
       {:else if id === 'maximize'}
-        <button on:click={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)" class="theme-text-secondary hover:text-green-400 transition-colors">
+        <button onclick={() => fire('maximize')} title="{$t('window.maximize')} (Super+↑)" class="theme-text-secondary hover:text-green-400 transition-colors">
           {#if isMaximized}<Square size={11} />{:else}<Maximize2 size={11} />{/if}
         </button>
       {:else}
-        <button on:click={() => fire('close')} title="{$t('window.close')} (Alt+F4)" class="theme-text-secondary hover:text-red-400 transition-colors">
+        <button onclick={() => fire('close')} title="{$t('window.close')} (Alt+F4)" class="theme-text-secondary hover:text-red-400 transition-colors">
           <X size={13} />
         </button>
       {/if}
@@ -189,29 +201,29 @@
   <div class="flex items-center gap-0.5 {orderClass}" style={glowStyle}>
     {#each effectiveOrder as id (id)}
       {#if id === 'minimize'}
-        <button on:click={() => fire('minimize')}
+        <button onclick={() => fire('minimize')}
           class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary hover:text-yellow-400 transition-colors"
           title="{$t('window.minimize')} (Super+↓)">
           <Minus size={13} />
         </button>
       {:else if id === 'pip'}
-        <button on:click={() => fire('pip')}
+        <button onclick={() => fire('pip')}
           class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary transition-colors {isPiP ? 'text-blue-400' : 'hover:text-blue-400'}"
           title="{$t('window.pip')}">
           <PictureInPicture2 size={12} />
         </button>
       {:else if id === 'maximize'}
-        <button on:click={() => fire('maximize')}
+        <button onclick={() => fire('maximize')}
           class="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-md theme-text-secondary hover:text-green-400 transition-colors"
           title="{$t('window.maximize')} (Super+↑)">
           {#if isMaximized}<Square size={11} />{:else}<Maximize2 size={11} />{/if}
         </button>
       {:else}
-        <button on:click={() => fire('close')}
+        <button onclick={() => fire('close')}
           class="w-7 h-7 flex items-center justify-center hover:bg-red-500/80 rounded-md theme-text-secondary hover:text-white transition-colors"
           title="{$t('window.close')} (Alt+F4)"
-          on:mouseenter={glowOn}
-          on:mouseleave={glowOff}>
+          onmouseenter={glowOn}
+          onmouseleave={glowOff}>
           <X size={13} />
         </button>
       {/if}
