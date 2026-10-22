@@ -138,7 +138,11 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(needs.resolve-mode.outputs.native_matrix) }}
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    # `ubuntu-24.04-arm` is only provided to PUBLIC repositories (or paid larger runners). On a private
+    # repo the aarch64 job waits for a runner that never exists and sits in "Queued" for up to 24 h.
+    # Set the repository variable AARCH64_RUNNER (Settings → Secrets and variables → Actions → Variables)
+    # to a runner you do have, or only build x86_64.
+    runs-on: ${{ matrix.arch == 'aarch64' && (vars.AARCH64_RUNNER || 'ubuntu-24.04-arm') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
