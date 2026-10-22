@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { stopPropagation } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import {
     X, FileText, FilePlus, Sidebar, Printer, Maximize2, Minimize2,
@@ -12,22 +14,28 @@
   import SpreadsheetEditor from './SpreadsheetEditor.svelte';
   import PresentationEditor from './PresentationEditor.svelte';
   import OutlineSidebar from './OutlineSidebar.svelte';
+  import ReviewPanel from './ReviewPanel.svelte';
+  import { profileState, activeAuthor, loadProfiles } from './docsProfile';
   import SaveAsDialog from './SaveAsDialog.svelte';
 
   const doc = createDocumentState();
   const { docs, activeId, history } = doc;
 
-  let fontSize = 14;
-  let fontFamily = 'System UI';
-  let showSidebar = true;
-  let saveAsOpen = false;
-  let distraction = false;
-  let richEditorRef: RichEditor;
+  let fontSize = $state(14);
+  let fontFamily = $state('System UI');
+  let showSidebar = $state(true);
+  let saveAsOpen = $state(false);
+  let distraction = $state(false);
+  let richEditorRef = $state() as RichEditor;
+  let reviewOpen = $state(false);
+  let trackChanges = $state(false);
+  let commentDraft = $state('');
+  let author = $derived(activeAuthor($profileState));
 
-  $: activeDoc = $docs.find((d) => d.id === $activeId) ?? $docs[0];
-  $: hist = $history[$activeId];
-  $: canUndo = (hist?.past.length ?? 0) > 0;
-  $: canRedo = (hist?.future.length ?? 0) > 0;
+  let activeDoc = $derived($docs.find((d) => d.id === $activeId) ?? $docs[0]);
+  let hist = $derived($history[$activeId]);
+  let canUndo = $derived((hist?.past.length ?? 0) > 0);
+  let canRedo = $derived((hist?.future.length ?? 0) > 0);
 
   function handleFormat(e: CustomEvent<{ cmd: string; val?: string }>) {
     richEditorRef?.applyFormat(e.detail.cmd, e.detail.val);
@@ -76,21 +84,22 @@
   {#if !distraction}
     <div class="shrink-0 flex bg-slate-900 border-b border-white/5 overflow-x-auto scrollbar-hide">
       {#each $docs as d (d.id)}
-        <div on:click={() => activeId.set(d.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeId.set(d.id))(); } }}
+        <div onclick={() => activeId.set(d.id)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => activeId.set(d.id))(); } }}
           class="flex items-center gap-1.5 px-4 py-2.5 cursor-pointer shrink-0 border-r border-white/5 text-sm group max-w-[180px] transition-colors {$activeId === d.id ? 'bg-slate-950 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800/50'}">
           <FileText size={13} class="shrink-0" />
           <span class="truncate">{d.name}</span>
-          {#if d.modified}<span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />{/if}
-          <button on:click|stopPropagation={() => doc.closeDoc(d.id)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-0.5 shrink-0 transition-opacity"><X size={11} /></button>
+          {#if d.modified}<span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>{/if}
+          <button onclick={stopPropagation(() => doc.closeDoc(d.id))} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-0.5 shrink-0 transition-opacity"><X size={11} /></button>
         </div>
       {/each}
-      <button on:click={() => doc.newDoc('rich')} class="p-2.5 hover:bg-slate-800/50 text-slate-600 hover:text-white shrink-0 transition-colors"><FilePlus size={13} /></button>
-      <button on:click={() => (distraction = true)} class="ml-auto p-2.5 hover:bg-slate-800/50 text-slate-600 hover:text-white shrink-0 transition-colors" title="Distraction-free mode"><Maximize2 size={13} /></button>
+      <button onclick={() => doc.newDoc('rich')} class="p-2.5 hover:bg-slate-800/50 text-slate-600 hover:text-white shrink-0 transition-colors"><FilePlus size={13} /></button>
+      <button onclick={() => (distraction = true)} class="ml-auto p-2.5 hover:bg-slate-800/50 text-slate-600 hover:text-white shrink-0 transition-colors" title="Distraction-free mode"><Maximize2 size={13} /></button>
     </div>
   {/if}
 
   {#if !distraction}
-    <Toolbar format={activeDoc.format} {canUndo} {canRedo} bind:fontSize bind:fontFamily
+    <Toolbar format={activeDoc.format} {canUndo} {canRedo} bind:fontSize bind:fontFamily {reviewOpen} {trackChanges}
+      on:toggleReview={() => { reviewOpen = !reviewOpen; if (reviewOpen) loadProfiles(); }} on:toggleTracking={() => { trackChanges = !trackChanges; if (trackChanges) { reviewOpen = true; loadProfiles(); } }}
       on:undo={doc.undo} on:redo={doc.redo}
       on:new={(e) => doc.newDoc(e.detail)} on:open={handleOpen}
       on:save={handleSave} on:saveAs={() => (saveAsOpen = true)}
@@ -99,14 +108,14 @@
 
   <div class="flex-1 flex overflow-hidden relative">
     {#if distraction}
-      <button on:click={() => (distraction = false)} class="absolute top-4 right-4 z-10 p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white transition-colors" title="Exit distraction-free">
+      <button onclick={() => (distraction = false)} class="absolute top-4 right-4 z-10 p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white transition-colors" title="Exit distraction-free">
         <Minimize2 size={15} />
       </button>
     {/if}
 
     <div class="flex-1 flex overflow-hidden {distraction ? 'docs-distraction-surface' : ''}">
       {#if activeDoc.format === 'rich'}
-        <RichEditor bind:this={richEditorRef} content={activeDoc.content} {fontFamily} {fontSize} on:change={(e) => doc.updateContent(e.detail)} />
+        <RichEditor bind:this={richEditorRef} content={activeDoc.content} {fontFamily} {fontSize} {trackChanges} {author} on:change={(e) => doc.updateContent(e.detail)} />
       {:else if activeDoc.format === 'markdown'}
         <MarkdownEditor content={activeDoc.content} on:change={(e) => doc.updateContent(e.detail)} />
       {:else if activeDoc.format === 'spreadsheet'}
@@ -115,6 +124,18 @@
         <PresentationEditor content={activeDoc.content} on:change={(e) => doc.updateContent(e.detail)} />
       {/if}
     </div>
+
+    {#if reviewOpen && !distraction && activeDoc.format === 'rich'}
+      <ReviewPanel
+        content={activeDoc.content} {trackChanges} bind:commentDraft
+        onToggleTracking={() => (trackChanges = !trackChanges)}
+        onAddComment={(t) => richEditorRef?.addComment(t)}
+        onReply={(id, t) => richEditorRef?.replyComment(id, t)}
+        onResolve={(id, r) => richEditorRef?.resolveComment(id, r)}
+        onDeleteComment={(id) => richEditorRef?.removeComment(id)}
+        onChange={(a, id) => richEditorRef?.changeAction(a, id)}
+        onFocusComment={(id) => richEditorRef?.focusComment(id)} />
+    {/if}
 
     {#if showSidebar && !distraction && (activeDoc.format === 'rich' || activeDoc.format === 'markdown')}
       <OutlineSidebar content={activeDoc.content} format={activeDoc.format} />
@@ -128,11 +149,11 @@
         {#if activeDoc.path}<span class="font-mono truncate max-w-xs text-slate-700" title={activeDoc.path}>{activeDoc.path}</span>{/if}
       </div>
       <div class="flex items-center gap-3">
-        {#if activeDoc.modified}<span class="text-yellow-600 cursor-pointer hover:text-yellow-400" on:click={handleSave}>● Unsaved</span>{/if}
-        <button on:click={() => (showSidebar = !showSidebar)} class="flex items-center gap-1 transition-colors {showSidebar ? 'text-blue-500' : 'hover:text-slate-400'}" title="Toggle outline sidebar">
+        {#if activeDoc.modified}<span class="text-yellow-600 cursor-pointer hover:text-yellow-400" onclick={handleSave}>● Unsaved</span>{/if}
+        <button onclick={() => (showSidebar = !showSidebar)} class="flex items-center gap-1 transition-colors {showSidebar ? 'text-blue-500' : 'hover:text-slate-400'}" title="Toggle outline sidebar">
           <Sidebar size={12} /><span>Outline</span>
         </button>
-        <button on:click={() => window.print()} class="hover:text-slate-400" title="Print (Ctrl+P)"><Printer size={12} /></button>
+        <button onclick={() => window.print()} class="hover:text-slate-400" title="Print (Ctrl+P)"><Printer size={12} /></button>
       </div>
     </div>
   {/if}
