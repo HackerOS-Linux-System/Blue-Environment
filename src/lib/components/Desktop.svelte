@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { run, createBubbler, stopPropagation, preventDefault } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { transferWithDialog, createWithDialog, renameWithDialog, describeSummary, type TransferSummary } from '../utils/fileTransfer';
   import { openFileWithDefaultApp } from '../utils/openFile';
   import { createEventDispatcher, onMount, tick } from 'svelte';
-  import { FolderPlus, FilePlus, ClipboardPaste, RefreshCw, Image as ImageIcon, LayoutGrid } from 'lucide-svelte';
+  import { FolderPlus, FilePlus, ClipboardPaste, RefreshCw, Image as ImageIcon, LayoutGrid, LayoutDashboard } from 'lucide-svelte';
   import { SystemBridge, toAssetUrl, shellQuote } from '../utils/systemBridge';
   import { t } from '../stores/language';
   import {
@@ -14,37 +17,43 @@
   import { openApp } from '../stores/windowManager';
   import { AppId } from '../types';
   import FileIcon from './apps/Explorer-App/FileIcon.svelte';
+  import DesktopWidgets from '../widgets/DesktopWidgets.svelte';
+  import { widgetEditMode } from '../widgets/widgetStore';
   import type { FileEntry, Notif } from './apps/Explorer-App/types';
 
-  export let desktopPath = 'HOME/Desktop';
+  interface Props {
+    desktopPath?: string;
+  }
+
+  let { desktopPath = 'HOME/Desktop' }: Props = $props();
 
   const dispatch = createEventDispatcher<{ closeMenus: void }>();
 
-  let files: FileEntry[] = [];
-  let iconEls: Record<string, HTMLElement> = {};
-  let containerEl: HTMLDivElement;
+  let files = $state<FileEntry[]>([]);
+  let iconEls = $state<Record<string, HTMLElement>>({});
+  let containerEl = $state() as HTMLDivElement;
 
-  let selected = new Set<string>();
-  let renaming: string | null = null;
-  let renameVal = '';
-  let renameEl: HTMLInputElement;
+  let selected = $state(new Set<string>());
+  let renaming = $state<string | null>(null);
+  let renameVal = $state('');
+  let renameEl = $state() as HTMLInputElement;
 
-  let clipboard: { action: 'copy' | 'cut'; files: string[] } | null = null;
-  let notifs: Notif[] = [];
+  let clipboard = $state<{ action: 'copy' | 'cut'; files: string[] } | null>(null);
+  let notifs = $state<Notif[]>([]);
 
-  let marquee: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  let marquee = $state<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   let didDrag = false;
 
-  let ctxMenu: { x: number; y: number; target: FileEntry | null } | null = null;
+  let ctxMenu = $state<{ x: number; y: number; target: FileEntry | null } | null>(null);
 
   // ── Icon grid / remembered positions ─────────────────────────────────────
   const LAYOUT_PATH = 'HOME/.config/Blue-Environment/desktop-layout.json';
-  let saved: Layout = {};
-  let cols = 12, rows = 8;
+  let saved = $state<Layout>({});
+  let cols = $state(12), rows = $state(8);
   let layoutLoaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-  $: layout = placeAll(files.map((f) => f.name), saved, cols, rows);
+  let layout = $derived(placeAll(files.map((f) => f.name), saved, cols, rows));
 
   function measureGrid() {
     if (!containerEl) return;
@@ -98,7 +107,9 @@
     return () => { ro.disconnect(); window.removeEventListener('blue-fs-changed', onFsChanged); clearTimeout(saveTimer); };
   });
 
-  $: if (desktopPath) loadFiles();
+  run(() => {
+    if (desktopPath) loadFiles();
+  });
 
   // ── Selection ────────────────────────────────────────────────────────────
   function selectOnly(path: string) { selected = new Set([path]); }
@@ -130,9 +141,9 @@
 
   // ── Dragging icons (pointer-based: deterministic, snaps to the grid) ─────
   interface IconDrag { names: string[]; anchor: string; startX: number; startY: number; dx: number; dy: number; active: boolean; offX: number; offY: number }
-  let drag: IconDrag | null = null;
-  let dropFolder: string | null = null;   // desktop folder icon currently hovered while dragging
-  let ghostCell: Cell | null = null;      // where the group will land
+  let drag = $state<IconDrag | null>(null);
+  let dropFolder: string | null = $state(null);   // desktop folder icon currently hovered while dragging
+  let ghostCell: Cell | null = $state(null);      // where the group will land
   let suppressClick = false;
   let wasSelectedOnDown = false;
 
@@ -408,17 +419,18 @@
   }
 </script>
 
-<svelte:window on:keydown={handleKeydown} on:click={() => (ctxMenu = null)} />
+<svelte:window onkeydown={handleKeydown} onclick={() => (ctxMenu = null)} />
 
 <div
   bind:this={containerEl}
   class="absolute inset-0 select-none z-[1]"
-  on:mousedown={onContainerMouseDown}
-  on:click={onContainerClick} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onContainerClick(); } }}
-  on:contextmenu={(e) => openMenu(e, null)}
-  on:dragover={onDesktopDragOver}
-  on:drop={onDesktopDrop}
+  onmousedown={onContainerMouseDown}
+  onclick={onContainerClick} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onContainerClick(); } }}
+  oncontextmenu={(e) => openMenu(e, null)}
+  ondragover={onDesktopDragOver}
+  ondrop={onDesktopDrop}
 >
+  <DesktopWidgets />
   <div class="absolute inset-0">
     {#each files as file (file.path)}
       {@const cell = layout[file.name]}
@@ -431,11 +443,11 @@
         bind:this={iconEls[file.path]}
         class="absolute flex flex-col items-center gap-1 p-2 rounded-lg cursor-default text-center {selected.has(file.path) ? 'bg-blue-500/30 ring-1 ring-blue-400/50' : 'hover:bg-white/10'} {dropFolder === file.name ? 'ring-2 ring-emerald-400 bg-emerald-500/20' : ''} {dragging ? 'opacity-70 pointer-events-none z-10' : ''}"
         style="width:{CELL_W}px; min-height:{CELL_H - 8}px; left:{pos.left}px; top:{pos.top}px; {dragging ? `transform: translate(${drag?.dx}px, ${drag?.dy}px); transition:none;` : ''}"
-        on:mousedown={(e) => onIconMouseDown(e, file)}
-        on:click={(e) => iconClick(e, file)}
-        on:dblclick={() => handleOpen(file)}
-        on:contextmenu={(e) => openMenu(e, file)}
-        on:keydown={(e) => { if (e.key === 'Enter' && renaming !== file.path) handleOpen(file); }}
+        onmousedown={(e) => onIconMouseDown(e, file)}
+        onclick={(e) => iconClick(e, file)}
+        ondblclick={() => handleOpen(file)}
+        oncontextmenu={(e) => openMenu(e, file)}
+        onkeydown={(e) => { if (e.key === 'Enter' && renaming !== file.path) handleOpen(file); }}
         role="button"
         tabindex="-1"
       >
@@ -444,9 +456,9 @@
           <input
             bind:this={renameEl}
             bind:value={renameVal}
-            on:click|stopPropagation
-            on:blur={commitRename}
-            on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); commitRename(); } if (e.key === 'Escape') { e.stopPropagation(); renaming = null; } }}
+            onclick={stopPropagation(bubble('click'))}
+            onblur={commitRename}
+            onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); commitRename(); } if (e.key === 'Escape') { e.stopPropagation(); renaming = null; } }}
             class="w-full bg-slate-900 text-white text-[11px] text-center rounded px-1 py-0.5 focus:outline-none ring-1 ring-blue-500"
           />
         {:else}
@@ -458,14 +470,14 @@
 
   {#if drag?.active && ghostCell}
     {@const g = cellOrigin(ghostCell)}
-    <div class="absolute rounded-lg border border-dashed border-blue-300/60 bg-blue-300/10 pointer-events-none" style="left:{g.left}px; top:{g.top}px; width:{CELL_W}px; height:{CELL_H - 8}px;" />
+    <div class="absolute rounded-lg border border-dashed border-blue-300/60 bg-blue-300/10 pointer-events-none" style="left:{g.left}px; top:{g.top}px; width:{CELL_W}px; height:{CELL_H - 8}px;"></div>
   {/if}
 
   {#if marquee}
     <div
       class="absolute border border-blue-400 bg-blue-400/15 pointer-events-none"
       style="left:{Math.min(marquee.x0, marquee.x1)}px; top:{Math.min(marquee.y0, marquee.y1)}px; width:{Math.abs(marquee.x1 - marquee.x0)}px; height:{Math.abs(marquee.y1 - marquee.y0)}px;"
-    />
+></div>
   {/if}
 </div>
 
@@ -475,28 +487,29 @@
     style="left:{ctxMenu.x}px; top:{ctxMenu.y}px;"
     role="menu"
     tabindex="-1"
-    on:click|stopPropagation
-    on:contextmenu|preventDefault
-    on:keydown={(e) => e.key === 'Escape' && (ctxMenu = null)}
+    onclick={stopPropagation(bubble('click'))}
+    oncontextmenu={preventDefault(bubble('contextmenu'))}
+    onkeydown={(e) => e.key === 'Escape' && (ctxMenu = null)}
   >
     {#if ctxMenu.target}
       {@const target = ctxMenu.target}
-      <button on:click={() => handleOpen(target)} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Otwórz</button>
-      <button on:click={() => startRename(target)} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Zmień nazwę</button>
-      <button on:click={cutSelected} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Wytnij</button>
-      <button on:click={copySelected} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Kopiuj</button>
-      <div class="h-px bg-white/10 my-1" />
-      <button on:click={deleteSelected} class="w-full text-left px-3.5 py-1.5 text-red-400 hover:bg-red-500/10">Usuń</button>
+      <button onclick={() => handleOpen(target)} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Otwórz</button>
+      <button onclick={() => startRename(target)} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Zmień nazwę</button>
+      <button onclick={cutSelected} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Wytnij</button>
+      <button onclick={copySelected} class="w-full text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10">Kopiuj</button>
+      <div class="h-px bg-white/10 my-1"></div>
+      <button onclick={deleteSelected} class="w-full text-left px-3.5 py-1.5 text-red-400 hover:bg-red-500/10">Usuń</button>
     {:else}
-      <button on:click={createFolder} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><FolderPlus size={14} /> Nowy folder</button>
-      <button on:click={createTextFile} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><FilePlus size={14} /> Nowy plik tekstowy</button>
+      <button onclick={createFolder} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><FolderPlus size={14} /> Nowy folder</button>
+      <button onclick={createTextFile} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><FilePlus size={14} /> Nowy plik tekstowy</button>
       {#if clipboard}
-        <button on:click={paste} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><ClipboardPaste size={14} /> Wklej</button>
+        <button onclick={paste} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><ClipboardPaste size={14} /> Wklej</button>
       {/if}
-      <div class="h-px bg-white/10 my-1" />
-      <button on:click={arrangeIcons} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><LayoutGrid size={14} /> {$t('desktop.arrange')}</button>
-      <button on:click={() => { closeMenu(); loadFiles(); }} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><RefreshCw size={14} /> Odśwież</button>
-      <button on:click={openWallpaperSettings} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><ImageIcon size={14} /> Zmień tapetę</button>
+      <div class="h-px bg-white/10 my-1"></div>
+      <button onclick={arrangeIcons} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><LayoutGrid size={14} /> {$t('desktop.arrange')}</button>
+      <button onclick={() => { closeMenu(); loadFiles(); }} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><RefreshCw size={14} /> Odśwież</button>
+      <button onclick={() => { closeMenu(); widgetEditMode.set(true); }} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><LayoutDashboard size={14} /> {$t('widgets.edit')}</button>
+      <button onclick={openWallpaperSettings} class="w-full flex items-center gap-2 text-left px-3.5 py-1.5 text-slate-200 hover:bg-white/10"><ImageIcon size={14} /> Zmień tapetę</button>
     {/if}
   </div>
 {/if}
