@@ -1,4 +1,7 @@
 pub mod phone;
+pub mod audio;
+pub mod plugin_proto;
+pub mod plugins;
 pub mod kdeconnect;
 pub mod remote;
 pub(crate) mod tls;
