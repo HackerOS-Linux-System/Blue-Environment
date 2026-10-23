@@ -8,15 +8,15 @@
 
   interface Card { icon: string; flipped: boolean; matched: boolean; }
 
-  let cards: Card[] = [];
+  let cards = $state<Card[]>([]);
   let firstPick: number | null = null;
   let secondPick: number | null = null;
-  let moves = 0;
-  let matches = 0;
+  let moves = $state(0);
+  let matches = $state(0);
   let locked = false;
   let startTime = 0;
-  let score = 0;
-  let won = false;
+  let score = $state(0);
+  let won = $state(false);
 
   function shuffle<T>(arr: T[]): T[] {
     const a = [...arr];
@@ -92,11 +92,11 @@
     <span>Score: <strong class="text-white">{score}</strong></span>
     <span>Moves: {moves}</span>
     <span>{matches}/{PAIRS} matched</span>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
   <div class="grid grid-cols-4 gap-2">
     {#each cards as card, i (i)}
-      <button on:click={() => pick(i)}
+      <button onclick={() => pick(i)}
         class="w-16 h-16 rounded-xl flex items-center justify-center text-2xl transition-all duration-200 {card.flipped || card.matched ? 'bg-slate-700' : 'bg-slate-800 hover:bg-slate-750'} {card.matched ? 'opacity-50 ring-2 ring-emerald-400' : ''}">
         {#if card.flipped || card.matched}{card.icon}{:else}<span class="text-slate-600">?</span>{/if}
       </button>
