@@ -32,15 +32,15 @@
   import Recents from './Recents.svelte';
   import Shade from './Shade.svelte';
 
-  let wallpaper = '';
-  let theme = 'dark';
-  let shellThemeId: string | undefined;
-  let systemThemeId: string | null | undefined;
-  let appsEnabled: Record<string, boolean> = {};
-  let pinnedIds: string[] | undefined;
-  let use24h = true;
-  let showTransferProgress = true;
-  let keyboardOnFocus = true;
+  let wallpaper = $state('');
+  let theme = $state('dark');
+  let shellThemeId = $state<string | undefined>();
+  let systemThemeId = $state<string | null | undefined>();
+  let appsEnabled = $state<Record<string, boolean>>({});
+  let pinnedIds = $state<string[] | undefined>();
+  let use24h = $state(true);
+  let showTransferProgress = $state(true);
+  let keyboardOnFocus = $state(true);
 
   const stop = startAltShell((cfg) => {
     if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -56,25 +56,25 @@
   });
   onDestroy(stop);
 
-  let now = new Date();
+  let now = $state(new Date());
   let clock: ReturnType<typeof setInterval>;
   onMount(() => { clock = setInterval(() => (now = new Date()), 10000); });
   onDestroy(() => clearInterval(clock));
 
   type Panel = 'none' | 'recents' | 'shade' | 'power';
-  let panel: Panel = 'none';
-  let shadeTab: 'notifications' | 'quick' = 'notifications';
+  let panel = $state<Panel>('none');
+  let shadeTab = $state<'notifications' | 'quick'>('notifications');
 
-  $: apps = listLauncherApps(APPS as any, appsEnabled);
-  $: dock = resolvePinned(pinnedIds, apps, 4);
+  let apps = $derived(listLauncherApps(APPS as any, appsEnabled));
+  let dock = $derived(resolvePinned(pinnedIds, apps, 4));
 
-  $: running = $windows.filter((w) => !w.isExternal).sort((a, b) => b.zIndex - a.zIndex);
-  $: appOpen = running.some((w) => w.id === $activeWindowId && !w.isMinimized);
-  $: recents = running.map<RecentItem>((w) => ({
+  let running = $derived($windows.filter((w) => !w.isExternal).sort((a, b) => b.zIndex - a.zIndex));
+  let appOpen = $derived(running.some((w) => w.id === $activeWindowId && !w.isMinimized));
+  let recents = $derived(running.map<RecentItem>((w) => ({
     id: w.id, title: w.title, icon: (APPS as any)[w.appId]?.icon, active: w.id === $activeWindowId && !w.isMinimized,
-  }));
+  })));
 
-  let unread = 0;
+  let unread = $state(0);
   let allNotes: Notification[] = [];
   const unsubNotes = notificationManager.subscribe((n) => { allNotes = n; unread = n.filter((x) => !x.read).length; });
   onDestroy(unsubNotes);
@@ -97,7 +97,7 @@
   function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { e.preventDefault(); back(); } }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 <ShellFrame variant="phones" {wallpaper} {shellThemeId} {systemThemeId} {theme} {keyboardOnFocus} {showTransferProgress}>
   <div class="absolute inset-0 flex flex-col">
