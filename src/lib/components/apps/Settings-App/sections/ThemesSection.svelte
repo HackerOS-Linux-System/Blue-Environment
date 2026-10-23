@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   /**
    * Shell Themes settings section — two tabs: "Installed" (the 10
    * built-in themes from builtinThemes.ts) and "Store" (community
@@ -57,27 +59,31 @@
     type StoreIndexEntry, type Receipt,
   } from '../../../../utils/blueStore';
 
-  export let config: UserConfig;
-  export let onSave: (p: Partial<UserConfig>) => Promise<void>;
+  interface Props {
+    config: UserConfig;
+    onSave: (p: Partial<UserConfig>) => Promise<void>;
+  }
 
-  let tab: 'installed' | 'system' | 'store' = 'installed';
-  let storeThemes: StoreIndexEntry[] = [];
-  let storeWarnings: string[] = [];
-  let storeLoading = false;
-  let storeErrorMsg: string | null = null;
+  let { config, onSave }: Props = $props();
+
+  let tab = $state<'installed' | 'system' | 'store'>('installed');
+  let storeThemes = $state<StoreIndexEntry[]>([]);
+  let storeWarnings = $state<string[]>([]);
+  let storeLoading = $state(false);
+  let storeErrorMsg = $state<string | null>(null);
   let storeLoaded = false;
   let installedStoreThemes: Receipt[] = [];
   /** downloadUrl -> progress (0-100) while installing, absent otherwise. */
-  let installing: Record<string, number> = {};
+  let installing = $state<Record<string, number>>({});
 
-  let systemThemes: SystemTheme[] = [];
+  let systemThemes = $state<SystemTheme[]>([]);
   let systemThemesLoaded = false;
-  let systemThemesLoading = false;
-  $: activeSystemThemeId = config.systemThemeId ?? null;
+  let systemThemesLoading = $state(false);
+  let activeSystemThemeId = $derived(config.systemThemeId ?? null);
 
-  $: activeId = config.shellThemeId ?? DEFAULT_SHELL_THEME_ID;
-  let restartPending = false;
-  let stagedThemeName = '';
+  let activeId = $derived(config.shellThemeId ?? DEFAULT_SHELL_THEME_ID);
+  let restartPending = $state(false);
+  let stagedThemeName = $state('');
 
   // ── Window control button order ─────────────────────────────────────
   // Was previously not customizable at all (and had a real ordering bug
@@ -89,14 +95,14 @@
   // switching to a different theme below shows/edits that theme's own
   // separate order (falling back to its style's built-in default if
   // that theme hasn't been customized).
-  $: activeTheme = BUILTIN_THEMES.find((th) => th.id === activeId);
-  $: activeControlsStyle = activeTheme?.layout.windowControlsStyle ?? 'windows';
-  $: styleDefaultOrder = (activeControlsStyle === 'macos'
+  let activeTheme = $derived(BUILTIN_THEMES.find((th) => th.id === activeId));
+  let activeControlsStyle = $derived(activeTheme?.layout.windowControlsStyle ?? 'windows');
+  let styleDefaultOrder = $derived((activeControlsStyle === 'macos'
     ? ['close', 'minimize', 'maximize', 'pip']
-    : DEFAULT_WINDOW_CONTROLS_ORDER) as WindowControlId[];
-  $: orderOverrides = config.windowControlsOrderByTheme ?? {};
-  $: hasOverrideForStyle = !!orderOverrides[activeId];
-  $: controlsOrder = (orderOverrides[activeId] as WindowControlId[] | undefined) ?? styleDefaultOrder;
+    : DEFAULT_WINDOW_CONTROLS_ORDER) as WindowControlId[]);
+  let orderOverrides = $derived(config.windowControlsOrderByTheme ?? {});
+  let hasOverrideForStyle = $derived(!!orderOverrides[activeId]);
+  let controlsOrder = $derived((orderOverrides[activeId] as WindowControlId[] | undefined) ?? styleDefaultOrder);
 
   const CONTROL_LABELS: Record<WindowControlId, string> = {
     close: 'Zamknij (X)', maximize: 'Pełny ekran', minimize: 'Minimalizuj', pip: 'Obraz w obrazie',
@@ -127,8 +133,8 @@
   // to drag, and they're the more predictable option for keyboard/
   // switch-access users), but "real" drag-and-drop is what most people
   // reach for first when a list says it's reorderable.
-  let dragFromIndex: number | null = null;
-  let dragOverIndex: number | null = null;
+  let dragFromIndex = $state<number | null>(null);
+  let dragOverIndex = $state<number | null>(null);
   function handleDragStart(index: number) { dragFromIndex = index; }
   function handleDragOver(e: DragEvent, index: number) { e.preventDefault(); dragOverIndex = index; }
   function handleDragLeave() { dragOverIndex = null; }
@@ -152,7 +158,7 @@
   // the editor's markup use `editingCustom.extras.foo` directly instead
   // of an optional-chain/non-null-assertion on every single field.
   type EditableTheme = ShellTheme & { extras: ShellThemeExtras };
-  let editingCustom: EditableTheme | null = null;
+  let editingCustom = $state<EditableTheme | null>(null);
   // Declared here (typed, script-side) rather than as an inline array
   // literal in the template's `{#each}` below: svelte-check parses
   // template expressions with a more limited expression grammar than a
@@ -169,16 +175,20 @@
   // ── "Try live": apply the unsaved draft to the running shell ──────────
   // Colours and extras apply instantly (see stores/shellTheme.ts); layout
   // choices that need a restart don't. Ending the edit always ends the preview.
-  let previewing = false;
-  $: previewShellTheme.set(previewing && editingCustom ? editingCustom : null);
-  $: if (!editingCustom) previewing = false;
+  let previewing = $state(false);
+  run(() => {
+    previewShellTheme.set(previewing && editingCustom ? editingCustom : null);
+  });
+  run(() => {
+    if (!editingCustom) previewing = false;
+  });
   onDestroy(() => previewShellTheme.set(null));
 
   // ── Contrast (WCAG) ───────────────────────────────────────────────────
-  $: contrastIssues = editingCustom ? themeContrastIssues(editingCustom.colors) : [];
+  let contrastIssues = $derived(editingCustom ? themeContrastIssues(editingCustom.colors) : []);
 
   // ── Wallpaper that travels with the theme ─────────────────────────────
-  $: wallpaperName = editingCustom?.wallpaper ? (editingCustom.wallpaper.split('/').filter(Boolean).pop() ?? '') : '';
+  let wallpaperName = $derived(editingCustom?.wallpaper ? (editingCustom.wallpaper.split('/').filter(Boolean).pop() ?? '') : '');
   function useCurrentWallpaper() {
     if (!editingCustom || !config.wallpaper) return;
     editingCustom.wallpaper = config.wallpaper.replace(/^file:\/\//, '');
@@ -189,10 +199,10 @@
     editingCustom.wallpaper = undefined;
     editingCustom = editingCustom;
   }
-  let customError: string | null = null;
-  let customSaving = false;
-  let importFileInput: HTMLInputElement;
-  let importError: string | null = null;
+  let customError = $state<string | null>(null);
+  let customSaving = $state(false);
+  let importFileInput = $state() as HTMLInputElement;
+  let importError = $state<string | null>(null);
 
   function startCreateCustom() {
     customError = null;
@@ -354,18 +364,18 @@
         <span>{$t('thm.restart_selected', { name: stagedThemeName })}</span>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <button class="text-[11px] px-2.5 py-1 rounded-md bg-amber-500 text-black font-medium hover:bg-amber-400 transition-colors" on:click={restartNow}>{$t('thm.restart_now')}</button>
-        <button class="text-[11px] px-2 py-1 rounded-md text-amber-200/70 hover:text-amber-100 transition-colors" on:click={dismissRestartPrompt}>{$t('thm.later')}</button>
+        <button class="text-[11px] px-2.5 py-1 rounded-md bg-amber-500 text-black font-medium hover:bg-amber-400 transition-colors" onclick={restartNow}>{$t('thm.restart_now')}</button>
+        <button class="text-[11px] px-2 py-1 rounded-md text-amber-200/70 hover:text-amber-100 transition-colors" onclick={dismissRestartPrompt}>{$t('thm.later')}</button>
       </div>
     </div>
   {/if}
 
   <div class="flex gap-1 mb-4 border-b border-white/5">
-    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors {tab === 'installed' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('installed')}>Installed</button>
-    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'system' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('system')}>
+    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors {tab === 'installed' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" onclick={() => selectTab('installed')}>Installed</button>
+    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'system' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" onclick={() => selectTab('system')}>
       <HardDrive size={12} /> {$t('thm.tab_system')}
     </button>
-    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'store' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" on:click={() => selectTab('store')}>
+    <button class="px-3 py-2 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 {tab === 'store' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}" onclick={() => selectTab('store')}>
       <StoreIcon size={12} /> {$t('thm.tab_store')}
     </button>
   </div>
@@ -391,7 +401,7 @@
           <button
             class="relative text-left rounded-xl border p-3 transition-colors cursor-pointer
               {theme.id === activeSystemThemeId ? 'border-blue-500 bg-blue-500/10' : 'border-white/10 bg-slate-800/40 hover:border-white/20'}"
-            on:click={() => selectSystemTheme(theme)}
+            onclick={() => selectSystemTheme(theme)}
           >
             <div class="flex items-start gap-3">
               <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-slate-900 border border-white/10">
@@ -409,7 +419,7 @@
                 <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">{theme.description}</p>
                 <p class="text-[10px] text-slate-500 mt-1">by {theme.author} · v{theme.version}</p>
                 <div class="flex items-center gap-1 mt-1.5 flex-wrap">
-                  {#if theme.effects.accentColor}<span class="w-3 h-3 rounded-full border border-white/10" style="background: {theme.effects.accentColor}" />{/if}
+                  {#if theme.effects.accentColor}<span class="w-3 h-3 rounded-full border border-white/10" style="background: {theme.effects.accentColor}"></span>{/if}
                   <span class="text-[10px] text-slate-500">{theme.effects.cornerStyle} corners</span>
                   {#if theme.effects.blur}<span class="text-[10px] text-slate-500">· blur</span>{/if}
                   {#if theme.effects.animations}<span class="text-[10px] text-slate-500">· animated</span>{/if}
@@ -430,11 +440,11 @@
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-sm font-semibold text-white">{$t('thm.your_themes')}</h3>
         <div class="flex gap-2">
-          <button on:click={triggerImport} class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">{$t('thm.import')}</button>
-          <button on:click={startCreateCustom} class="text-xs px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{$t('thm.create')}</button>
+          <button onclick={triggerImport} class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">{$t('thm.import')}</button>
+          <button onclick={startCreateCustom} class="text-xs px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white">{$t('thm.create')}</button>
         </div>
       </div>
-      <input bind:this={importFileInput} type="file" accept="application/json,.json" class="hidden" on:change={handleImportFile} />
+      <input bind:this={importFileInput} type="file" accept="application/json,.json" class="hidden" onchange={handleImportFile} />
       {#if importError}<p class="text-xs text-red-400 mb-2">{importError}</p>{/if}
 
       {#if $customShellThemes.length === 0 && !editingCustom}
@@ -443,7 +453,7 @@
         <div class="grid grid-cols-2 gap-3">
           {#each $customShellThemes as theme (theme.id)}
             <div class="relative rounded-xl border p-3 group {theme.id === activeId ? 'border-blue-500 bg-blue-500/10' : 'border-white/10 bg-slate-800/40 hover:border-white/20'}">
-              <button class="w-full text-left" on:click={() => selectTheme(theme)}>
+              <button class="w-full text-left" onclick={() => selectTheme(theme)}>
                 <div class="flex items-start gap-3">
                   <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style="background: {theme.extras?.accentSecondary ? `linear-gradient(135deg, ${theme.colors.accent}, ${theme.extras.accentSecondary})` : theme.colors.surfaceElevated}; border: 1px solid {theme.colors.border};">
                     <Sparkles size={18} style="color: {theme.extras?.accentSecondary ? '#fff' : theme.colors.accent}" />
@@ -456,16 +466,16 @@
                     <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{theme.description || $t('thm.custom_default_desc')}</p>
                     <div class="flex items-center gap-1 mt-2">
                       {#each [theme.colors.accent, theme.colors.background, theme.colors.surface, theme.colors.text] as c}
-                        <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}" />
+                        <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}"></span>
                       {/each}
                     </div>
                   </div>
                 </div>
               </button>
               <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
-                <button on:click={() => startEditCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.edit')} aria-label={$t('thm.edit')}><Edit2 size={12} /></button>
-                <button on:click={() => exportCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.export')} aria-label={$t('thm.export')}><Download size={12} /></button>
-                <button on:click={() => deleteCustom(theme.id)} disabled={theme.id === activeId}
+                <button onclick={() => startEditCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.edit')} aria-label={$t('thm.edit')}><Edit2 size={12} /></button>
+                <button onclick={() => exportCustom(theme)} class="p-1 rounded bg-slate-900/80 hover:bg-slate-700 text-slate-300" title={$t('thm.export')} aria-label={$t('thm.export')}><Download size={12} /></button>
+                <button onclick={() => deleteCustom(theme.id)} disabled={theme.id === activeId}
                   class="p-1 rounded bg-slate-900/80 hover:bg-red-500/30 text-slate-300 hover:text-red-400 disabled:opacity-30" title={$t('thm.delete')} aria-label={$t('thm.delete')}><Trash2 size={12} /></button>
               </div>
             </div>
@@ -477,7 +487,7 @@
         <div class="mt-3 bg-slate-800 rounded-2xl border border-white/5 p-4 space-y-3">
           <div class="flex items-center justify-between">
             <h4 class="text-sm font-semibold text-white">{$customShellThemes.some((th) => th.id === editingCustom?.id) ? $t('thm.editor_edit') : $t('thm.editor_new')}</h4>
-            <button on:click={cancelCustomEdit} class="text-slate-500 hover:text-white" aria-label={$t('thm.cancel')}><X size={16} /></button>
+            <button onclick={cancelCustomEdit} class="text-slate-500 hover:text-white" aria-label={$t('thm.cancel')}><X size={16} /></button>
           </div>
 
           <input bind:value={editingCustom.name} placeholder={$t("thm.name_ph")}
@@ -490,7 +500,7 @@
           <!-- Try the unsaved draft on the real shell -->
           <div class="flex items-center gap-2 flex-wrap">
             <button class="text-xs px-2.5 py-1.5 rounded-lg {previewing ? 'bg-amber-500 text-black font-medium' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}"
-              on:click={() => (previewing = !previewing)}>{previewing ? $t('thm.preview_stop') : $t('thm.preview_try')}</button>
+              onclick={() => (previewing = !previewing)}>{previewing ? $t('thm.preview_stop') : $t('thm.preview_try')}</button>
             {#if previewing}<span class="text-[11px] text-amber-300">{$t('thm.preview_active')}</span>{/if}
           </div>
 
@@ -515,7 +525,7 @@
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input type="checkbox" checked={!!editingCustom.extras?.accentSecondary}
-                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, accentSecondary: e.currentTarget.checked ? (editingCustom.extras?.accentSecondary || '#a855f7') : undefined })}
+                onchange={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, accentSecondary: e.currentTarget.checked ? (editingCustom.extras?.accentSecondary || '#a855f7') : undefined })}
                 class="accent-blue-500" />
               {$t('thm.gradient')}
             </label>
@@ -587,7 +597,7 @@
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input type="checkbox" checked={!!editingCustom.extras.windowBorderColor}
-                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, windowBorderColor: e.currentTarget.checked ? (editingCustom.extras.windowBorderColor || editingCustom.colors.accent) : undefined })}
+                onchange={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, windowBorderColor: e.currentTarget.checked ? (editingCustom.extras.windowBorderColor || editingCustom.colors.accent) : undefined })}
                 class="accent-blue-500" />
               {$t('thm.own_border_color')}
             </label>
@@ -600,8 +610,8 @@
           <div class="pt-2 border-t border-white/5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{$t('thm.sec_wallpaper')}</div>
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs text-slate-400 truncate max-w-[14rem]">{wallpaperName || $t('thm.wallpaper_none')}</span>
-            <button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-40" disabled={!config.wallpaper} on:click={useCurrentWallpaper}>{$t('thm.wallpaper_use_current')}</button>
-            {#if editingCustom.wallpaper}<button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200" on:click={clearWallpaper}>{$t('thm.wallpaper_remove')}</button>{/if}
+            <button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-40" disabled={!config.wallpaper} onclick={useCurrentWallpaper}>{$t('thm.wallpaper_use_current')}</button>
+            {#if editingCustom.wallpaper}<button class="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200" onclick={clearWallpaper}>{$t('thm.wallpaper_remove')}</button>{/if}
           </div>
           {#if editingCustom.wallpaper}<p class="text-[11px] text-slate-500">{$t('thm.wallpaper_bundled_hint')}</p>{/if}
           <label class="block text-xs text-slate-500">{$t('thm.wp_brightness', { n: editingCustom.extras.wallpaperBrightness ?? 100 })}
@@ -616,7 +626,7 @@
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input type="checkbox" checked={!!editingCustom.extras.panelColor}
-                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, panelColor: e.currentTarget.checked ? (editingCustom.extras.panelColor || editingCustom.colors.surface) : undefined })}
+                onchange={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, panelColor: e.currentTarget.checked ? (editingCustom.extras.panelColor || editingCustom.colors.surface) : undefined })}
                 class="accent-blue-500" />
               {$t('thm.own_panel_color')}
             </label>
@@ -633,7 +643,7 @@
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input type="checkbox" checked={!!editingCustom.extras.menuBackgroundColor}
-                on:change={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, menuBackgroundColor: e.currentTarget.checked ? (editingCustom.extras.menuBackgroundColor || editingCustom.colors.background) : undefined })}
+                onchange={(e) => editingCustom && (editingCustom.extras = { ...editingCustom.extras, menuBackgroundColor: e.currentTarget.checked ? (editingCustom.extras.menuBackgroundColor || editingCustom.colors.background) : undefined })}
                 class="accent-blue-500" />
               {$t('thm.own_menu_color')}
             </label>
@@ -673,9 +683,9 @@
           {#if customError}<p class="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">{customError}</p>{/if}
 
           <div class="flex gap-2 pt-1">
-            <button on:click={submitCustom} disabled={customSaving || !editingCustom.name.trim()}
+            <button onclick={submitCustom} disabled={customSaving || !editingCustom.name.trim()}
               class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium">{$t('thm.save')}</button>
-            <button on:click={cancelCustomEdit} class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">{$t('thm.cancel')}</button>
+            <button onclick={cancelCustomEdit} class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">{$t('thm.cancel')}</button>
           </div>
         </div>
       {/if}
@@ -688,7 +698,7 @@
           class="relative text-left rounded-xl border p-3 transition-colors group
             {theme.id === activeId ? 'border-blue-500 bg-blue-500/10' : 'border-white/10 bg-slate-800/40 hover:border-white/20'}
             {theme.placeholder ? 'opacity-60 cursor-default' : 'cursor-pointer'}"
-          on:click={() => selectTheme(theme)}
+          onclick={() => selectTheme(theme)}
           disabled={theme.placeholder}
         >
           <div class="flex items-start gap-3">
@@ -696,7 +706,8 @@
               {#if theme.previewImage}
                 <img src={theme.previewImage} alt="" class="w-full h-full object-cover" />
               {:else}
-                <svelte:component this={iconFor(theme.previewIcon)} size={20} style="color: {theme.colors.accent}" />
+                {@const SvelteComponent = iconFor(theme.previewIcon)}
+                <SvelteComponent size={20} style="color: {theme.colors.accent}" />
               {/if}
             </div>
             <div class="flex-1 min-w-0">
@@ -708,7 +719,7 @@
               <p class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">{theme.description}</p>
               <div class="flex items-center gap-1 mt-2">
                 {#each [theme.colors.accent, theme.colors.background, theme.colors.surface, theme.colors.text] as c}
-                  <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}" />
+                  <span class="w-3 h-3 rounded-full border border-white/10" style="background: {c}"></span>
                 {/each}
                 <span class="text-[10px] text-slate-500 ml-1.5">{theme.layout.panelPosition} panel · {theme.layout.windowControlsStyle}</span>
               </div>
@@ -730,7 +741,7 @@
       <div class="flex items-center justify-between mb-1">
         <h4 class="text-sm font-medium text-white">Kolejność przycisków okna</h4>
         {#if hasOverrideForStyle}
-          <button on:click={resetControlsOrder} class="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors">
+          <button onclick={resetControlsOrder} class="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors">
             <RotateCcw size={11} /> Domyślna
           </button>
         {/if}
@@ -741,18 +752,18 @@
           <div
             role="presentation"
             draggable="true"
-            on:dragstart={() => handleDragStart(i)}
-            on:dragover={(e) => handleDragOver(e, i)}
-            on:dragleave={handleDragLeave}
-            on:drop={(e) => handleDrop(e, i)}
-            on:dragend={handleDragEnd}
+            ondragstart={() => handleDragStart(i)}
+            ondragover={(e) => handleDragOver(e, i)}
+            ondragleave={handleDragLeave}
+            ondrop={(e) => handleDrop(e, i)}
+            ondragend={handleDragEnd}
             class="flex items-center gap-2 bg-slate-900/60 border rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-colors {dragOverIndex === i && dragFromIndex !== i ? 'border-blue-500/60 bg-blue-500/10' : 'border-white/5'} {dragFromIndex === i ? 'opacity-40' : ''}"
           >
             <GripVertical size={12} class="text-slate-600 shrink-0" />
             <span class="text-[10px] text-slate-500 w-4">{i + 1}</span>
             <span class="text-xs text-slate-200 flex-1">{CONTROL_LABELS[id]}</span>
-            <button on:click={() => moveControl(i, -1)} disabled={i === 0} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowUp size={12} /></button>
-            <button on:click={() => moveControl(i, 1)} disabled={i === controlsOrder.length - 1} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowDown size={12} /></button>
+            <button onclick={() => moveControl(i, -1)} disabled={i === 0} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowUp size={12} /></button>
+            <button onclick={() => moveControl(i, 1)} disabled={i === controlsOrder.length - 1} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-25 disabled:hover:bg-transparent transition-colors"><ArrowDown size={12} /></button>
           </div>
         {/each}
       </div>
@@ -768,7 +779,7 @@
         <AlertTriangle size={28} class="text-amber-400" />
         <p class="text-sm text-slate-300">Couldn't reach the theme store</p>
         <p class="text-xs text-slate-500 max-w-sm">{storeErrorMsg}</p>
-        <button class="mt-1 text-[11px] px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white" on:click={loadStore}>Try again</button>
+        <button class="mt-1 text-[11px] px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white" onclick={loadStore}>Try again</button>
       </div>
     {:else if storeThemes.length === 0}
       <div class="flex flex-col items-center gap-2 py-12 text-center">
@@ -795,10 +806,10 @@
             {:else if installed}
               <div class="mt-2 flex items-center gap-2">
                 <span class="text-[11px] px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 flex items-center gap-1"><Check size={12} /> Installed</span>
-                <button class="text-[11px] px-2 py-1 rounded-md bg-slate-700 hover:bg-red-500/80 text-white" on:click={() => uninstallStoreTheme(installed)}>Remove</button>
+                <button class="text-[11px] px-2 py-1 rounded-md bg-slate-700 hover:bg-red-500/80 text-white" onclick={() => uninstallStoreTheme(installed)}>Remove</button>
               </div>
             {:else}
-              <button class="mt-2 text-[11px] px-2.5 py-1 rounded-md bg-blue-500 text-white font-medium hover:bg-blue-400 transition-colors" on:click={() => installStoreTheme(theme)}>Download</button>
+              <button class="mt-2 text-[11px] px-2.5 py-1 rounded-md bg-blue-500 text-white font-medium hover:bg-blue-400 transition-colors" onclick={() => installStoreTheme(theme)}>Download</button>
             {/if}
           </div>
         {/each}
