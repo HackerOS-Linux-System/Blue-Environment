@@ -1,13 +1,21 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { CloudSun, Clipboard, Gauge } from 'lucide-svelte';
   import type { UserConfig } from '../../../../types';
   import { t } from '../../../../stores/language';
 
-  export let config: UserConfig;
-  export let onSave: (p: Partial<UserConfig>) => Promise<void>;
+  interface Props {
+    config: UserConfig;
+    onSave: (p: Partial<UserConfig>) => Promise<void>;
+  }
 
-  let cityDraft = config.weatherCity ?? '';
-  $: cityDraft = config.weatherCity ?? cityDraft;
+  let { config, onSave }: Props = $props();
+
+  let cityDraft = $state(config.weatherCity ?? '');
+  run(() => {
+    cityDraft = config.weatherCity ?? cityDraft;
+  });
 </script>
 
 <div class="space-y-6">
@@ -25,7 +33,7 @@
         <div class="text-xs text-slate-500">{$t('settings.weather.show_in_topbar_desc')}</div>
       </div>
       <input type="checkbox" checked={config.weatherEnabled ?? true}
-        on:change={(e) => onSave({ weatherEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
+        onchange={(e) => onSave({ weatherEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
     </div>
 
     <div>
@@ -33,7 +41,7 @@
       <div class="flex gap-2">
         <input bind:value={cityDraft} placeholder={$t('settings.weather.city_placeholder')}
           class="flex-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
-        <button on:click={() => onSave({ weatherCity: cityDraft.trim() })}
+        <button onclick={() => onSave({ weatherCity: cityDraft.trim() })}
           class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white">{$t('settings.common.save')}</button>
       </div>
     </div>
@@ -41,9 +49,9 @@
     <div>
       <span class="block text-xs text-slate-500 mb-1.5">{$t('settings.weather.temp_unit')}</span>
       <div class="flex gap-2">
-        <button on:click={() => onSave({ weatherUnit: 'celsius' })}
+        <button onclick={() => onSave({ weatherUnit: 'celsius' })}
           class="px-3 py-1.5 rounded-lg text-sm {((config.weatherUnit ?? 'celsius') === 'celsius') ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400 hover:text-white'}">{$t('settings.weather.celsius')}</button>
-        <button on:click={() => onSave({ weatherUnit: 'fahrenheit' })}
+        <button onclick={() => onSave({ weatherUnit: 'fahrenheit' })}
           class="px-3 py-1.5 rounded-lg text-sm {(config.weatherUnit === 'fahrenheit') ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400 hover:text-white'}">{$t('settings.weather.fahrenheit')}</button>
       </div>
     </div>
@@ -61,7 +69,7 @@
         <div class="text-xs text-slate-500">{$t('settings.weather.clipboard_show_desc')}</div>
       </div>
       <input type="checkbox" checked={config.clipboardHoverPreviewEnabled ?? true}
-        on:change={(e) => onSave({ clipboardHoverPreviewEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
+        onchange={(e) => onSave({ clipboardHoverPreviewEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
     </div>
   </div>
 
@@ -76,7 +84,7 @@
         <div class="text-xs text-slate-500">{$t('settings.weather.network_show_desc')}</div>
       </div>
       <input type="checkbox" checked={config.networkHoverInfoEnabled ?? true}
-        on:change={(e) => onSave({ networkHoverInfoEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
+        onchange={(e) => onSave({ networkHoverInfoEnabled: e.currentTarget.checked })} class="w-4 h-4 accent-blue-500" />
     </div>
   </div>
 </div>
