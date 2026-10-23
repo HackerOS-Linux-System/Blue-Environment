@@ -12,13 +12,17 @@
   import { formatBytes, formatSpeed, progressFraction, type DownloadItem } from './types';
   import { SystemBridge } from '../../../utils/systemBridge';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
 
   const store = createDownloaderStore();
   const { downloads, error } = store;
 
-  let urlInput = '';
-  let adding = false;
+  let urlInput = $state('');
+  let adding = $state(false);
 
   async function submitAdd() {
     if (!urlInput.trim()) return;
@@ -66,12 +70,12 @@
   <div class="px-4 py-3 border-b border-white/5 flex items-center gap-2 shrink-0">
     <input
       bind:value={urlInput}
-      on:keydown={(e) => e.key === 'Enter' && submitAdd()}
+      onkeydown={(e) => e.key === 'Enter' && submitAdd()}
       placeholder="Paste a URL to download…"
       class="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 placeholder:text-slate-500"
     />
     <button
-      on:click={submitAdd}
+      onclick={submitAdd}
       disabled={!urlInput.trim() || adding}
       class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-sm font-medium transition-colors shrink-0"
     >
@@ -107,7 +111,7 @@
             <div
               class="h-full transition-all {item.status.state === 'failed' ? 'bg-red-500' : item.status.state === 'completed' ? 'bg-emerald-500' : 'bg-blue-500'}"
               style="width: {fraction !== null ? fraction * 100 : item.status.state === 'downloading' ? 100 : 0}%; {fraction === null && item.status.state === 'downloading' ? 'animation: pulse 1.5s ease-in-out infinite;' : ''}"
-            />
+></div>
           </div>
 
           <div class="flex items-center justify-between text-[11px] text-slate-500">
@@ -124,25 +128,25 @@
             </span>
             <div class="flex items-center gap-1">
               {#if item.status.state === 'downloading' || item.status.state === 'queued'}
-                <button on:click={() => store.pause(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Pause">
+                <button onclick={() => store.pause(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Pause">
                   <Pause size={12} />
                 </button>
               {:else if item.status.state === 'paused' || item.status.state === 'failed'}
-                <button on:click={() => store.resume(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title={item.status.state === 'paused' && !item.status.resumable ? 'Restart from the beginning' : 'Resume'}>
+                <button onclick={() => store.resume(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title={item.status.state === 'paused' && !item.status.resumable ? 'Restart from the beginning' : 'Resume'}>
                   <Play size={12} />
                 </button>
               {/if}
               {#if item.status.state === 'completed'}
-                <button on:click={() => openContainingFolder(item)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Show in folder">
+                <button onclick={() => openContainingFolder(item)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Show in folder">
                   <FolderOpen size={12} />
                 </button>
               {/if}
               {#if item.status.state === 'downloading' || item.status.state === 'queued' || item.status.state === 'paused'}
-                <button on:click={() => store.cancel(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors" title="Cancel">
+                <button onclick={() => store.cancel(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors" title="Cancel">
                   <X size={12} />
                 </button>
               {:else}
-                <button on:click={() => store.remove(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors" title="Remove from list">
+                <button onclick={() => store.remove(item.id)} class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition-colors" title="Remove from list">
                   <Trash2 size={12} />
                 </button>
               {/if}
