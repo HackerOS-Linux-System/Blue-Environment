@@ -12,7 +12,7 @@
     <h1 class="text-3xl font-bold text-white mb-2">Welcome to Blue Installer</h1>
     <p class="text-slate-400 max-w-md">This wizard will install Blue Environment onto this computer's disk. It will take about 10–20 minutes.</p>
   </div>
-  <button on:click={() => dispatch('next')} class="px-8 py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-white font-medium shadow-lg shadow-blue-500/20 transition-colors">
+  <button onclick={() => dispatch('next')} class="px-8 py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-white font-medium shadow-lg shadow-blue-500/20 transition-colors">
     Get Started
   </button>
   <p class="text-xs text-slate-600 max-w-sm">You're currently running from a live session. Nothing on your disk is changed until you confirm on the summary screen.</p>
