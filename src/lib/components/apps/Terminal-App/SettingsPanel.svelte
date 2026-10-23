@@ -3,8 +3,12 @@
   import { THEMES, type ThemeName } from './themes';
   import type { TerminalSession } from './terminalSession';
 
-  export let session: TerminalSession;
-  export let onClose: () => void;
+  interface Props {
+    session: TerminalSession;
+    onClose: () => void;
+  }
+
+  let { session, onClose }: Props = $props();
 
   const { themeName, fontSize } = session;
 </script>
@@ -21,5 +25,5 @@
     <input type="number" bind:value={$fontSize} min="10" max="24"
       class="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs text-white w-14 focus:outline-none" />
   </div>
-  <button on:click={onClose} class="ml-auto text-slate-500 hover:text-white"><X size={13} /></button>
+  <button onclick={onClose} class="ml-auto text-slate-500 hover:text-white"><X size={13} /></button>
 </div>
