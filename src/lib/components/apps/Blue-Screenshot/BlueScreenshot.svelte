@@ -11,15 +11,15 @@
     mode: CaptureMode; width: number; height: number;
   }
 
-  let mode: CaptureMode = 'fullscreen';
-  let delay: DelayOption = 0;
-  let screenshots: Screenshot[] = [];
-  let capturing = false;
-  let countdown = 0;
-  let selected: Screenshot | null = null;
-  let copied = false;
-  let savePath = '~/Pictures/Screenshots';
-  let canvasEl: HTMLCanvasElement;
+  let mode = $state<CaptureMode>('fullscreen');
+  let delay = $state<DelayOption>(0);
+  let screenshots = $state<Screenshot[]>([]);
+  let capturing = $state(false);
+  let countdown = $state(0);
+  let selected = $state<Screenshot | null>(null);
+  let copied = $state(false);
+  let savePath = $state('~/Pictures/Screenshots');
+  let canvasEl = $state() as HTMLCanvasElement;
 
   async function capture() {
     capturing = true;
@@ -132,14 +132,14 @@
 </script>
 
 <div class="flex h-full bg-slate-900 text-white overflow-hidden">
-  <canvas bind:this={canvasEl} class="hidden" />
+  <canvas bind:this={canvasEl} class="hidden"></canvas>
 
   <div class="w-64 bg-slate-800/50 border-r border-white/5 flex flex-col">
     <div class="p-4 border-b border-white/5">
       <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Capture Mode</div>
       <div class="space-y-1">
         {#each MODES as m (m.id)}
-          <button on:click={() => (mode = m.id)} class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {mode === m.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5'}">
+          <button onclick={() => (mode = m.id)} class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {mode === m.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5'}">
             {#if m.id === 'fullscreen'}<Monitor size={16} />{:else if m.id === 'window'}<Square size={16} />{:else}<Crop size={16} />{/if}
             {m.label}
           </button>
@@ -151,7 +151,7 @@
       <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5"><Timer size={12} /> Delay</div>
       <div class="flex gap-2">
         {#each DELAYS as d (d)}
-          <button on:click={() => (delay = d)} class="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors {delay === d ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
+          <button onclick={() => (delay = d)} class="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors {delay === d ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
             {d === 0 ? 'Now' : `${d}s`}
           </button>
         {/each}
@@ -162,12 +162,12 @@
       <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Save to</div>
       <div class="flex gap-2">
         <input type="text" bind:value={savePath} class="flex-1 bg-slate-700 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none min-w-0" />
-        <button on:click={async () => { const p = await SystemBridge.pickDirectory('screenshot.save-folder'); if (p) savePath = p; }} class="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"><RefreshCw size={13} /></button>
+        <button onclick={async () => { const p = await SystemBridge.pickDirectory('screenshot.save-folder'); if (p) savePath = p; }} class="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300"><RefreshCw size={13} /></button>
       </div>
     </div>
 
     <div class="p-4">
-      <button on:click={capture} disabled={capturing} class="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors">
+      <button onclick={capture} disabled={capturing} class="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors">
         {#if capturing}
           {#if countdown > 0}<Timer size={16} /> {countdown}s{:else}<RefreshCw size={16} class="animate-spin" /> Capturing…{/if}
         {:else}
@@ -182,11 +182,11 @@
       {:else}
         <div class="space-y-2">
           {#each screenshots as ss (ss.id)}
-            <div on:click={() => (selected = ss)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (selected = ss))(); } }} class="rounded-xl overflow-hidden cursor-pointer border-2 transition-colors {selected?.id === ss.id ? 'border-blue-500' : 'border-transparent hover:border-white/20'}">
+            <div onclick={() => (selected = ss)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => (selected = ss))(); } }} class="rounded-xl overflow-hidden cursor-pointer border-2 transition-colors {selected?.id === ss.id ? 'border-blue-500' : 'border-transparent hover:border-white/20'}">
               <img src={ss.dataUrl} alt="" class="w-full h-24 object-cover" />
               <div class="px-2 py-1 bg-slate-800 flex items-center justify-between">
                 <span class="text-[10px] text-slate-400">{ss.width}×{ss.height} · {ss.timestamp.toLocaleTimeString()}</span>
-                <button on:click={(e) => { e.stopPropagation(); deleteScreenshot(ss.id); }} class="p-0.5 hover:text-red-400 text-slate-500"><Trash2 size={11} /></button>
+                <button onclick={(e) => { e.stopPropagation(); deleteScreenshot(ss.id); }} class="p-0.5 hover:text-red-400 text-slate-500"><Trash2 size={11} /></button>
               </div>
             </div>
           {/each}
@@ -201,11 +201,11 @@
       <div class="shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/5 bg-slate-800/30">
         <div class="text-sm text-slate-300">{sel.width}×{sel.height} · {sel.mode} · {sel.timestamp.toLocaleString()}</div>
         <div class="flex gap-2">
-          <button on:click={() => copyToClipboard(sel)} class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
+          <button onclick={() => copyToClipboard(sel)} class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
             {#if copied}<Check size={14} class="text-green-400" /> Copied!{:else}<Copy size={14} /> Copy{/if}
           </button>
-          <button on:click={() => saveToFile(sel)} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm"><Download size={14} /> Save</button>
-          <button on:click={() => deleteScreenshot(sel.id)} class="p-1.5 hover:bg-red-500/20 rounded-lg text-red-400"><Trash2 size={16} /></button>
+          <button onclick={() => saveToFile(sel)} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm"><Download size={14} /> Save</button>
+          <button onclick={() => deleteScreenshot(sel.id)} class="p-1.5 hover:bg-red-500/20 rounded-lg text-red-400"><Trash2 size={16} /></button>
         </div>
       </div>
       <div class="flex-1 overflow-auto flex items-center justify-center p-6 bg-slate-950/50">
@@ -218,7 +218,7 @@
           <div class="text-lg font-medium text-slate-400 mb-1">Blue Screenshot</div>
           <div class="text-sm">Choose a mode and click "Take Screenshot"</div>
         </div>
-        <button on:click={capture} disabled={capturing} class="mt-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm text-white font-medium flex items-center gap-2">
+        <button onclick={capture} disabled={capturing} class="mt-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm text-white font-medium flex items-center gap-2">
           <Camera size={16} /> Take Screenshot
         </button>
       </div>
