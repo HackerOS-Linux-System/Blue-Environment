@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   // Plain store module — same ".svelte-file-as-module" convention this
   // codebase already uses for Blue Messages' messagesStore.svelte
   // (wrapped in `context="module"` so it behaves as an ordinary
