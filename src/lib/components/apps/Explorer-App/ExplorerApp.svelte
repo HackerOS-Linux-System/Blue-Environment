@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { run, stopPropagation, createBubbler, preventDefault } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { focusOnMount } from '../../../utils/actions';
   import { transferWithDialog, createWithDialog, renameWithDialog, describeSummary, type TransferSummary } from '../../../utils/fileTransfer';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -44,17 +47,17 @@
   // sidebar, root background) still do, because they need a genuinely
   // different look (pill-shaped ring, distinct sidebar tint) rather
   // than a straight color swap of the same shape.
-  $: isHydra = $activeShellThemeId === 'hydra';
-  $: selClass = isHydra ? 'bg-pink-600/30 ring-2 ring-pink-500/60' : 'bg-blue-600/30 ring-2 ring-blue-500/60';
-  $: selClassSubtle = isHydra ? 'bg-pink-600/20 text-pink-400' : 'bg-blue-600/20 text-blue-400';
+  let isHydra = $derived($activeShellThemeId === 'hydra');
+  let selClass = $derived(isHydra ? 'bg-pink-600/30 ring-2 ring-pink-500/60' : 'bg-blue-600/30 ring-2 ring-blue-500/60');
+  let selClassSubtle = $derived(isHydra ? 'bg-pink-600/20 text-pink-400' : 'bg-blue-600/20 text-blue-400');
   // Drag-and-drop drop-target highlight — was hardcoded blue regardless
   // of theme (unlike the selection classes right above, which already
   // went pink under Hydra). A folder you're dragging a file onto is one
   // of the most visually prominent moments in the whole app, so leaving
   // it stuck on blue was a pretty conspicuous gap in "reacts to the
   // shell theme".
-  $: dragTgtClassGrid = isHydra ? 'bg-pink-500/20 ring-2 ring-pink-400' : 'bg-blue-500/20 ring-2 ring-blue-400';
-  $: dragTgtClassRow = isHydra ? 'bg-pink-500/15' : 'bg-blue-500/15';
+  let dragTgtClassGrid = $derived(isHydra ? 'bg-pink-500/20 ring-2 ring-pink-400' : 'bg-blue-500/20 ring-2 ring-blue-400');
+  let dragTgtClassRow = $derived(isHydra ? 'bg-pink-500/15' : 'bg-blue-500/15');
   import { openApp } from '../../../stores/windowManager';
   import { AppId } from '../../../types';
   import type { FileEntry, Tab, Notif, SortKey } from './types';
@@ -67,7 +70,7 @@
   // Places come from the user's real (localized) folders — Pobrane, Pulpit, … —
   // not from a hard-coded English list. See utils/userDirs.ts.
   ensureUserDirsLoaded();
-  $: BOOKMARKS_WITH_ICONS = buildPlaces($userDirs).map((bm) => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder }));
+  let BOOKMARKS_WITH_ICONS = $derived(buildPlaces($userDirs).map((bm) => ({ ...bm, icon: BM_ICONS[bm.iconName] ?? Folder })));
 
   // ── Compact (phone / narrow window) layout ───────────────────────────
   // Below ~640px the sidebar becomes a slide-in drawer, the list drops its
@@ -75,12 +78,12 @@
   // is awkward on a touch screen) — unless a selection is already under way,
   // when taps toggle selection instead. Measured on the app's own root, so a
   // narrow desktop window behaves the same as the phone shell.
-  let rootW = 0;
-  $: compact = isCompactWidth(rootW);
-  let placesOpen = false;
+  let rootW = $state(0);
+  let compact = $derived(isCompactWidth(rootW));
+  let placesOpen = $state(false);
 
   // --- User-defined bookmarks (zakładki użytkownika) -------------------------------------
-  let customBookmarks: string[] = configStore.get().customBookmarks ?? [];
+  let customBookmarks = $state<string[]>(configStore.get().customBookmarks ?? []);
   configStore.subscribe((cfg) => { customBookmarks = cfg.customBookmarks ?? []; });
 
   function isCustomBookmark(path: string) { return customBookmarks.includes(path); }
@@ -99,9 +102,9 @@
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     return file.mime_type.includes('zip') || file.mime_type.includes('archive') || file.mime_type.includes('compressed') || ARCHIVE_EXT.includes(ext);
   }
-  let archiveEntries: { name: string; size?: string; is_dir?: boolean }[] | null = null;
-  let archiveLoading = false;
-  let archiveError = '';
+  let archiveEntries = $state<{ name: string; size?: string; is_dir?: boolean }[] | null>(null);
+  let archiveLoading = $state(false);
+  let archiveError = $state('');
   async function loadArchivePreview(file: FileEntry) {
     archiveEntries = null; archiveError = ''; archiveLoading = true;
     try {
@@ -116,8 +119,8 @@
   }
 
   // --- Properties panel (właściwości pliku) ----------------------------------------------
-  let propertiesFile: FileEntry | null = null;
-  let propertiesDetails: { permissions: string; owner: string; group: string; size_bytes: number; accessed: string; modified: string; symlink_target?: string } | null = null;
+  let propertiesFile = $state<FileEntry | null>(null);
+  let propertiesDetails = $state<{ permissions: string; owner: string; group: string; size_bytes: number; accessed: string; modified: string; symlink_target?: string } | null>(null);
   function formatBytes(n: number) {
     if (n < 1024) return `${n} B`;
     const u = ['KB', 'MB', 'GB', 'TB']; let v = n / 1024, i = 0;
@@ -337,46 +340,54 @@
     ]);
   }
 
-  /** Passed by `openApp(..., { initialPath })` — e.g. double-clicking a folder on the desktop. */
-  export let initialPath: string | undefined = undefined;
-  /** Provided by the window host; unused here but declared so the host's prop doesn't warn. */
-  export let windowId: string = '';
+  
+  
+  interface Props {
+    /** Passed by `openApp(..., { initialPath })` — e.g. double-clicking a folder on the desktop. */
+    initialPath?: string | undefined;
+    /** Provided by the window host; unused here but declared so the host's prop doesn't warn. */
+    windowId?: string;
+  }
+
+  let { initialPath = undefined, windowId = '' }: Props = $props();
   // Every app is handed its window id; this one doesn't need it.
   void windowId;
-  $: windowId;
+  run(() => {
+    windowId;
+  });
   const startPath = initialPath && initialPath.trim() ? initialPath : 'HOME';
-  let tabs: Tab[] = [{ id: 'tab-1', path: startPath, history: [startPath], historyIndex: 0 }];
-  let activeTabId = 'tab-1';
-  let dualPane = false;
-  let rightPath = 'HOME';
+  let tabs = $state<Tab[]>([{ id: 'tab-1', path: startPath, history: [startPath], historyIndex: 0 }]);
+  let activeTabId = $state('tab-1');
+  let dualPane = $state(false);
+  let rightPath = $state('HOME');
 
-  let files: FileEntry[] = [];
-  let loading = false;
-  let selected = new Set<string>();
+  let files = $state<FileEntry[]>([]);
+  let loading = $state(false);
+  let selected = $state(new Set<string>());
   let lastSel: string | null = null;
 
-  let viewMode: 'grid' | 'list' = 'grid';
-  let showHidden = false;
-  let sortBy: SortKey = 'name';
-  let sortAsc = true;
-  let searchTerm = '';
-  let showSearch = false;
+  let viewMode = $state<'grid' | 'list'>('grid');
+  let showHidden = $state(false);
+  let sortBy = $state<SortKey>('name');
+  let sortAsc = $state(true);
+  let searchTerm = $state('');
+  let showSearch = $state(false);
 
-  let clipboard: { action: 'copy' | 'cut'; files: string[] } | null = null;
-  let previewFile: FileEntry | null = null;
-  let previewContent = '';
-  let previewLoading = false;
-  let thumbnails: Record<string, string> = {};
-  let notifs: Notif[] = [];
-  let renaming: string | null = null;
-  let renameVal = '';
-  let dragOver: string | null = null;
+  let clipboard = $state<{ action: 'copy' | 'cut'; files: string[] } | null>(null);
+  let previewFile = $state<FileEntry | null>(null);
+  let previewContent = $state('');
+  let previewLoading = $state(false);
+  let thumbnails = $state<Record<string, string>>({});
+  let notifs = $state<Notif[]>([]);
+  let renaming = $state<string | null>(null);
+  let renameVal = $state('');
+  let dragOver = $state<string | null>(null);
 
-  let gridEl: HTMLDivElement;
-  let searchEl: HTMLInputElement;
-  let renameEl: HTMLInputElement;
+  let gridEl = $state() as HTMLDivElement;
+  let searchEl = $state() as HTMLInputElement;
+  let renameEl = $state() as HTMLInputElement;
 
-  $: activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  let activeTab = $derived(tabs.find((t) => t.id === activeTabId) ?? tabs[0]);
 
   function notify(type: Notif['type'], message: string) {
     const id = Date.now().toString();
@@ -386,9 +397,9 @@
 
   // --- Trash (Blue's own: ~/.cache/Blue-Environment/trash/, see trash.rs) -------------------
   // Shown as the virtual location `trash://`; every item inside is `trash://<id>`.
-  $: inTrash = activeTab?.path === TRASH_PATH;
+  let inTrash = $derived(activeTab?.path === TRASH_PATH);
   let trashEntries = new Map<string, TrashEntry>();
-  let trashCount = 0;
+  let trashCount = $state(0);
   const trashIdOf = (path: string) => path.slice(TRASH_PATH.length);
 
   async function refreshTrashCount() {
@@ -670,8 +681,8 @@
     lastSel = path;
   }
 
-  $: filtered = files.filter((f) => showHidden || !f.name.startsWith('.')).filter((f) => !searchTerm || f.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  $: sorted = [...filtered].sort((a, b) => {
+  let filtered = $derived(files.filter((f) => showHidden || !f.name.startsWith('.')).filter((f) => !searchTerm || f.name.toLowerCase().includes(searchTerm.toLowerCase())));
+  let sorted = $derived([...filtered].sort((a, b) => {
     if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
     let cmp = 0;
     if (sortBy === 'name') cmp = a.name.localeCompare(b.name);
@@ -679,7 +690,7 @@
     else if (sortBy === 'modified') cmp = (a.modified ?? '').localeCompare(b.modified ?? '');
     else if (sortBy === 'type') cmp = a.mime_type.localeCompare(b.mime_type);
     return sortAsc ? cmp : -cmp;
-  });
+  }));
 
   function toggleSort(k: SortKey) { if (sortBy === k) sortAsc = !sortAsc; else { sortBy = k; sortAsc = true; } }
   function toggleSortByKey(k: string) { toggleSort(k as SortKey); }
@@ -735,7 +746,7 @@
   onDestroy(() => window.removeEventListener('keydown', handleKeyDown));
 
   // Close the drawer once the person has picked a place.
-  $: { activeTab.path; if (compact) placesOpen = false; }
+  run(() => { activeTab.path; if (compact) placesOpen = false; });
 
   /** Keyboard on a grid item: Enter opens it, Space toggles its selection. */
   function onItemKey(e: KeyboardEvent, file: FileEntry) {
@@ -748,13 +759,13 @@
     toggleSelect(file.path, e);
   }
 
-  $: breadcrumbs = inTrash ? [{ label: 'Trash', path: TRASH_PATH }] : activeTab.path.split('/').map((part, i, arr) => ({
+  let breadcrumbs = $derived(inTrash ? [{ label: 'Trash', path: TRASH_PATH }] : activeTab.path.split('/').map((part, i, arr) => ({
     label: part === 'HOME' ? '~' : part,
     path: arr.slice(0, i + 1).join('/') || '/',
-  }));
+  })));
 </script>
 
-<div role="presentation" bind:clientWidth={rootW} data-drop-dir={inTrash ? undefined : activeTab.path} class="relative flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" on:dragover={(e) => e.preventDefault()} on:drop={(e) => onDrop(e, null)}>
+<div role="presentation" bind:clientWidth={rootW} data-drop-dir={inTrash ? undefined : activeTab.path} class="relative flex h-full text-white overflow-hidden {isHydra ? 'bg-[#12071f]' : 'bg-slate-900'}" ondragover={(e) => e.preventDefault()} ondrop={(e) => onDrop(e, null)}>
   <div class="fixed top-16 right-4 z-50 flex flex-col gap-2 pointer-events-none">
     {#each notifs as n (n.id)}
       <div class="flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg text-sm {n.type === 'success' ? 'bg-green-600/90' : n.type === 'error' ? 'bg-red-600/90' : 'bg-slate-700/90'}">
@@ -765,41 +776,41 @@
   </div>
 
   {#if compact && placesOpen}
-    <button class="absolute inset-0 z-20 bg-black/50" aria-label="Close places" on:click={() => (placesOpen = false)} />
+    <button class="absolute inset-0 z-20 bg-black/50" aria-label="Close places" onclick={() => (placesOpen = false)}></button>
   {/if}
   <div class="border-r flex flex-col {compact ? `absolute inset-y-0 left-0 z-30 w-64 shadow-2xl transition-transform duration-200 ${placesOpen ? 'translate-x-0' : '-translate-x-full'}` : 'w-44 shrink-0'} {isHydra ? 'bg-[#1d0f2e]/60 border-pink-500/10' : 'bg-slate-800/50 border-white/5'}">
     <div class="p-3 border-b border-white/5 flex items-center justify-between">
       <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Places</span>
-      <button on:click={() => toggleCustomBookmark(activeTab.path)} title="Bookmark current folder" class="p-0.5 hover:text-yellow-400 text-slate-500">
+      <button onclick={() => toggleCustomBookmark(activeTab.path)} title="Bookmark current folder" class="p-0.5 hover:text-yellow-400 text-slate-500">
         {#if isCustomBookmark(activeTab.path)}<Star size={13} class="text-yellow-400 fill-yellow-400" />{:else}<Star size={13} />{/if}
       </button>
     </div>
     <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
       {#each BOOKMARKS_WITH_ICONS as bm (bm.path)}
-        <button on:click={() => navigateTo(bm.path)} on:contextmenu={(e) => openBookmarkMenu(e, bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
-          <svelte:component this={bm.icon} size={14} />{bm.name}
+        <button onclick={() => navigateTo(bm.path)} oncontextmenu={(e) => openBookmarkMenu(e, bm.path)} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === bm.path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+          <bm.icon size={14} />{bm.name}
         </button>
       {/each}
-      <div class="h-px bg-white/5 my-2" />
-      <button on:click={() => navigateTo('/')} on:contextmenu={(e) => openBookmarkMenu(e, '/')} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:bg-white/5 hover:text-white">
+      <div class="h-px bg-white/5 my-2"></div>
+      <button onclick={() => navigateTo('/')} oncontextmenu={(e) => openBookmarkMenu(e, '/')} class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-400 hover:bg-white/5 hover:text-white">
         <HardDrive size={14} /> / (root)
       </button>
-      <button on:click={() => navigateTo(TRASH_PATH)}
-        on:dragover={(e) => { e.preventDefault(); dragOver = TRASH_PATH; }} on:dragleave={() => (dragOver = null)} on:drop={onDropToTrash}
+      <button onclick={() => navigateTo(TRASH_PATH)}
+        ondragover={(e) => { e.preventDefault(); dragOver = TRASH_PATH; }} ondragleave={() => (dragOver = null)} ondrop={onDropToTrash}
         title="Trash — drop files here to delete them safely"
         class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {inTrash ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'} {dragOver === TRASH_PATH ? dragTgtClassRow : ''}">
         <Trash2 size={14} /> Trash
         {#if trashCount > 0}<span class="ml-auto text-[10px] px-1.5 rounded-full bg-white/10 text-slate-300">{trashCount}</span>{/if}
       </button>
       {#if customBookmarks.length}
-        <div class="h-px bg-white/5 my-2" />
+        <div class="h-px bg-white/5 my-2"></div>
         <div class="px-2 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bookmarks</div>
         {#each customBookmarks as path (path)}
-          <div role="presentation" on:contextmenu={(e) => openBookmarkMenu(e, path, true)} class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
-            <button on:click={() => navigateTo(path)} class="flex items-center gap-2 flex-1 min-w-0 text-left">
+          <div role="presentation" oncontextmenu={(e) => openBookmarkMenu(e, path, true)} class="group w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors {activeTab.path === path ? selClassSubtle : 'text-slate-400 hover:bg-white/5 hover:text-white'}">
+            <button onclick={() => navigateTo(path)} class="flex items-center gap-2 flex-1 min-w-0 text-left">
               <Folder size={14} class="shrink-0" /><span class="truncate">{path.split('/').pop()}</span>
             </button>
-            <button on:click={() => toggleCustomBookmark(path)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 shrink-0"><X size={11} /></button>
+            <button onclick={() => toggleCustomBookmark(path)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 shrink-0"><X size={11} /></button>
           </div>
         {/each}
       {/if}
@@ -809,47 +820,47 @@
   <div class="flex-1 flex flex-col min-w-0">
     <div class="flex items-center bg-slate-800/80 border-b border-white/5 overflow-x-auto shrink-0">
       {#if compact}
-        <button on:click={() => (placesOpen = !placesOpen)} class="p-2.5 text-slate-300 hover:text-white shrink-0" aria-label="Places"><MenuIcon size={16} /></button>
+        <button onclick={() => (placesOpen = !placesOpen)} class="p-2.5 text-slate-300 hover:text-white shrink-0" aria-label="Places"><MenuIcon size={16} /></button>
       {/if}
       {#each tabs as t (t.id)}
-        <div on:contextmenu={(e) => openTabMenu(e, t)} on:click={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
+        <div oncontextmenu={(e) => openTabMenu(e, t)} onclick={() => { activeTabId = t.id; loadFiles(t.path); }} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => { activeTabId = t.id; loadFiles(t.path); })(); } }}
           class="flex items-center gap-1.5 px-3 py-2 cursor-pointer border-r border-white/5 shrink-0 group max-w-[140px] {t.id === activeTabId ? 'bg-slate-900 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}">
           <Folder size={12} />
           <span class="text-xs truncate">{t.path === 'HOME' ? '~' : t.path === TRASH_PATH ? 'Trash' : t.path.split('/').pop()}</span>
           {#if tabs.length > 1}
-            <button on:click|stopPropagation={() => closeTab(t.id)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-auto shrink-0"><X size={10} /></button>
+            <button onclick={stopPropagation(() => closeTab(t.id))} class="opacity-0 group-hover:opacity-100 hover:text-red-400 ml-auto shrink-0"><X size={10} /></button>
           {/if}
         </div>
       {/each}
-      <button on:click={addTab} class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={12} /></button>
+      <button onclick={addTab} class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={12} /></button>
       <div class="ml-auto pr-2 {compact ? 'hidden' : ''}">
-        <button on:click={() => (dualPane = !dualPane)} title="Dual pane" class="p-1.5 rounded {dualPane ? 'text-blue-400' : 'text-slate-500 hover:text-white'}"><Columns size={13} /></button>
+        <button onclick={() => (dualPane = !dualPane)} title="Dual pane" class="p-1.5 rounded {dualPane ? 'text-blue-400' : 'text-slate-500 hover:text-white'}"><Columns size={13} /></button>
       </div>
     </div>
 
     <div class="h-11 bg-slate-800 border-b border-white/5 flex items-center px-2 gap-1 shrink-0">
-      <button on:click={goBack} disabled={activeTab.historyIndex === 0} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><ArrowLeft size={15} /></button>
-      <button on:click={goForward} disabled={activeTab.historyIndex >= activeTab.history.length - 1} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><ArrowRight size={15} /></button>
-      <button on:click={goUp} class="p-1.5 hover:bg-white/10 rounded"><HardDrive size={15} /></button>
-      <button on:click={() => loadFiles(activeTab.path)} class="p-1.5 hover:bg-white/10 rounded"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
-      <div class="w-px h-5 bg-white/10 mx-1" />
-      <button on:click={createFolder} title="New folder (Ctrl+N)" class="p-1.5 hover:bg-white/10 rounded"><Plus size={15} /></button>
-      <button on:click={trashSelected} disabled={!selected.size} title={inTrash ? 'Delete permanently (Del)' : 'Move to Trash (Del) — Shift+Del deletes permanently'} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
-      <button on:click={copySelected} disabled={!selected.size} title="Copy (Ctrl+C)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Copy size={15} /></button>
-      <button on:click={cutSelected} disabled={!selected.size} title="Cut (Ctrl+X)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Scissors size={15} /></button>
-      <button on:click={paste} disabled={!clipboard} title="Paste (Ctrl+V)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Clipboard size={15} class={clipboard ? 'text-blue-400' : ''} /></button>
-      <div class="w-px h-5 bg-white/10 mx-1" />
+      <button onclick={goBack} disabled={activeTab.historyIndex === 0} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><ArrowLeft size={15} /></button>
+      <button onclick={goForward} disabled={activeTab.historyIndex >= activeTab.history.length - 1} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><ArrowRight size={15} /></button>
+      <button onclick={goUp} class="p-1.5 hover:bg-white/10 rounded"><HardDrive size={15} /></button>
+      <button onclick={() => loadFiles(activeTab.path)} class="p-1.5 hover:bg-white/10 rounded"><RefreshCw size={15} class={loading ? 'animate-spin' : ''} /></button>
+      <div class="w-px h-5 bg-white/10 mx-1"></div>
+      <button onclick={createFolder} title="New folder (Ctrl+N)" class="p-1.5 hover:bg-white/10 rounded"><Plus size={15} /></button>
+      <button onclick={trashSelected} disabled={!selected.size} title={inTrash ? 'Delete permanently (Del)' : 'Move to Trash (Del) — Shift+Del deletes permanently'} class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Trash2 size={15} /></button>
+      <button onclick={copySelected} disabled={!selected.size} title="Copy (Ctrl+C)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Copy size={15} /></button>
+      <button onclick={cutSelected} disabled={!selected.size} title="Cut (Ctrl+X)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Scissors size={15} /></button>
+      <button onclick={paste} disabled={!clipboard} title="Paste (Ctrl+V)" class="p-1.5 hover:bg-white/10 rounded disabled:opacity-30"><Clipboard size={15} class={clipboard ? 'text-blue-400' : ''} /></button>
+      <div class="w-px h-5 bg-white/10 mx-1"></div>
       <div class="flex items-center text-sm flex-1 min-w-0 overflow-hidden">
         {#each breadcrumbs as crumb, i (i)}
           {#if i > 0}<ChevronRight size={11} class="mx-0.5 text-slate-600 shrink-0" />{/if}
-          <button on:click={() => navigateTo(crumb.path)} class="hover:text-blue-400 transition-colors shrink-0 truncate max-w-[80px]">{crumb.label}</button>
+          <button onclick={() => navigateTo(crumb.path)} class="hover:text-blue-400 transition-colors shrink-0 truncate max-w-[80px]">{crumb.label}</button>
         {/each}
       </div>
       <div class="flex items-center gap-1 ml-auto shrink-0">
-        <button on:click={() => { showSearch = !showSearch; setTimeout(() => searchEl?.focus(), 50); }} class="p-1.5 rounded {showSearch ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><Search size={15} /></button>
-        <button on:click={() => (showHidden = !showHidden)} class="p-1.5 rounded {showHidden ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}" title="Show hidden"><Eye size={15} /></button>
-        <button on:click={() => (viewMode = 'grid')} class="p-1.5 rounded {viewMode === 'grid' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><Grid size={15} /></button>
-        <button on:click={() => (viewMode = 'list')} class="p-1.5 rounded {viewMode === 'list' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><List size={15} /></button>
+        <button onclick={() => { showSearch = !showSearch; setTimeout(() => searchEl?.focus(), 50); }} class="p-1.5 rounded {showSearch ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><Search size={15} /></button>
+        <button onclick={() => (showHidden = !showHidden)} class="p-1.5 rounded {showHidden ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}" title="Show hidden"><Eye size={15} /></button>
+        <button onclick={() => (viewMode = 'grid')} class="p-1.5 rounded {viewMode === 'grid' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><Grid size={15} /></button>
+        <button onclick={() => (viewMode = 'list')} class="p-1.5 rounded {viewMode === 'list' ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-white/10'}"><List size={15} /></button>
       </div>
     </div>
 
@@ -858,7 +869,7 @@
         <Search size={13} class="text-slate-500 shrink-0" />
         <input bind:this={searchEl} type="text" bind:value={searchTerm} placeholder="Search in current folder…" class="flex-1 bg-transparent text-sm focus:outline-none placeholder-slate-600" />
         {#if searchTerm}<span class="text-xs text-slate-500 shrink-0">{sorted.length}</span>{/if}
-        <button on:click={() => { searchTerm = ''; showSearch = false; }}><X size={13} class="text-slate-500" /></button>
+        <button onclick={() => { searchTerm = ''; showSearch = false; }}><X size={13} class="text-slate-500" /></button>
       </div>
     {/if}
 
@@ -867,15 +878,15 @@
         <Trash2 size={13} class="shrink-0" />
         <span class="truncate">Trash — items stay here until you restore or delete them for good.</span>
         <div class="ml-auto flex items-center gap-1 shrink-0">
-          <button on:click={restoreSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30"><ArchiveRestore size={12} /> Restore</button>
-          <button on:click={deleteTrashSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-red-500/20 text-red-300 disabled:opacity-30"><X size={12} /> Delete</button>
-          <button on:click={emptyTrashAll} disabled={!files.length} class="flex items-center gap-1 px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/30 text-red-300 disabled:opacity-30"><Trash2 size={12} /> Empty Trash</button>
+          <button onclick={restoreSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30"><ArchiveRestore size={12} /> Restore</button>
+          <button onclick={deleteTrashSelected} disabled={!selected.size} class="flex items-center gap-1 px-2 py-1 rounded bg-white/5 hover:bg-red-500/20 text-red-300 disabled:opacity-30"><X size={12} /> Delete</button>
+          <button onclick={emptyTrashAll} disabled={!files.length} class="flex items-center gap-1 px-2 py-1 rounded bg-red-500/15 hover:bg-red-500/30 text-red-300 disabled:opacity-30"><Trash2 size={12} /> Empty Trash</button>
         </div>
       </div>
     {/if}
 
     <div class="flex-1 flex overflow-hidden">
-      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" on:contextmenu={openBackgroundMenu} on:click={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
+      <div bind:this={gridEl} class="flex-1 overflow-auto p-2" oncontextmenu={openBackgroundMenu} onclick={(e) => { if (e.target === gridEl) selected = new Set(); }} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ((e) => { if (e.target === gridEl) selected = new Set(); })(e); } }}>
         {#if loading}
           <div class="flex items-center justify-center h-full"><Loader2 size={22} class="animate-spin text-blue-400" /></div>
         {:else if sorted.length === 0}
@@ -887,15 +898,15 @@
               {@const isDragTgt = dragOver === file.path && file.is_dir}
               {@const isCut = clipboard?.action === 'cut' && clipboard.files.includes(file.path)}
               <div role="button" tabindex="0" draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
-                on:keydown={(e) => onItemKey(e, file)}
-                on:dragstart={(e) => onDragStart(e, file)}
-                on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
-                on:drop={(e) => file.is_dir && onDrop(e, file)}
-                on:dragleave={() => (dragOver = null)}
+                onkeydown={(e) => onItemKey(e, file)}
+                ondragstart={(e) => onDragStart(e, file)}
+                ondragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
+                ondrop={(e) => file.is_dir && onDrop(e, file)}
+                ondragleave={() => (dragOver = null)}
                 class="relative flex flex-col items-center p-2 rounded-xl cursor-pointer transition-colors duration-100 select-none {isSel ? selClass : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassGrid : ''} {isCut ? 'opacity-50' : ''}"
-                on:click|stopPropagation={(e) => onItemClick(e, file)}
-                on:dblclick={() => !renaming && handleOpen(file)}
-                on:contextmenu|stopPropagation={(e) => openContextMenu(e, file)}>
+                onclick={stopPropagation((e: any) => onItemClick(e, file))}
+                ondblclick={() => !renaming && handleOpen(file)}
+                oncontextmenu={stopPropagation((e: any) => openContextMenu(e, file))}>
                 <div class="mb-1.5">
                   {#if file.mime_type.startsWith('image/') && thumbnails[file.path]}
                     <img src={thumbnails[file.path]} alt={file.name} class="w-12 h-12 object-cover rounded-lg" />
@@ -904,9 +915,9 @@
                   {/if}
                 </div>
                 {#if renaming === file.path}
-                  <input bind:this={renameEl} bind:value={renameVal} on:blur={commitRename}
-                    on:keydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
-                    class="w-full text-xs text-center bg-slate-800 border border-blue-500 rounded px-1 focus:outline-none" use:focusOnMount on:click|stopPropagation />
+                  <input bind:this={renameEl} bind:value={renameVal} onblur={commitRename}
+                    onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
+                    class="w-full text-xs text-center bg-slate-800 border border-blue-500 rounded px-1 focus:outline-none" use:focusOnMount onclick={stopPropagation(bubble('click'))} />
                 {:else}
                   <span class="text-xs text-center break-all line-clamp-2 leading-tight px-1">{file.name}</span>
                 {/if}
@@ -919,11 +930,11 @@
             <thead class="sticky top-0 bg-slate-800 z-10 text-slate-400 text-xs">
               <tr>
                 {#each (compact ? [['Name', 'name'], ['Size', 'size']] : [['Name', 'name'], ['Size', 'size'], ['Modified', 'modified'], ['Type', 'type']]) as [label, sk] (sk)}
-                  <th class="p-2 text-left cursor-pointer hover:text-white select-none whitespace-nowrap" on:click={() => toggleSortByKey(sk)}>
+                  <th class="p-2 text-left cursor-pointer hover:text-white select-none whitespace-nowrap" onclick={() => toggleSortByKey(sk)}>
                     <span class="flex items-center gap-1">{label} {#if sortBy === sk}{#if sortAsc}<SortAsc size={11} />{:else}<SortDesc size={11} />{/if}{/if}</span>
                   </th>
                 {/each}
-                {#if !compact}<th class="w-14" />{/if}
+                {#if !compact}<th class="w-14"></th>{/if}
               </tr>
             </thead>
             <tbody>
@@ -932,14 +943,14 @@
                 {@const isDragTgt = dragOver === file.path && file.is_dir}
                 {@const isCut = clipboard?.action === 'cut' && clipboard.files.includes(file.path)}
                 <tr draggable="true" data-drop-dir={file.is_dir ? file.path : undefined}
-                  on:dragstart={(e) => onDragStart(e, file)}
-                  on:dragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
-                  on:drop={(e) => file.is_dir && onDrop(e, file)}
-                  on:dragleave={() => (dragOver = null)}
+                  ondragstart={(e) => onDragStart(e, file)}
+                  ondragover={(e) => { if (file.is_dir) { e.preventDefault(); dragOver = file.path; } }}
+                  ondrop={(e) => file.is_dir && onDrop(e, file)}
+                  ondragleave={() => (dragOver = null)}
                   class="border-b border-white/5 cursor-pointer group {isSel ? selClassSubtle : 'hover:bg-white/5'} {isDragTgt ? dragTgtClassRow : ''} {isCut ? 'opacity-50' : ''}"
-                  on:click={(e) => onItemClick(e, file)}
-                  on:dblclick={() => handleOpen(file)}
-                  on:contextmenu|preventDefault={(e) => openContextMenu(e, file)}>
+                  onclick={(e) => onItemClick(e, file)}
+                  ondblclick={() => handleOpen(file)}
+                  oncontextmenu={preventDefault((e: any) => openContextMenu(e, file))}>
                   <td class="p-2">
                     <div class="flex items-center gap-2 min-w-0">
                       {#if file.mime_type.startsWith('image/') && thumbnails[file.path]}
@@ -948,9 +959,9 @@
                         <FileIcon {file} size={16} />
                       {/if}
                       {#if renaming === file.path}
-                        <input bind:this={renameEl} bind:value={renameVal} on:blur={commitRename}
-                          on:keydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
-                          class="flex-1 bg-slate-800 border border-blue-500 rounded px-1 text-sm focus:outline-none" use:focusOnMount on:click|stopPropagation />
+                        <input bind:this={renameEl} bind:value={renameVal} onblur={commitRename}
+                          onkeydown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') renaming = null; e.stopPropagation(); }}
+                          class="flex-1 bg-slate-800 border border-blue-500 rounded px-1 text-sm focus:outline-none" use:focusOnMount onclick={stopPropagation(bubble('click'))} />
                       {:else}
                         <span class="text-sm truncate">{file.name}</span>
                       {/if}
@@ -962,8 +973,8 @@
                   <td class="p-2 text-xs text-slate-600 max-w-[100px] truncate">{file.mime_type}</td>
                   <td class="p-2">
                     <div class="flex gap-1 opacity-0 group-hover:opacity-100">
-                      <button on:click|stopPropagation={() => startRename(file)} class="p-1 hover:bg-white/10 rounded text-slate-400"><Edit size={12} /></button>
-                      <button on:click|stopPropagation={() => { selected = new Set([file.path]); setTimeout(trashSelected, 0); }} class="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
+                      <button onclick={stopPropagation(() => startRename(file))} class="p-1 hover:bg-white/10 rounded text-slate-400"><Edit size={12} /></button>
+                      <button onclick={stopPropagation(() => { selected = new Set([file.path]); setTimeout(trashSelected, 0); })} class="p-1 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
                     </div>
                   </td>
                   {/if}
@@ -979,7 +990,7 @@
         <div class="w-60 border-l border-white/5 bg-slate-800/50 flex flex-col shrink-0">
           <div class="flex items-center justify-between p-2 border-b border-white/5">
             <span class="text-xs font-medium truncate">{pf.name}</span>
-            <button on:click={() => (previewFile = null)} class="p-1 hover:bg-white/10 rounded shrink-0"><X size={12} /></button>
+            <button onclick={() => (previewFile = null)} class="p-1 hover:bg-white/10 rounded shrink-0"><X size={12} /></button>
           </div>
           <div class="flex-1 overflow-auto p-2">
             <div class="text-[10px] text-slate-500 mb-2 space-y-0.5">
@@ -1018,25 +1029,25 @@
           </div>
           <div class="p-2 border-t border-white/5 flex gap-1.5">
             {#if isArchive(pf)}
-              <button on:click={() => SystemBridge.invokeCommand('archive_extract', { path: pf.path, destDir: activeTab.path }).then(() => { notify('success', 'Extracted'); loadFiles(activeTab.path); }).catch(() => notify('error', 'Extraction failed'))} class="flex-1 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Extract here</button>
+              <button onclick={() => SystemBridge.invokeCommand('archive_extract', { path: pf.path, destDir: activeTab.path }).then(() => { notify('success', 'Extracted'); loadFiles(activeTab.path); }).catch(() => notify('error', 'Extraction failed'))} class="flex-1 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Extract here</button>
             {:else}
-              <button on:click={() => SystemBridge.launchApp(`xdg-open "${pf.path}"`)} class="flex-1 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Open</button>
+              <button onclick={() => SystemBridge.launchApp(`xdg-open "${pf.path}"`)} class="flex-1 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Open</button>
             {/if}
-            <button on:click={() => openProperties(pf)} title="Properties" class="p-1.5 hover:bg-white/10 rounded"><Info size={12} /></button>
-            <button on:click={() => startRename(pf)} class="p-1.5 hover:bg-white/10 rounded"><Edit size={12} /></button>
-            <button on:click={() => { selected = new Set([pf.path]); deleteSelected(); previewFile = null; }} class="p-1.5 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
+            <button onclick={() => openProperties(pf)} title="Properties" class="p-1.5 hover:bg-white/10 rounded"><Info size={12} /></button>
+            <button onclick={() => startRename(pf)} class="p-1.5 hover:bg-white/10 rounded"><Edit size={12} /></button>
+            <button onclick={() => { selected = new Set([pf.path]); deleteSelected(); previewFile = null; }} class="p-1.5 hover:bg-red-500/20 rounded text-red-400"><Trash2 size={12} /></button>
           </div>
         </div>
       {/if}
 
       {#if propertiesFile}
         {@const pf = propertiesFile}
-        <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" on:click={closeProperties} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
-          <div class="w-80 bg-slate-800 border rounded-xl shadow-2xl p-4 {isHydra ? 'border-pink-500/20' : 'border-white/10'}" role="presentation" on:click|stopPropagation>
+        <div class="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center" onclick={closeProperties} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); closeProperties(); } }}>
+          <div class="w-80 bg-slate-800 border rounded-xl shadow-2xl p-4 {isHydra ? 'border-pink-500/20' : 'border-white/10'}" role="presentation" onclick={stopPropagation(bubble('click'))}>
             <div class="flex items-center gap-2 mb-3">
               <FileIcon file={pf} size={28} />
               <span class="font-medium truncate">{pf.name}</span>
-              <button on:click={closeProperties} class="ml-auto p-1 hover:bg-white/10 rounded"><X size={14} /></button>
+              <button onclick={closeProperties} class="ml-auto p-1 hover:bg-white/10 rounded"><X size={14} /></button>
             </div>
             <div class="space-y-1.5 text-xs text-slate-300">
               <div class="flex justify-between"><span class="text-slate-500">Type</span><span class="truncate max-w-[180px]">{pf.is_dir ? 'Folder' : (pf.mime_type || 'Unknown')}</span></div>
@@ -1064,7 +1075,7 @@
           <div class="flex items-center gap-2 p-2 bg-slate-800 border-b border-white/5 text-xs text-slate-400">
             <Columns size={11} />
             <span class="truncate flex-1">{rightPath}</span>
-            <button on:click={() => { rightPath = rightPath.includes('/') ? rightPath.split('/').slice(0, -1).join('/') || '/' : 'HOME'; }} class="hover:text-white shrink-0"><ArrowLeft size={11} /></button>
+            <button onclick={() => { rightPath = rightPath.includes('/') ? rightPath.split('/').slice(0, -1).join('/') || '/' : 'HOME'; }} class="hover:text-white shrink-0"><ArrowLeft size={11} /></button>
           </div>
           <RightPane path={rightPath} {thumbnails} on:navigate={(e) => (rightPath = e.detail)} />
         </div>
