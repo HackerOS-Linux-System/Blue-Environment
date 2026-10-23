@@ -21,12 +21,12 @@
     [[0,1],[1,0],[1,1],[1,2]],          // T
   ];
 
-  let board: Board = [];
-  let cur: { shape: number[][]; color: number; row: number; col: number } | null = null;
-  let score = 0;
-  let lines = 0;
-  let over = false;
-  let paused = false;
+  let board = $state<Board>([]);
+  let cur = $state<{ shape: number[][]; color: number; row: number; col: number } | null>(null);
+  let score = $state(0);
+  let lines = $state(0);
+  let over = $state(false);
+  let paused = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
 
   function emptyBoard(): Board {
@@ -140,28 +140,28 @@
     window.removeEventListener('keydown', handleKey);
   });
 
-  $: displayBoard = (() => {
+  let displayBoard = $derived((() => {
     const b = board.map((row) => [...row]);
     if (cur) for (const [r, c] of cur.shape) {
       const br = cur.row + r, bc = cur.col + c;
       if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) b[br][bc] = cur.color;
     }
     return b;
-  })();
+  })());
 </script>
 
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>Score: <strong class="text-white">{score}</strong></span>
     <span>Lines: {lines}</span>
-    <button on:click={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{paused ? 'Resume' : 'Pause'}</button>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{paused ? 'Resume' : 'Pause'}</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
   <div class="relative bg-slate-950 rounded-xl border border-white/10 p-1" style="width:{COLS * CELL + 8}px;">
     <div class="grid" style="grid-template-columns: repeat({COLS}, {CELL}px);">
       {#each displayBoard as row, r (r)}
         {#each row as cell, c (c)}
-          <div class="border border-slate-900/40" style="width:{CELL}px; height:{CELL}px; background:{cell ? COLORS[cell] : 'transparent'};" />
+          <div class="border border-slate-900/40" style="width:{CELL}px; height:{CELL}px; background:{cell ? COLORS[cell] : 'transparent'};"></div>
         {/each}
       {/each}
     </div>
