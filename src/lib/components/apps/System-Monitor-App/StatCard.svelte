@@ -3,19 +3,33 @@
   import Sparkline from './Sparkline.svelte';
   import Bar from './Bar.svelte';
 
-  export let icon: any;
-  export let label: string;
-  export let value: string;
-  export let sub: string | undefined = undefined;
-  export let pctVal: number;
-  export let hist: HistPoint[];
-  export let color: string;
+  interface Props {
+    icon: any;
+    label: string;
+    value: string;
+    sub?: string | undefined;
+    pctVal: number;
+    hist: HistPoint[];
+    color: string;
+  }
+
+  let {
+    icon,
+    label,
+    value,
+    sub = undefined,
+    pctVal,
+    hist,
+    color
+  }: Props = $props();
+
+  const SvelteComponent = $derived(icon);
 </script>
 
 <div class="bg-slate-800/60 rounded-2xl p-4 border border-white/5 flex flex-col gap-3">
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-2">
-      <svelte:component this={icon} size={15} style="color:{color};" />
+      <SvelteComponent size={15} style="color:{color};" />
       <span class="text-xs text-slate-400">{label}</span>
     </div>
     <span class="text-xs text-slate-600">{Math.round(pctVal)}%</span>
