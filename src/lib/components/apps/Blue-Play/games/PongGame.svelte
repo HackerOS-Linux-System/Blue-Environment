@@ -10,17 +10,17 @@
   let scheme: 'dark' | 'light' = 'dark';
   const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
-  let canvasEl: HTMLCanvasElement;
+  let canvasEl = $state() as HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
   let raf: number;
 
   let playerY = H / 2 - PADDLE_H / 2;
   let aiY = H / 2 - PADDLE_H / 2;
   let ball = { x: W / 2, y: H / 2, vx: 4, vy: 3 };
-  let playerScore = 0;
-  let aiScore = 0;
+  let playerScore = $state(0);
+  let aiScore = $state(0);
   let over = false;
-  let paused = false;
+  let paused = $state(false);
 
   function resetBall(direction: number) {
     ball = { x: W / 2, y: H / 2, vx: 4 * direction, vy: (Math.random() - 0.5) * 6 };
@@ -143,10 +143,10 @@
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>You <strong class="text-blue-400">{playerScore}</strong> — <strong class="text-red-400">{aiScore}</strong> AI</span>
-    <button on:click={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{paused ? 'Resume' : 'Pause'}</button>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{paused ? 'Resume' : 'Pause'}</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
   <canvas bind:this={canvasEl} width={W} height={H} class="rounded-xl border border-white/10 cursor-none"
-    on:pointermove={handlePointerMove} />
+    onpointermove={handlePointerMove}></canvas>
   <p class="text-xs text-slate-500">Mouse or ↑/↓ / W/S to move. First to {WIN_SCORE} wins.</p>
 </div>
