@@ -5,9 +5,13 @@
   import AppIconGlyph from '../../AppIconGlyph.svelte';
   import { createEventDispatcher } from 'svelte';
 
-  export let pkg: PackageInfo;
-  export let tab: SoftwareTab;
-  export let busy: boolean;
+  interface Props {
+    pkg: PackageInfo;
+    tab: SoftwareTab;
+    busy: boolean;
+  }
+
+  let { pkg, tab, busy }: Props = $props();
 
   const dispatch = createEventDispatcher<{ action: 'install' | 'remove' | 'update' }>();
 </script>
@@ -36,15 +40,15 @@
   </div>
   <div class="shrink-0">
     {#if tab === 'available'}
-      <button on:click={() => dispatch('action', 'install')} disabled={busy} class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50 flex items-center gap-1">
+      <button onclick={() => dispatch('action', 'install')} disabled={busy} class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50 flex items-center gap-1">
         {#if busy}<Loader2 size={11} class="animate-spin" />{/if} Install
       </button>
     {:else if tab === 'installed'}
-      <button on:click={() => dispatch('action', 'remove')} disabled={busy} class="px-3 py-1 bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs disabled:opacity-50">
+      <button onclick={() => dispatch('action', 'remove')} disabled={busy} class="px-3 py-1 bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs disabled:opacity-50">
         Remove
       </button>
     {:else if tab === 'updates'}
-      <button on:click={() => dispatch('action', 'update')} disabled={busy} class="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50 flex items-center gap-1">
+      <button onclick={() => dispatch('action', 'update')} disabled={busy} class="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50 flex items-center gap-1">
         {#if busy}<Loader2 size={11} class="animate-spin" />{/if} Update
       </button>
     {/if}
