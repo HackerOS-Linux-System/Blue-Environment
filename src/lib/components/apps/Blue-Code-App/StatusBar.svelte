@@ -2,13 +2,25 @@
   import { AlertCircle, Settings } from 'lucide-svelte';
   import { createEventDispatcher } from 'svelte';
 
-  export let languageLabel: string;
-  export let line: number;
-  export let col: number;
-  export let errors: number;
-  export let warnings: number;
-  export let editorTheme: string;
-  export let fontSize: number;
+  interface Props {
+    languageLabel: string;
+    line: number;
+    col: number;
+    errors: number;
+    warnings: number;
+    editorTheme: string;
+    fontSize: number;
+  }
+
+  let {
+    languageLabel,
+    line,
+    col,
+    errors,
+    warnings,
+    editorTheme,
+    fontSize
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ toggleTheme: void; fontSize: number; settings: void }>();
 </script>
@@ -18,10 +30,10 @@
   <span>Ln {line}, Col {col}</span>
   {#if errors > 0}<span class="text-red-400 flex items-center gap-1"><AlertCircle size={11} /> {errors}</span>{/if}
   {#if warnings > 0}<span class="text-yellow-400 flex items-center gap-1"><AlertCircle size={11} /> {warnings}</span>{/if}
-  <div class="flex-1" />
-  <button on:click={() => dispatch('settings')} class="hover:text-white" title="Blue Code settings (Ctrl+,)"><Settings size={12} /></button>
-  <button on:click={() => dispatch('toggleTheme')} class="hover:text-white">{editorTheme === 'blue-dark' ? '\u2600' : '\u25CF'}</button>
-  <button on:click={() => dispatch('fontSize', Math.max(10, fontSize - 1))} class="hover:text-white">A-</button>
+  <div class="flex-1"></div>
+  <button onclick={() => dispatch('settings')} class="hover:text-white" title="Blue Code settings (Ctrl+,)"><Settings size={12} /></button>
+  <button onclick={() => dispatch('toggleTheme')} class="hover:text-white">{editorTheme === 'blue-dark' ? '\u2600' : '\u25CF'}</button>
+  <button onclick={() => dispatch('fontSize', Math.max(10, fontSize - 1))} class="hover:text-white">A-</button>
   <span>{fontSize}px</span>
-  <button on:click={() => dispatch('fontSize', Math.min(24, fontSize + 1))} class="hover:text-white">A+</button>
+  <button onclick={() => dispatch('fontSize', Math.min(24, fontSize + 1))} class="hover:text-white">A+</button>
 </div>
