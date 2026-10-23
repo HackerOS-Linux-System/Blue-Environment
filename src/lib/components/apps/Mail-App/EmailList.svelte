@@ -1,8 +1,15 @@
 <script lang="ts">
+  import { createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { RefreshCw, Check, Archive, Trash2, Star, Mail as MailIcon } from 'lucide-svelte';
   import type { MailState } from './mailState';
 
-  export let state: MailState;
+  interface Props {
+    state: MailState;
+  }
+
+  let { state }: Props = $props();
 
   const { activeFolder, selectedEmail, selectedIds, loading, displayEmails, searchQuery, bulkAction, toggleSelectId, selectEmail, formatDate } = state;
 </script>
@@ -10,14 +17,14 @@
 <div class="border-r border-white/5 flex flex-col {$selectedEmail ? 'w-72' : 'flex-1'}">
   <div class="h-12 bg-slate-800/50 border-b border-white/5 flex items-center px-3 gap-2">
     <span class="font-semibold text-white capitalize flex-1">{$activeFolder}</span>
-    <button on:click={() => loading.update((l) => !l)} class="p-1.5 hover:bg-white/10 rounded-lg" title="Refresh">
+    <button onclick={() => loading.update((l) => !l)} class="p-1.5 hover:bg-white/10 rounded-lg" title="Refresh">
       <RefreshCw size={15} class={$loading ? 'animate-spin' : ''} />
     </button>
     {#if $selectedIds.length > 0}
       <div class="flex items-center gap-1">
-        <button on:click={() => bulkAction('read')} class="p-1.5 hover:bg-white/10 rounded text-xs text-slate-400 hover:text-white" title="Mark read"><Check size={14} /></button>
-        <button on:click={() => bulkAction('archive')} class="p-1.5 hover:bg-white/10 rounded text-xs text-slate-400 hover:text-white" title="Archive"><Archive size={14} /></button>
-        <button on:click={() => bulkAction('delete')} class="p-1.5 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300" title="Delete"><Trash2 size={14} /></button>
+        <button onclick={() => bulkAction('read')} class="p-1.5 hover:bg-white/10 rounded text-xs text-slate-400 hover:text-white" title="Mark read"><Check size={14} /></button>
+        <button onclick={() => bulkAction('archive')} class="p-1.5 hover:bg-white/10 rounded text-xs text-slate-400 hover:text-white" title="Archive"><Archive size={14} /></button>
+        <button onclick={() => bulkAction('delete')} class="p-1.5 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300" title="Delete"><Trash2 size={14} /></button>
         <span class="text-xs text-slate-500">{$selectedIds.length}</span>
       </div>
     {/if}
@@ -31,12 +38,12 @@
       </div>
     {/if}
     {#each $displayEmails as email (email.id)}
-      <div on:click={() => selectEmail(email)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => selectEmail(email))(); } }}
+      <div onclick={() => selectEmail(email)} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => selectEmail(email))(); } }}
         class="p-3 border-b border-white/5 cursor-pointer transition-colors group {$selectedEmail?.id === email.id ? 'bg-blue-600/20 border-l-2 border-l-blue-500' : !email.read ? 'bg-slate-800/30 hover:bg-white/5' : 'hover:bg-white/5'}">
         <div class="flex items-start gap-2">
           <input type="checkbox" checked={$selectedIds.includes(email.id)}
-            on:change={(e) => toggleSelectId(email.id, e.currentTarget.checked)}
-            on:click|stopPropagation
+            onchange={(e) => toggleSelectId(email.id, e.currentTarget.checked)}
+            onclick={stopPropagation(bubble('click'))}
             class="mt-1 accent-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
           <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 {email.from.name === 'Blue Environment' ? 'bg-blue-600' : 'bg-slate-700'}">
             {email.from.name.charAt(0).toUpperCase()}
