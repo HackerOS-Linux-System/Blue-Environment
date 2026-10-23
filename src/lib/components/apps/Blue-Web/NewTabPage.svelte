@@ -6,13 +6,18 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { createEventDispatcher } from 'svelte';
 
-  export let error: string | null = null;
-  /** Display name of the selected search engine (placeholder text). */
-  export let engineName = 'DuckDuckGo';
+  
+  interface Props {
+    error?: string | null;
+    /** Display name of the selected search engine (placeholder text). */
+    engineName?: string;
+  }
+
+  let { error = null, engineName = 'DuckDuckGo' }: Props = $props();
 
   const dispatch = createEventDispatcher<{ navigate: string }>();
-  let inputEl: HTMLInputElement;
-  let input = '';
+  let inputEl = $state() as HTMLInputElement;
+  let input = $state('');
 
   onMount(() => { setTimeout(() => inputEl?.focus(), 80); });
 
@@ -31,14 +36,14 @@
   </div>
 
   <div class="w-full max-w-xl">
-    <input bind:this={inputEl} bind:value={input} on:keydown={handleKeyDown}
+    <input bind:this={inputEl} bind:value={input} onkeydown={handleKeyDown}
       placeholder={$t('blueweb.search_placeholder', { engine: engineName })}
       class="w-full bg-slate-800 border border-white/10 rounded-2xl px-5 py-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50" />
   </div>
 
   <div class="grid grid-cols-4 gap-3 w-full max-w-xl">
     {#each SPEED_DIALS as sd (sd.url)}
-      <button on:click={() => dispatch('navigate', sd.url)} class="flex flex-col items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-700/60 border border-white/5 rounded-xl transition-colors group">
+      <button onclick={() => dispatch('navigate', sd.url)} class="flex flex-col items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-700/60 border border-white/5 rounded-xl transition-colors group">
         <span class="text-2xl">{sd.icon}</span>
         <span class="text-[11px] text-slate-400 group-hover:text-white text-center leading-tight">{sd.label}</span>
       </button>
