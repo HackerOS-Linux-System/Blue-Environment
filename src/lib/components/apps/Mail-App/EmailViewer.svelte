@@ -2,7 +2,11 @@
   import { Star, StarOff, Reply, ReplyAll, Forward, Archive, Trash2, X, FileText, Paperclip } from 'lucide-svelte';
   import type { MailState } from './mailState';
 
-  export let state: MailState;
+  interface Props {
+    state: MailState;
+  }
+
+  let { state }: Props = $props();
   const { selectedEmail, toggleStar, openReply, moveToFolder, deleteEmail } = state;
 </script>
 
@@ -28,15 +32,15 @@
           </div>
         </div>
         <div class="flex items-center gap-1 shrink-0">
-          <button on:click={() => toggleStar(email.id)} class="p-2 hover:bg-white/10 rounded-lg" title="Star">
+          <button onclick={() => toggleStar(email.id)} class="p-2 hover:bg-white/10 rounded-lg" title="Star">
             {#if email.starred}<Star size={16} class="text-yellow-400 fill-yellow-400" />{:else}<StarOff size={16} class="text-slate-400" />{/if}
           </button>
-          <button on:click={() => openReply('reply')} class="p-2 hover:bg-white/10 rounded-lg" title="Reply"><Reply size={16} class="text-slate-400" /></button>
-          <button on:click={() => openReply('replyAll')} class="p-2 hover:bg-white/10 rounded-lg" title="Reply All"><ReplyAll size={16} class="text-slate-400" /></button>
-          <button on:click={() => openReply('forward')} class="p-2 hover:bg-white/10 rounded-lg" title="Forward"><Forward size={16} class="text-slate-400" /></button>
-          <button on:click={() => moveToFolder(email.id, 'archive')} class="p-2 hover:bg-white/10 rounded-lg" title="Archive"><Archive size={16} class="text-slate-400" /></button>
-          <button on:click={() => deleteEmail(email.id)} class="p-2 hover:bg-red-500/20 rounded-lg" title="Delete"><Trash2 size={16} class="text-red-400" /></button>
-          <button on:click={() => selectedEmail.set(null)} class="p-2 hover:bg-white/10 rounded-lg ml-1"><X size={16} class="text-slate-400" /></button>
+          <button onclick={() => openReply('reply')} class="p-2 hover:bg-white/10 rounded-lg" title="Reply"><Reply size={16} class="text-slate-400" /></button>
+          <button onclick={() => openReply('replyAll')} class="p-2 hover:bg-white/10 rounded-lg" title="Reply All"><ReplyAll size={16} class="text-slate-400" /></button>
+          <button onclick={() => openReply('forward')} class="p-2 hover:bg-white/10 rounded-lg" title="Forward"><Forward size={16} class="text-slate-400" /></button>
+          <button onclick={() => moveToFolder(email.id, 'archive')} class="p-2 hover:bg-white/10 rounded-lg" title="Archive"><Archive size={16} class="text-slate-400" /></button>
+          <button onclick={() => deleteEmail(email.id)} class="p-2 hover:bg-red-500/20 rounded-lg" title="Delete"><Trash2 size={16} class="text-red-400" /></button>
+          <button onclick={() => selectedEmail.set(null)} class="p-2 hover:bg-white/10 rounded-lg ml-1"><X size={16} class="text-slate-400" /></button>
         </div>
       </div>
     </div>
