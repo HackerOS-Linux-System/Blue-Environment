@@ -16,13 +16,17 @@
   import { configStore } from '../lib/utils/configStore';
   import SettingsApp from '../lib/components/apps/Settings-App/SettingsApp.svelte';
 
-  export let windowId = '';
+  interface Props {
+    windowId?: string;
+  }
 
-  let advanced = false;
-  let wifi = false; let bt = false; let volume = 50; let brightness = -1;
-  let theme = 'dark';
-  let cec: { adapters: string[]; tool_installed: boolean } | null = null;
-  let cecMessage = ''; let cecError = false; let cecBusy = false;
+  let { windowId = '' }: Props = $props();
+
+  let advanced = $state(false);
+  let wifi = $state(false); let bt = $state(false); let volume = $state(50); let brightness = $state(-1);
+  let theme = $state('dark');
+  let cec = $state<{ adapters: string[]; tool_installed: boolean } | null>(null);
+  let cecMessage = $state(''); let cecError = $state(false); let cecBusy = $state(false);
 
   onMount(async () => {
     const [stats, w, b, cfg, c] = await Promise.all([
@@ -62,7 +66,7 @@
 {#if advanced}
   <div class="h-full flex flex-col">
     <div class="shrink-0 p-4">
-      <button data-tv-focusable class="tv-tile px-6 py-3 rounded-2xl bg-white/10 text-lg" on:click={() => (advanced = false)}>← {$t('altui.back')}</button>
+      <button data-tv-focusable class="tv-tile px-6 py-3 rounded-2xl bg-white/10 text-lg" onclick={() => (advanced = false)}>← {$t('altui.back')}</button>
     </div>
     <div class="flex-1 min-h-0"><SettingsApp /></div>
   </div>
@@ -75,25 +79,25 @@
       <div class="grid grid-cols-4 gap-4 p-2 -m-2">
         {#each SUPPORTED_LANGUAGES as lang (lang.code)}
           <button data-tv-focusable data-tv-key={`lang:${lang.code}`}
-            class="tv-tile h-16 rounded-2xl text-lg {$language === lang.code ? 'bg-blue-600' : 'bg-white/10'}" on:click={() => setLanguage(lang.code)}>{lang.nativeName}</button>
+            class="tv-tile h-16 rounded-2xl text-lg {$language === lang.code ? 'bg-blue-600' : 'bg-white/10'}" onclick={() => setLanguage(lang.code)}>{lang.nativeName}</button>
         {/each}
       </div>
     </section>
 
     <section class="mb-8 grid grid-cols-3 gap-4 p-2 -m-2">
-      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl {wifi ? 'bg-blue-600' : 'bg-white/10'}" on:click={toggleWifi}><Wifi size={28} />{$t('altui.wifi')}</button>
-      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl {bt ? 'bg-blue-600' : 'bg-white/10'}" on:click={toggleBt}><Bluetooth size={28} />{$t('altui.bluetooth')}</button>
-      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl bg-white/10" on:click={toggleTheme}>
+      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl {wifi ? 'bg-blue-600' : 'bg-white/10'}" onclick={toggleWifi}><Wifi size={28} />{$t('altui.wifi')}</button>
+      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl {bt ? 'bg-blue-600' : 'bg-white/10'}" onclick={toggleBt}><Bluetooth size={28} />{$t('altui.bluetooth')}</button>
+      <button data-tv-focusable class="tv-tile h-24 rounded-2xl flex items-center justify-center gap-3 text-xl bg-white/10" onclick={toggleTheme}>
         {#if theme === 'light-glass'}<Sun size={28} />{:else}<Moon size={28} />{/if}{$t('tvset.theme')}
       </button>
     </section>
 
     <section class="mb-8 space-y-4">
       <label class="flex items-center gap-5 text-xl"><Volume2 size={30} class="shrink-0" /><span class="w-40 shrink-0">{$t('osd.volume')}</span>
-        <input data-tv-focusable type="range" min="0" max="100" step="5" value={volume} on:input={setVolume} class="flex-1 h-12" /></label>
+        <input data-tv-focusable type="range" min="0" max="100" step="5" value={volume} oninput={setVolume} class="flex-1 h-12" /></label>
       {#if brightness >= 0}
         <label class="flex items-center gap-5 text-xl"><Sun size={30} class="shrink-0" /><span class="w-40 shrink-0">{$t('osd.brightness')}</span>
-          <input data-tv-focusable type="range" min="1" max="100" step="5" value={brightness} on:input={setBrightness} class="flex-1 h-12" /></label>
+          <input data-tv-focusable type="range" min="1" max="100" step="5" value={brightness} oninput={setBrightness} class="flex-1 h-12" /></label>
       {/if}
     </section>
 
@@ -105,11 +109,11 @@
         <p class="text-lg text-amber-300">{$t('tvset.cec_tool')}</p>
       {:else}
         <p class="text-lg text-white/60 mb-3">{$t('tvset.cec_desc')}</p>
-        <button data-tv-focusable class="tv-tile px-8 h-16 rounded-2xl bg-white/10 text-xl disabled:opacity-40" disabled={cecBusy} on:click={enableCec}>{$t('tvset.cec_enable')}</button>
+        <button data-tv-focusable class="tv-tile px-8 h-16 rounded-2xl bg-white/10 text-xl disabled:opacity-40" disabled={cecBusy} onclick={enableCec}>{$t('tvset.cec_enable')}</button>
         {#if cecMessage}<p class="mt-3 text-lg {cecError ? 'text-red-400' : 'text-emerald-400'}">{cecMessage}</p>{/if}
       {/if}
     </section>
 
-    <button data-tv-focusable class="tv-tile px-8 h-16 rounded-2xl bg-white/10 text-xl flex items-center gap-3" on:click={() => (advanced = true)}>{$t('tvset.all_settings')} <ArrowRight size={24} /></button>
+    <button data-tv-focusable class="tv-tile px-8 h-16 rounded-2xl bg-white/10 text-xl flex items-center gap-3" onclick={() => (advanced = true)}>{$t('tvset.all_settings')} <ArrowRight size={24} /></button>
   </div>
 {/if}
