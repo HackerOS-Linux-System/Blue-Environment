@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { run, preventDefault, createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   /**
    * Blue Music — local library player.
    *
@@ -29,23 +32,25 @@
   import { loadState, loadPlaylists, stateWriter, playlistWriter, scanLibrary, coverFile, clearCoverCache } from './musicIO';
   import { startMpris, pushMpris, type MprisCmd } from './mpris';
 
-  export let windowId: string;
-  /** Set when a single audio file was opened from Files. */
-  export let openPath: string | undefined = undefined;
+  
+  interface Props {
+    windowId: string;
+    /** Set when a single audio file was opened from Files. */
+    openPath?: string | undefined;
+  }
+
+  let { windowId, openPath = undefined }: Props = $props();
 
   type Section = 'songs' | 'albums' | 'artists' | 'queue' | `pl:${string}`;
 
   // ── Library ──────────────────────────────────────────────────────────
-  let tracks: Track[] = [];
-  let byPath = new Map<string, Track>();
-  let folders: string[] = defaultState().folders;
-  let loading = true;
-  let scanNote = '';
-  let showFolders = false;
+  let tracks = $state<Track[]>([]);
+  let byPath = $state(new Map<string, Track>());
+  let folders = $state<string[]>(defaultState().folders);
+  let loading = $state(true);
+  let scanNote = $state('');
+  let showFolders = $state(false);
 
-  $: byPath = new Map(tracks.map((x) => [x.path, x]));
-  $: albums = groupAlbums(tracks);
-  $: artists = groupArtists(tracks);
 
   async function scan(initial = false) {
     loading = true;
@@ -61,28 +66,13 @@
   }
 
   // ── Navigation ───────────────────────────────────────────────────────
-  let section: Section = 'songs';
-  let detail: { type: 'album' | 'artist'; key: string } | null = null;
-  let query = '';
-  let searchEl: HTMLInputElement;
-  let listRef: TrackList | undefined;
+  let section = $state<Section>('songs');
+  let detail = $state<{ type: 'album' | 'artist'; key: string } | null>(null);
+  let query = $state('');
+  let searchEl = $state() as HTMLInputElement;
+  let listRef = $state<TrackList | undefined>();
 
-  $: playlistId = section.startsWith('pl:') ? section.slice(3) : null;
-  $: playlist = playlistId ? playlists.find((p) => p.id === playlistId) ?? null : null;
-  $: searching = query.trim().length > 0;
-  $: detailAlbum = detail?.type === 'album' ? albums.find((a) => a.key === detail!.key) ?? null : null;
-  $: detailArtist = detail?.type === 'artist' ? artists.find((a) => a.key === detail!.key) ?? null : null;
 
-  /** The tracks shown as a list in the main pane (null → a grid/list of albums/artists is shown instead). */
-  $: visibleTracks = (() => {
-    if (searching) return searchTracks(tracks, query);
-    if (detailAlbum) return detailAlbum.tracks;
-    if (detailArtist) return detailArtist.albums.flatMap((a) => a.tracks);
-    if (section === 'songs') return tracks;
-    if (section === 'queue') return queueTracks;
-    if (playlist) return resolvePlaylist(playlist, byPath);
-    return null;
-  })();
 
   function go(s: Section) { section = s; detail = null; query = ''; }
   const heading = () =>
@@ -90,23 +80,19 @@
     : section === 'songs' ? $t('music.songs') : section === 'albums' ? $t('music.albums') : section === 'artists' ? $t('music.artists') : section === 'queue' ? $t('music.queue') : (playlist?.name ?? '');
 
   // ── Playback ─────────────────────────────────────────────────────────
-  let audioEl: HTMLAudioElement;
-  let queue: QueueState = emptyQueue();
+  let audioEl = $state() as HTMLAudioElement;
+  let queue = $state<QueueState>(emptyQueue());
   let extraTracks = new Map<string, Track>();        // files opened from outside the library
-  let isPlaying = false;
-  let currentTime = 0;
-  let duration = 0;
-  let volume = 0.8;
-  let muted = false;
-  let failed = new Set<string>();
+  let isPlaying = $state(false);
+  let currentTime = $state(0);
+  let duration = $state(0);
+  let volume = $state(0.8);
+  let muted = $state(false);
+  let failed = $state(new Set<string>());
   let consecutiveFailures = 0;
   let pendingSeek = 0;                                // resume position, applied once metadata is loaded
 
   const lookup = (p: string | null) => (p ? byPath.get(p) ?? extraTracks.get(p) ?? null : null);
-  $: currentTrack = lookup(queueCurrent(queue));
-  $: queueTracks = queue.items.map((p) => lookup(p)).filter((x): x is Track => !!x);
-  $: albumOfCurrent = currentTrack ? albums.find((a) => a.tracks.some((x) => x.path === currentTrack!.path)) : null;
-  $: if (audioEl) audioEl.volume = muted ? 0 : volume;
 
   function setSource(path: string | null) {
     if (!audioEl) return;
@@ -185,7 +171,7 @@
   }
 
   // ── Playlists ────────────────────────────────────────────────────────
-  let playlists: Playlist[] = [];
+  let playlists = $state<Playlist[]>([]);
   const savePlaylists = (next: Playlist[]) => { playlists = next; playlistWriter.write(next); };
 
   async function createPlaylist(initial: string[] = []): Promise<Playlist | null> {
@@ -260,24 +246,21 @@
   }
 
   // ── Status line ──────────────────────────────────────────────────────
-  let status = '';
+  let status = $state('');
   let statusTimer: ReturnType<typeof setTimeout>;
   function flash(text: string) { status = text; clearTimeout(statusTimer); statusTimer = setTimeout(() => (status = ''), 5000); }
 
   // ── Persistence ──────────────────────────────────────────────────────
-  let restored = false;
+  let restored = $state(false);
   function persist() {
     if (!restored) return;
     stateWriter.write({ folders, volume, muted, shuffle: queue.shuffle, repeat: queue.repeat, queue: queue.items, pos: queue.pos, positionSecs: currentTime });
   }
-  $: if (restored) { folders; volume; muted; queue; persist(); }
   let posTimer: ReturnType<typeof setInterval>;
 
   // ── MPRIS ────────────────────────────────────────────────────────────
   let mprisTimer: ReturnType<typeof setTimeout>;
-  let artUrl = '';
-  $: if (currentTrack) coverFile(currentTrack.path, albumOfCurrent?.key ?? currentTrack.path).then((p) => (artUrl = p ? `file://${p}` : ''));
-  $: if (!currentTrack) artUrl = '';
+  let artUrl = $state('');
 
   function pushRemote(seeked = false) {
     clearTimeout(mprisTimer);
@@ -289,7 +272,6 @@
       });
     }, 80);
   }
-  $: { currentTrack; isPlaying; volume; muted; queue.shuffle; queue.repeat; artUrl; queue.items.length; if (restored) pushRemote(); }
 
   function onRemote(c: MprisCmd) {
     switch (c.cmd) {
@@ -367,9 +349,45 @@
     { id: 'artists', icon: Mic2, key: 'music.artists' }, { id: 'queue', icon: ListMusic, key: 'music.queue' },
   ];
   const meta = (a: AlbumGroup) => [a.year || '', `${a.tracks.length} ${$t('music.tracks')}`].filter(Boolean).join(' · ');
+  run(() => {
+    byPath = new Map(tracks.map((x) => [x.path, x]));
+  });
+  let albums = $derived(groupAlbums(tracks));
+  let artists = $derived(groupArtists(tracks));
+  let playlistId = $derived(section.startsWith('pl:') ? section.slice(3) : null);
+  let playlist = $derived(playlistId ? playlists.find((p) => p.id === playlistId) ?? null : null);
+  let searching = $derived(query.trim().length > 0);
+  let detailAlbum = $derived(detail?.type === 'album' ? albums.find((a) => a.key === detail!.key) ?? null : null);
+  let detailArtist = $derived(detail?.type === 'artist' ? artists.find((a) => a.key === detail!.key) ?? null : null);
+  let queueTracks = $derived(queue.items.map((p) => lookup(p)).filter((x): x is Track => !!x));
+  /** The tracks shown as a list in the main pane (null → a grid/list of albums/artists is shown instead). */
+  let visibleTracks = $derived((() => {
+    if (searching) return searchTracks(tracks, query);
+    if (detailAlbum) return detailAlbum.tracks;
+    if (detailArtist) return detailArtist.albums.flatMap((a) => a.tracks);
+    if (section === 'songs') return tracks;
+    if (section === 'queue') return queueTracks;
+    if (playlist) return resolvePlaylist(playlist, byPath);
+    return null;
+  })());
+  let currentTrack = $derived(lookup(queueCurrent(queue)));
+  let albumOfCurrent = $derived(currentTrack ? albums.find((a) => a.tracks.some((x) => x.path === currentTrack!.path)) : null);
+  run(() => {
+    if (audioEl) audioEl.volume = muted ? 0 : volume;
+  });
+  run(() => {
+    if (restored) { folders; volume; muted; queue; persist(); }
+  });
+  run(() => {
+    if (currentTrack) coverFile(currentTrack.path, albumOfCurrent?.key ?? currentTrack.path).then((p) => (artUrl = p ? `file://${p}` : ''));
+  });
+  run(() => {
+    if (!currentTrack) artUrl = '';
+  });
+  run(() => { currentTrack; isPlaying; volume; muted; queue.shuffle; queue.repeat; artUrl; queue.items.length; if (restored) pushRemote(); });
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 <div class="flex h-full bg-slate-900 text-white text-sm overflow-hidden">
   <!-- Sidebar -->
@@ -378,27 +396,27 @@
       <div class="relative">
         <Search size={13} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
         <input bind:this={searchEl} bind:value={query} placeholder={$t('music.search')} class="w-full bg-slate-800 border border-white/5 rounded-lg pl-8 pr-7 py-1.5 text-xs placeholder:text-slate-500 focus:outline-none focus:border-blue-500/60" />
-        {#if query}<button on:click={() => (query = '')} class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"><X size={12} /></button>{/if}
+        {#if query}<button onclick={() => (query = '')} class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"><X size={12} /></button>{/if}
       </div>
     </div>
     <nav class="px-2 space-y-0.5">
       {#each NAV as n (n.id)}
-        <button on:click={() => go(n.id)} class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors {section === n.id && !searching ? 'bg-blue-600/25 text-blue-200' : 'text-slate-300 hover:bg-white/5'}">
-          <svelte:component this={n.icon} size={14} /> <span class="flex-1 text-left">{$t(n.key)}</span>
+        <button onclick={() => go(n.id)} class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors {section === n.id && !searching ? 'bg-blue-600/25 text-blue-200' : 'text-slate-300 hover:bg-white/5'}">
+          <n.icon size={14} /> <span class="flex-1 text-left">{$t(n.key)}</span>
           {#if n.id === 'queue' && queue.items.length}<span class="text-[10px] text-slate-500">{queue.items.length}</span>{/if}
         </button>
       {/each}
     </nav>
     <div class="px-4 pt-4 pb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-500">
       <span>{$t('music.playlists')}</span>
-      <button on:click={() => createPlaylist()} title={$t('music.new_playlist')} class="p-0.5 hover:text-white"><Plus size={12} /></button>
+      <button onclick={() => createPlaylist()} title={$t('music.new_playlist')} class="p-0.5 hover:text-white"><Plus size={12} /></button>
     </div>
     <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
       {#each playlists as pl (pl.id)}
-        <button on:click={() => go(`pl:${pl.id}`)} on:contextmenu|preventDefault={(e) => showContextMenu(e, [
+        <button onclick={() => go(`pl:${pl.id}`)} oncontextmenu={preventDefault((e: any) => showContextMenu(e, [
             { label: $t('music.play'), icon: Play, disabled: !pl.tracks.length, action: () => { const l = resolvePlaylist(pl, byPath); if (l.length) startQueue(l, queue.shuffle ? null : l[0].path); } },
             { label: $t('music.rename'), action: () => renamePlaylist(pl) }, { separator: true },
-            { label: $t('music.delete_playlist'), icon: Trash2, danger: true, action: () => deletePlaylist(pl) } ])}
+            { label: $t('music.delete_playlist'), icon: Trash2, danger: true, action: () => deletePlaylist(pl) } ]))}
           class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors {section === `pl:${pl.id}` && !searching ? 'bg-blue-600/25 text-blue-200' : 'text-slate-400 hover:bg-white/5'}">
           <ListMusic size={13} class="shrink-0" /> <span class="truncate flex-1 text-left">{pl.name}</span><span class="text-[10px] text-slate-600">{pl.tracks.length}</span>
         </button>
@@ -406,7 +424,7 @@
         <p class="px-2.5 py-1.5 text-[11px] text-slate-600">{$t('music.no_playlists')}</p>
       {/each}
     </div>
-    <button on:click={() => (showFolders = true)} class="m-2 flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-slate-400 hover:bg-white/5 hover:text-white">
+    <button onclick={() => (showFolders = true)} class="m-2 flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-slate-400 hover:bg-white/5 hover:text-white">
       <FolderOpen size={13} /> {$t('music.folders')}
     </button>
   </aside>
@@ -414,21 +432,21 @@
   <!-- Main -->
   <div class="flex-1 min-w-0 flex flex-col">
     <header class="flex items-center gap-2 px-5 h-12 border-b border-white/5 shrink-0">
-      {#if detail && !searching}<button on:click={() => (detail = null)} class="p-1 -ml-2 rounded-lg hover:bg-white/10 text-slate-400"><ChevronLeft size={16} /></button>{/if}
+      {#if detail && !searching}<button onclick={() => (detail = null)} class="p-1 -ml-2 rounded-lg hover:bg-white/10 text-slate-400"><ChevronLeft size={16} /></button>{/if}
       <h1 class="text-base font-semibold truncate">{heading()}</h1>
       {#if visibleTracks}<span class="text-xs text-slate-500 shrink-0">{visibleTracks.length} {$t('music.tracks')}{#if visibleTracks.length} · {fmtTime(totalDuration(visibleTracks))}{/if}</span>{/if}
-      <div class="flex-1" />
+      <div class="flex-1"></div>
       {#if visibleTracks && visibleTracks.length}
-        <button on:click={() => startQueue(visibleTracks, queue.shuffle ? null : visibleTracks[0].path)} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs"><Play size={12} /> {$t('music.play')}</button>
-        <button on:click={() => startQueue(visibleTracks, null, true)} class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"><Shuffle size={12} /> {$t('music.shuffle')}</button>
+        <button onclick={() => startQueue(visibleTracks, queue.shuffle ? null : visibleTracks[0].path)} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs"><Play size={12} /> {$t('music.play')}</button>
+        <button onclick={() => startQueue(visibleTracks, null, true)} class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"><Shuffle size={12} /> {$t('music.shuffle')}</button>
       {/if}
       {#if section === 'queue' && !searching && queue.items.length}
-        <button on:click={() => { audioEl?.pause(); queue = emptyQueue(queue.shuffle, queue.repeat); setSource(null); }} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{$t('music.clear_queue')}</button>
+        <button onclick={() => { audioEl?.pause(); queue = emptyQueue(queue.shuffle, queue.repeat); setSource(null); }} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{$t('music.clear_queue')}</button>
       {/if}
       {#if playlist && !searching && !detail}
-        <button on:click={() => renamePlaylist(playlist)} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{$t('music.rename')}</button>
+        <button onclick={() => renamePlaylist(playlist)} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">{$t('music.rename')}</button>
       {/if}
-      <button on:click={() => { clearCoverCache(); scan(); }} title={$t('music.rescan')} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400"><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /></button>
+      <button onclick={() => { clearCoverCache(); scan(); }} title={$t('music.rescan')} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400"><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /></button>
     </header>
 
     {#if status}<div class="px-5 py-1.5 bg-blue-500/10 text-blue-200 text-xs shrink-0 truncate">{status}</div>{/if}
@@ -451,7 +469,7 @@
       {:else if section === 'albums' && !detail}
         <div class="h-full overflow-y-auto p-5 grid gap-4 content-start" style="grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));">
           {#each albums as a (a.key)}
-            <button on:click={() => (detail = { type: 'album', key: a.key })} class="text-left group">
+            <button onclick={() => (detail = { type: 'album', key: a.key })} class="text-left group">
               <div class="aspect-square w-full rounded-xl overflow-hidden ring-1 ring-white/5 group-hover:ring-blue-500/50 transition-shadow">
                 <Cover trackPath={a.tracks[0].path} cacheKey={a.key} size={400} rounded="rounded-none" />
               </div>
@@ -464,7 +482,7 @@
       {:else if section === 'artists' && !detail}
         <div class="h-full overflow-y-auto">
           {#each artists as ar (ar.key)}
-            <button on:click={() => (detail = { type: 'artist', key: ar.key })} class="w-full flex items-center gap-3 px-5 py-2.5 hover:bg-white/5 text-left">
+            <button onclick={() => (detail = { type: 'artist', key: ar.key })} class="w-full flex items-center gap-3 px-5 py-2.5 hover:bg-white/5 text-left">
               <Cover trackPath={ar.albums[0].tracks[0].path} cacheKey={ar.albums[0].key} size={40} rounded="rounded-full" />
               <div class="min-w-0 flex-1"><div class="text-[13px] truncate">{ar.name || unknownArtist()}</div>
                 <div class="text-[11px] text-slate-500">{ar.albums.length} {$t('music.albums_n')} · {ar.trackCount} {$t('music.tracks')}</div></div>
@@ -485,45 +503,45 @@
       </div>
       <div class="flex-1 min-w-0 flex flex-col gap-1">
         <div class="flex items-center justify-center gap-1">
-          <button on:click={toggleShuffle} title="{$t('music.shuffle')} (S)" class="p-1.5 rounded-lg hover:bg-white/10 {queue.shuffle ? 'text-blue-400' : 'text-slate-500'}"><Shuffle size={14} /></button>
-          <button on:click={prev} class="p-2 rounded-full hover:bg-white/10"><SkipBack size={16} /></button>
-          <button on:click={togglePlay} class="p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 mx-1">{#if isPlaying}<Pause size={16} />{:else}<Play size={16} />{/if}</button>
-          <button on:click={() => next(false)} class="p-2 rounded-full hover:bg-white/10"><SkipForward size={16} /></button>
-          <button on:click={toggleRepeat} title="{$t(`music.repeat_${queue.repeat}`)} (R)" class="p-1.5 rounded-lg hover:bg-white/10 {queue.repeat !== 'off' ? 'text-blue-400' : 'text-slate-500'}">
+          <button onclick={toggleShuffle} title="{$t('music.shuffle')} (S)" class="p-1.5 rounded-lg hover:bg-white/10 {queue.shuffle ? 'text-blue-400' : 'text-slate-500'}"><Shuffle size={14} /></button>
+          <button onclick={prev} class="p-2 rounded-full hover:bg-white/10"><SkipBack size={16} /></button>
+          <button onclick={togglePlay} class="p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 mx-1">{#if isPlaying}<Pause size={16} />{:else}<Play size={16} />{/if}</button>
+          <button onclick={() => next(false)} class="p-2 rounded-full hover:bg-white/10"><SkipForward size={16} /></button>
+          <button onclick={toggleRepeat} title="{$t(`music.repeat_${queue.repeat}`)} (R)" class="p-1.5 rounded-lg hover:bg-white/10 {queue.repeat !== 'off' ? 'text-blue-400' : 'text-slate-500'}">
             {#if queue.repeat === 'one'}<Repeat1 size={14} />{:else}<Repeat size={14} />{/if}
           </button>
         </div>
         <div class="flex items-center gap-2 text-[10px] text-slate-500">
           <span class="w-10 text-right tabular-nums">{fmtTime(currentTime)}</span>
-          <input type="range" min="0" max={duration || 0} step="0.5" value={currentTime} on:input={onSeekInput} disabled={!currentTrack} class="flex-1 accent-blue-500" />
+          <input type="range" min="0" max={duration || 0} step="0.5" value={currentTime} oninput={onSeekInput} disabled={!currentTrack} class="flex-1 accent-blue-500" />
           <span class="w-10 tabular-nums">{fmtTime(duration)}</span>
         </div>
       </div>
       <div class="flex items-center gap-1.5 w-32 justify-end">
-        <button on:click={() => (muted = !muted)} class="text-slate-500 hover:text-white shrink-0" title="{$t('music.mute')} (M)">{#if muted || volume === 0}<VolumeX size={15} />{:else}<Volume2 size={15} />{/if}</button>
-        <input type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} on:input={(e) => { volume = Number(e.currentTarget.value); muted = false; }} class="w-20 accent-blue-500" />
+        <button onclick={() => (muted = !muted)} class="text-slate-500 hover:text-white shrink-0" title="{$t('music.mute')} (M)">{#if muted || volume === 0}<VolumeX size={15} />{:else}<Volume2 size={15} />{/if}</button>
+        <input type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} oninput={(e) => { volume = Number(e.currentTarget.value); muted = false; }} class="w-20 accent-blue-500" />
       </div>
     </div>
   </div>
 </div>
 
-<audio bind:this={audioEl} on:playing={onPlaying} on:pause={() => (isPlaying = false)} on:ended={() => next(true)} on:error={onError}
-  on:timeupdate={() => (currentTime = audioEl.currentTime)} on:durationchange={() => { if (isFinite(audioEl.duration)) duration = audioEl.duration; }} on:loadedmetadata={onLoadedMetadata} />
+<audio bind:this={audioEl} onplaying={onPlaying} onpause={() => (isPlaying = false)} onended={() => next(true)} onerror={onError}
+  ontimeupdate={() => (currentTime = audioEl.currentTime)} ondurationchange={() => { if (isFinite(audioEl.duration)) duration = audioEl.duration; }} onloadedmetadata={onLoadedMetadata}></audio>
 
 {#if showFolders}
-  <div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={() => (showFolders = false)} role="presentation">
-    <div class="w-[28rem] max-h-[80vh] flex flex-col bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" on:mousedown|stopPropagation role="dialog" aria-modal="true">
-      <div class="flex items-center justify-between mb-1"><h3 class="text-sm font-semibold">{$t('music.folders')}</h3><button on:click={() => (showFolders = false)} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button></div>
+  <div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onmousedown={() => (showFolders = false)} role="presentation">
+    <div class="w-[28rem] max-h-[80vh] flex flex-col bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" onmousedown={stopPropagation(bubble('mousedown'))} role="dialog" aria-modal="true">
+      <div class="flex items-center justify-between mb-1"><h3 class="text-sm font-semibold">{$t('music.folders')}</h3><button onclick={() => (showFolders = false)} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button></div>
       <p class="text-[11px] text-slate-400 mb-3">{$t('music.folders_desc')}</p>
       <div class="flex-1 overflow-y-auto space-y-1.5">
         {#each folders as f (f)}
           <div class="flex items-center gap-2 p-2 rounded-lg bg-slate-900/60 border border-white/5">
             <FolderOpen size={13} class="text-slate-500 shrink-0" /><span class="flex-1 truncate text-xs font-mono" title={f}>{f.replace(/^HOME/, '~')}</span>
-            <button on:click={() => removeFolder(f)} disabled={folders.length <= 1} class="p-1 text-slate-500 hover:text-red-400 disabled:opacity-30"><X size={13} /></button>
+            <button onclick={() => removeFolder(f)} disabled={folders.length <= 1} class="p-1 text-slate-500 hover:text-red-400 disabled:opacity-30"><X size={13} /></button>
           </div>
         {/each}
       </div>
-      <button on:click={addFolder} class="mt-3 self-start flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs"><Plus size={12} /> {$t('music.add_folder')}</button>
+      <button onclick={addFolder} class="mt-3 self-start flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs"><Plus size={12} /> {$t('music.add_folder')}</button>
     </div>
   </div>
 {/if}
