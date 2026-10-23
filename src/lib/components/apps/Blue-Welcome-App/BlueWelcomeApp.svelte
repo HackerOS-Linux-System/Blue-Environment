@@ -11,12 +11,16 @@
   import { markWelcomeCompleted } from './welcome';
   import { AppId } from '../../../types';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
 
-  let step = 0;
+  let { windowId }: Props = $props();
+
+  let step = $state(0);
   const totalSteps = 6;
-  let theme: 'dark' | 'light' = (configStore.get().theme as 'dark' | 'light') ?? 'dark';
-  let onscreenKeyboardEnabled = configStore.get().onscreenKeyboardEnabled ?? false;
+  let theme = $state<'dark' | 'light'>((configStore.get().theme as 'dark' | 'light') ?? 'dark');
+  let onscreenKeyboardEnabled = $state(configStore.get().onscreenKeyboardEnabled ?? false);
 
   // Expanded from the original 4-tile tour to actually reflect how many
   // apps ship today (~25) rather than the handful that existed when
@@ -68,7 +72,7 @@
   <!-- Step dots -->
   <div class="flex items-center justify-center gap-2 pt-6 shrink-0">
     {#each Array(totalSteps) as _, i}
-      <div class="h-1.5 rounded-full transition-all {i === step ? 'w-6 bg-blue-500' : i < step ? 'w-1.5 bg-blue-500/60' : 'w-1.5 bg-white/10'}" />
+      <div class="h-1.5 rounded-full transition-all {i === step ? 'w-6 bg-blue-500' : i < step ? 'w-1.5 bg-blue-500/60' : 'w-1.5 bg-white/10'}"></div>
     {/each}
   </div>
 
@@ -93,7 +97,7 @@
         </div>
         <div class="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
           {#each SUPPORTED_LANGUAGES as lang (lang.code)}
-            <button on:click={() => setLanguage(lang.code)}
+            <button onclick={() => setLanguage(lang.code)}
               class="flex items-center justify-between px-4 py-3 rounded-xl border transition-all {$language === lang.code ? 'bg-blue-600/15 border-blue-500/40' : 'bg-slate-900/40 border-white/5 hover:bg-white/5'}">
               <span class="flex items-center gap-3">
                 <span class="text-xs font-mono bg-slate-700 px-1.5 py-0.5 rounded min-w-[28px] text-center">{lang.flag}</span>
@@ -112,11 +116,11 @@
           <p class="text-slate-400 text-sm mt-1">{$t('welcome.choose_theme_desc')}</p>
         </div>
         <div class="grid grid-cols-2 gap-4">
-          <button on:click={() => selectTheme('dark')} class="flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all {theme === 'dark' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-slate-900/40 hover:bg-white/5'}">
+          <button onclick={() => selectTheme('dark')} class="flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all {theme === 'dark' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-slate-900/40 hover:bg-white/5'}">
             <div class="w-full h-16 rounded-lg bg-slate-950 border border-white/10 flex items-center justify-center"><Moon size={20} class="text-blue-300" /></div>
             <span class="text-sm font-medium">{$t('welcome.theme_dark')}</span>
           </button>
-          <button on:click={() => selectTheme('light')} class="flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all {theme === 'light' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-slate-900/40 hover:bg-white/5'}">
+          <button onclick={() => selectTheme('light')} class="flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all {theme === 'light' ? 'border-blue-500/50 bg-blue-500/10' : 'border-white/5 bg-slate-900/40 hover:bg-white/5'}">
             <div class="w-full h-16 rounded-lg bg-slate-100 border border-white/10 flex items-center justify-center"><Sun size={20} class="text-amber-500" /></div>
             <span class="text-sm font-medium">{$t('welcome.theme_light')}</span>
           </button>
@@ -133,7 +137,7 @@
           {#each features as f}
             <div class="flex flex-col gap-2 p-3 rounded-xl bg-slate-900/40 border border-white/5">
               <div class="w-8 h-8 rounded-lg {f.bg} flex items-center justify-center">
-                <svelte:component this={f.icon} size={15} class={f.color} />
+                <f.icon size={15} class={f.color} />
               </div>
               <div class="text-xs font-medium leading-tight">{$t(f.titleKey)}</div>
               <div class="text-[11px] text-slate-500 leading-snug">{$t(f.descKey)}</div>
@@ -164,15 +168,15 @@
             <Copy size={16} class="text-blue-400 shrink-0" />
             <span class="text-sm flex-1">{$t('welcome.privacy_cloned_apps')}</span>
           </div>
-          <button on:click={toggleOnscreenKeyboard} class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-white/5 hover:bg-white/5 transition-colors text-left">
+          <button onclick={toggleOnscreenKeyboard} class="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-white/5 hover:bg-white/5 transition-colors text-left">
             <Keyboard size={16} class="text-blue-400 shrink-0" />
             <span class="text-sm flex-1">{$t('welcome.privacy_keyboard')}</span>
             <span class="w-10 h-6 rounded-full relative shrink-0 transition-colors {onscreenKeyboardEnabled ? 'bg-blue-600' : 'bg-white/10'}">
-              <span class="absolute top-1 w-4 h-4 rounded-full bg-white transition-all {onscreenKeyboardEnabled ? 'left-5' : 'left-1'}" />
+              <span class="absolute top-1 w-4 h-4 rounded-full bg-white transition-all {onscreenKeyboardEnabled ? 'left-5' : 'left-1'}"></span>
             </span>
           </button>
         </div>
-        <button on:click={openPrivacy} class="text-xs text-blue-400 hover:text-blue-300 text-center">{$t('welcome.privacy_open_app')}</button>
+        <button onclick={openPrivacy} class="text-xs text-blue-400 hover:text-blue-300 text-center">{$t('welcome.privacy_open_app')}</button>
       </div>
     {:else}
       <!-- Finish -->
@@ -184,7 +188,7 @@
           <h1 class="text-2xl font-bold mb-2">{$t('welcome.done_title')}</h1>
           <p class="text-slate-400">{$t('welcome.done_desc')}</p>
         </div>
-        <button on:click={openHelp} class="flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10">
+        <button onclick={openHelp} class="flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10">
           <LifeBuoy size={15} class="text-blue-400" />
           {$t('welcome.open_help')}
         </button>
@@ -194,14 +198,14 @@
 
   <div class="flex items-center justify-between px-8 py-5 border-t border-white/5 shrink-0">
     {#if step > 0}
-      <button on:click={back} class="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white px-3 py-2"><ArrowLeft size={14} /> {$t('welcome.back')}</button>
+      <button onclick={back} class="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white px-3 py-2"><ArrowLeft size={14} /> {$t('welcome.back')}</button>
     {:else}
-      <div />
+      <div></div>
     {/if}
     {#if step < totalSteps - 1}
-      <button on:click={next} class="flex items-center gap-1.5 text-sm px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium">{$t('welcome.next')} <ArrowRight size={14} /></button>
+      <button onclick={next} class="flex items-center gap-1.5 text-sm px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium">{$t('welcome.next')} <ArrowRight size={14} /></button>
     {:else}
-      <button on:click={finish} class="flex items-center gap-1.5 text-sm px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium">{$t('welcome.finish')} <Check size={14} /></button>
+      <button onclick={finish} class="flex items-center gap-1.5 text-sm px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium">{$t('welcome.finish')} <Check size={14} /></button>
     {/if}
   </div>
 </div>
