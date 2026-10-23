@@ -5,12 +5,19 @@
   import { EVENT_COLORS, REMINDER_CHOICES, WEEKDAY_CODES, type CalendarEvent, type RecurrenceRule } from './types';
   import { weekdayCode } from './recurrence';
 
-  /** The event being edited (a blank one with `id: ''` for a new event). */
-  export let event: CalendarEvent;
-  /** The day of the occurrence that was clicked (for "delete this occurrence"). */
-  export let occurrenceDate: string = event.date;
-  /** Name of the subscription this event comes from → the editor is read-only. */
-  export let readonlySource: string | null = null;
+  
+  
+  
+  interface Props {
+    /** The event being edited (a blank one with `id: ''` for a new event). */
+    event: CalendarEvent;
+    /** The day of the occurrence that was clicked (for "delete this occurrence"). */
+    occurrenceDate?: string;
+    /** Name of the subscription this event comes from → the editor is read-only. */
+    readonlySource?: string | null;
+  }
+
+  let { event, occurrenceDate = event.date, readonlySource = null }: Props = $props();
 
   const dispatch = createEventDispatcher<{
     save: Omit<CalendarEvent, 'id'> & { id?: string };
@@ -23,25 +30,25 @@
   const readonly = readonlySource !== null;
   const WEEKDAY_KEYS = ['cal.mon', 'cal.tue', 'cal.wed', 'cal.thu', 'cal.fri', 'cal.sat', 'cal.sun'];
 
-  let title = event.title;
-  let date = event.date;
-  let allDay = event.time === null;
-  let time = event.time ?? '09:00';
-  let duration = event.durationMinutes ?? 30;
-  let description = event.description;
-  let color: string = event.color;
+  let title = $state(event.title);
+  let date = $state(event.date);
+  let allDay = $state(event.time === null);
+  let time = $state(event.time ?? '09:00');
+  let duration = $state(event.durationMinutes ?? 30);
+  let description = $state(event.description);
+  let color = $state<string>(event.color);
 
   const r = event.recurrence ?? null;
-  let repeat: 'none' | RecurrenceRule['freq'] = r ? r.freq : 'none';
-  let interval = r?.interval ?? 1;
-  let byDay: string[] = r?.byDay?.length ? [...r.byDay] : [weekdayCode(event.date)];
-  let ends: 'never' | 'on' | 'after' = r?.until ? 'on' : r?.count ? 'after' : 'never';
-  let endsDate = r?.until ?? '';
-  let endsCount = r?.count ?? 10;
-  let reminder: string = event.reminderMinutes == null ? '' : String(event.reminderMinutes);
+  let repeat = $state<'none' | RecurrenceRule['freq']>(r ? r.freq : 'none');
+  let interval = $state(r?.interval ?? 1);
+  let byDay = $state<string[]>(r?.byDay?.length ? [...r.byDay] : [weekdayCode(event.date)]);
+  let ends = $state<'never' | 'on' | 'after'>(r?.until ? 'on' : r?.count ? 'after' : 'never');
+  let endsDate = $state(r?.until ?? '');
+  let endsCount = $state(r?.count ?? 10);
+  let reminder = $state<string>(event.reminderMinutes == null ? '' : String(event.reminderMinutes));
 
   const isRecurring = !!event.recurrence;
-  let formError = '';
+  let formError = $state('');
 
   function toggleDay(code: string) {
     byDay = byDay.includes(code) ? byDay.filter((c) => c !== code) : [...byDay, code];
@@ -87,11 +94,11 @@
   const field = 'w-full bg-slate-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white disabled:opacity-60 focus:outline-none focus:border-blue-500/60';
 </script>
 
-<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:mousedown={(e) => e.target === e.currentTarget && dispatch('close')} role="presentation">
+<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onmousedown={(e) => e.target === e.currentTarget && dispatch('close')} role="presentation">
   <div class="w-[26rem] max-h-[90vh] overflow-y-auto bg-slate-800 border border-white/10 rounded-2xl shadow-2xl p-5" role="dialog" aria-modal="true">
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-sm font-semibold text-white">{isNew ? $t('cal.new_event') : $t('cal.edit_event')}</h3>
-      <button on:click={() => dispatch('close')} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button>
+      <button onclick={() => dispatch('close')} class="p-1 hover:bg-white/10 rounded text-slate-500"><X size={14} /></button>
     </div>
 
     {#if readonly}
@@ -147,7 +154,7 @@
           {#if repeat === 'weekly'}
             <div class="flex gap-1">
               {#each WEEKDAY_CODES as code, i (code)}
-                <button type="button" disabled={readonly} on:click={() => toggleDay(code)}
+                <button type="button" disabled={readonly} onclick={() => toggleDay(code)}
                   class="flex-1 py-1 rounded-md text-[10px] font-medium transition-colors {byDay.includes(code) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">{$t(WEEKDAY_KEYS[i])}</button>
               {/each}
             </div>
@@ -176,13 +183,13 @@
       </div>
 
       <textarea bind:value={description} disabled={readonly} rows="3" placeholder={$t('cal.description_placeholder')}
-        class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500 resize-none disabled:opacity-60 focus:outline-none focus:border-blue-500/60" />
+        class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500 resize-none disabled:opacity-60 focus:outline-none focus:border-blue-500/60"></textarea>
 
       {#if !readonly}
         <div class="flex items-center gap-2">
           {#each EVENT_COLORS as c (c)}
-            <button type="button" on:click={() => (color = c)} aria-label={c}
-              class="w-6 h-6 rounded-full transition-transform {color === c ? 'scale-110 ring-2 ring-white/60' : ''}" style="background:{c}" />
+            <button type="button" onclick={() => (color = c)} aria-label={c}
+              class="w-6 h-6 rounded-full transition-transform {color === c ? 'scale-110 ring-2 ring-white/60' : ''}" style="background:{c}"></button>
           {/each}
         </div>
       {/if}
@@ -194,17 +201,17 @@
       {#if !isNew && !readonly}
         <div class="flex flex-col items-start gap-1">
           {#if isRecurring}
-            <button on:click={() => dispatch('deleteOccurrence', occurrenceDate)} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('cal.delete_this')}</button>
-            <button on:click={() => dispatch('delete')} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('cal.delete_all')}</button>
+            <button onclick={() => dispatch('deleteOccurrence', occurrenceDate)} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('cal.delete_this')}</button>
+            <button onclick={() => dispatch('delete')} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('cal.delete_all')}</button>
           {:else}
-            <button on:click={() => dispatch('delete')} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('settings.common.delete')}</button>
+            <button onclick={() => dispatch('delete')} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('settings.common.delete')}</button>
           {/if}
         </div>
-      {:else}<span />{/if}
+      {:else}<span></span>{/if}
       <div class="flex gap-2">
-        <button on:click={() => dispatch('close')} class="px-3.5 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors">{readonly ? $t('startmenu.close') : $t('settings.common.cancel')}</button>
+        <button onclick={() => dispatch('close')} class="px-3.5 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors">{readonly ? $t('startmenu.close') : $t('settings.common.cancel')}</button>
         {#if !readonly}
-          <button on:click={save} disabled={!title.trim()} class="px-3.5 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors disabled:opacity-40">{$t('settings.common.save')}</button>
+          <button onclick={save} disabled={!title.trim()} class="px-3.5 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors disabled:opacity-40">{$t('settings.common.save')}</button>
         {/if}
       </div>
     </div>
