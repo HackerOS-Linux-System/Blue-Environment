@@ -14,22 +14,26 @@
   import type { VmSummary, OsType } from './types';
   import { OS_TYPE_LABELS } from './types';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
 
-  let vms: VmSummary[] = [];
-  let loading = true;
-  let kvmAvailable = false;
-  let busyVmId: string | null = null;
-  let error: string | null = null;
+  let { windowId }: Props = $props();
 
-  let showCreate = false;
-  let newName = '';
-  let newOsType: OsType = 'linux';
-  let newCpuCores = 2;
-  let newMemoryMb = 2048;
-  let newDiskSizeGb = 20;
-  let newIsoPath = '';
-  let creating = false;
+  let vms = $state<VmSummary[]>([]);
+  let loading = $state(true);
+  let kvmAvailable = $state(false);
+  let busyVmId = $state<string | null>(null);
+  let error = $state<string | null>(null);
+
+  let showCreate = $state(false);
+  let newName = $state('');
+  let newOsType = $state<OsType>('linux');
+  let newCpuCores = $state(2);
+  let newMemoryMb = $state(2048);
+  let newDiskSizeGb = $state(20);
+  let newIsoPath = $state('');
+  let creating = $state(false);
 
   async function refresh() {
     vms = await SystemBridge.bvListVms();
@@ -39,11 +43,11 @@
   // Domeny zarządzane przez libvirt (te same, które widzi virt-manager/virsh).
   // Sekcja pojawia się tylko, gdy powłoka zbudowano z cechą `libvirt`.
   interface LvDomain { name: string; uuid: string; state: string; memoryMb: number; vcpus: number; autostart: boolean }
-  let lvAvailable = false;
-  let lvUri: 'qemu:///session' | 'qemu:///system' = 'qemu:///session';
-  let lvDomains: LvDomain[] = [];
-  let lvError: string | null = null;
-  let lvBusy: string | null = null;
+  let lvAvailable = $state(false);
+  let lvUri = $state<'qemu:///session' | 'qemu:///system'>('qemu:///session');
+  let lvDomains = $state<LvDomain[]>([]);
+  let lvError = $state<string | null>(null);
+  let lvBusy = $state<string | null>(null);
 
   async function lvRefresh() {
     lvError = null;
@@ -140,7 +144,7 @@
         {#if kvmAvailable}<Zap class="w-3 h-3 text-emerald-400" /> Hardware acceleration (KVM) available{:else}<ZapOff class="w-3 h-3 text-amber-400" /> No KVM — VMs will run in software emulation (slow){/if}
       </p>
     </div>
-    <button on:click={() => (showCreate = true)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 transition-colors">
+    <button onclick={() => (showCreate = true)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 transition-colors">
       <Plus class="w-3.5 h-3.5" /> New VM
     </button>
   </div>
@@ -180,14 +184,14 @@
             </div>
             <div class="flex gap-2 mt-1">
               {#if vm.status === 'running'}
-                <button on:click={() => stopVm(vm.id)} disabled={busyVmId === vm.id} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs disabled:opacity-50">
+                <button onclick={() => stopVm(vm.id)} disabled={busyVmId === vm.id} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs disabled:opacity-50">
                   {#if busyVmId === vm.id}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Square class="w-3.5 h-3.5" />{/if} Stop
                 </button>
               {:else}
-                <button on:click={() => startVm(vm.id)} disabled={busyVmId === vm.id} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50">
+                <button onclick={() => startVm(vm.id)} disabled={busyVmId === vm.id} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50">
                   {#if busyVmId === vm.id}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Play class="w-3.5 h-3.5" />{/if} Start
                 </button>
-                <button on:click={() => deleteVm(vm.id)} disabled={busyVmId === vm.id} class="px-2.5 rounded bg-red-600/20 hover:bg-red-500/30 text-red-400 text-xs">
+                <button onclick={() => deleteVm(vm.id)} disabled={busyVmId === vm.id} class="px-2.5 rounded bg-red-600/20 hover:bg-red-500/30 text-red-400 text-xs">
                   <Trash2 class="w-3.5 h-3.5" />
                 </button>
               {/if}
@@ -202,11 +206,11 @@
         <div class="flex items-center justify-between mb-2">
           <h2 class="font-medium text-xs uppercase tracking-wide text-slate-400">libvirt</h2>
           <div class="flex items-center gap-2">
-            <select bind:value={lvUri} on:change={lvRefresh} class="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs outline-none">
+            <select bind:value={lvUri} onchange={lvRefresh} class="bg-slate-800 border border-white/10 rounded px-2 py-1 text-xs outline-none">
               <option value="qemu:///session">User session</option>
               <option value="qemu:///system">System</option>
             </select>
-            <button on:click={lvRefresh} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs">Refresh</button>
+            <button onclick={lvRefresh} class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs">Refresh</button>
           </div>
         </div>
         {#if lvError}<div class="text-xs text-red-400 mb-2">{lvError}</div>{/if}
@@ -223,14 +227,14 @@
               <div class="text-[11px] text-slate-500 flex items-center gap-1"><Cpu class="w-3 h-3" /> {d.vcpus} vCPU · {(d.memoryMb / 1024).toFixed(1)}GB RAM{d.autostart ? ' · autostart' : ''}</div>
               <div class="flex gap-1.5 mt-1">
                 {#if d.state === 'running'}
-                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'shutdown')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs disabled:opacity-50"><Power class="w-3.5 h-3.5" /> Shut down</button>
-                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'suspend')} title="Pause" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><Pause class="w-3.5 h-3.5" /></button>
-                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'reboot')} title="Reboot" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><RotateCw class="w-3.5 h-3.5" /></button>
-                  <button disabled={lvBusy === d.name} on:click={() => confirm(`Force off ${d.name}?`) && lvAct(d.name, 'destroy')} title="Force off" class="px-2 rounded bg-red-600/20 hover:bg-red-500/30 text-red-400 disabled:opacity-50"><Square class="w-3.5 h-3.5" /></button>
+                  <button disabled={lvBusy === d.name} onclick={() => lvAct(d.name, 'shutdown')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs disabled:opacity-50"><Power class="w-3.5 h-3.5" /> Shut down</button>
+                  <button disabled={lvBusy === d.name} onclick={() => lvAct(d.name, 'suspend')} title="Pause" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><Pause class="w-3.5 h-3.5" /></button>
+                  <button disabled={lvBusy === d.name} onclick={() => lvAct(d.name, 'reboot')} title="Reboot" class="px-2 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"><RotateCw class="w-3.5 h-3.5" /></button>
+                  <button disabled={lvBusy === d.name} onclick={() => confirm(`Force off ${d.name}?`) && lvAct(d.name, 'destroy')} title="Force off" class="px-2 rounded bg-red-600/20 hover:bg-red-500/30 text-red-400 disabled:opacity-50"><Square class="w-3.5 h-3.5" /></button>
                 {:else if d.state === 'paused' || d.state === 'suspended'}
-                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'resume')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Resume</button>
+                  <button disabled={lvBusy === d.name} onclick={() => lvAct(d.name, 'resume')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Resume</button>
                 {:else}
-                  <button disabled={lvBusy === d.name} on:click={() => lvAct(d.name, 'start')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Start</button>
+                  <button disabled={lvBusy === d.name} onclick={() => lvAct(d.name, 'start')} class="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs disabled:opacity-50"><Play class="w-3.5 h-3.5" /> Start</button>
                 {/if}
               </div>
             </div>
@@ -245,7 +249,7 @@
       <div class="bg-slate-900 border border-white/10 rounded-lg w-96 p-4 flex flex-col gap-3 max-h-[85%] overflow-y-auto">
         <div class="flex items-center justify-between">
           <span class="font-medium text-sm">New virtual machine</span>
-          <button on:click={() => (showCreate = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
+          <button onclick={() => (showCreate = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
         </div>
         <input bind:value={newName} placeholder="Name" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
         <select bind:value={newOsType} class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500">
@@ -267,7 +271,7 @@
         </label>
         <input bind:value={newIsoPath} placeholder="Path to install ISO (optional)" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
         <button
-          on:click={createVm}
+          onclick={createVm}
           disabled={!newName.trim() || creating}
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium flex items-center justify-center gap-2"
         >
