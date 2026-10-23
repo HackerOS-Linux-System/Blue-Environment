@@ -8,8 +8,8 @@
 
   interface MonitorInfo { name: string; resolution: string; rate: string; scale: string; primary: boolean; connected: boolean; x: number; y: number; }
 
-  let monitors: MonitorInfo[] = [];
-  let loading = true;
+  let monitors = $state<MonitorInfo[]>([]);
+  let loading = $state(true);
   // HDR toggle state per output name. Reflects only what the compositor
   // acknowledges via `HdrStateChanged` — see compositorBridge.ts and
   // protocols/color_management.rs on the compositor side for why this
@@ -17,7 +17,7 @@
   // is real, the render-side tone-mapping isn't wired up yet, so the
   // compositor honestly reports back "not actually active" rather than
   // claiming a visual change that hasn't happened.
-  let hdrEnabled: Record<string, boolean> = {};
+  let hdrEnabled = $state<Record<string, boolean>>({});
   let hdrActive: Record<string, boolean> = {};
 
   async function load() {
@@ -100,7 +100,7 @@
           </div>
         {/each}
       </div>
-      <button on:click={load} class="absolute top-2 right-2 p-1 hover:bg-white/10 rounded text-slate-500"><RefreshCw size={12} /></button>
+      <button onclick={load} class="absolute top-2 right-2 p-1 hover:bg-white/10 rounded text-slate-500"><RefreshCw size={12} /></button>
     </div>
 
     {#each monitors as mon (mon.name)}
@@ -128,14 +128,14 @@
         <div class="flex items-center gap-3">
           <div class="flex-1">
             <span class="text-xs text-slate-400 block mb-1">Scale</span>
-            <select value={mon.scale} on:change={(e) => applyScale(mon, e.currentTarget.value)}
+            <select value={mon.scale} onchange={(e) => applyScale(mon, e.currentTarget.value)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
               {#each scales as s (s)}<option value={s}>{(parseFloat(s) * 100).toFixed(0)}%</option>{/each}
             </select>
           </div>
           <div class="flex-1">
             <span class="text-xs text-slate-400 block mb-1">Rotation</span>
-            <select value="normal" on:change={(e) => applyRotation(mon, e.currentTarget.value)}
+            <select value="normal" onchange={(e) => applyRotation(mon, e.currentTarget.value)}
               class="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none">
               <option value="normal">Normal (0°)</option>
               <option value="right">Right (90°)</option>
@@ -152,7 +152,7 @@
           <button
             role="switch"
             aria-checked={hdrEnabled[mon.name] ?? false}
-            on:click={() => toggleHdr(mon)}
+            onclick={() => toggleHdr(mon)}
             class="w-10 h-6 rounded-full transition-colors relative shrink-0 {hdrEnabled[mon.name] ? 'bg-blue-600' : 'bg-slate-700'}">
             <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform {hdrEnabled[mon.name] ? 'translate-x-4' : ''}"></span>
           </button>
