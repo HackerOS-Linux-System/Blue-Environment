@@ -1,7 +1,11 @@
 <script lang="ts">
   import { CheckCircle2, RotateCw, Power } from 'lucide-svelte';
   import type { InstallState } from '../installState';
-  export let state: InstallState;
+  interface Props {
+    state: InstallState;
+  }
+
+  let { state }: Props = $props();
 </script>
 
 <div class="flex-1 flex flex-col items-center justify-center px-12 gap-6 text-center">
@@ -13,10 +17,10 @@
     <p class="text-slate-400 max-w-sm">Blue Environment has been installed. Restart your computer to boot into your new system.</p>
   </div>
   <div class="flex items-center gap-3">
-    <button on:click={state.finishAndReboot} class="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-medium transition-colors">
+    <button onclick={state.finishAndReboot} class="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-medium transition-colors">
       <RotateCw size={16} /> Restart Now
     </button>
-    <button on:click={state.finishAndShutdown} class="flex items-center gap-2 px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-medium transition-colors">
+    <button onclick={state.finishAndShutdown} class="flex items-center gap-2 px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-medium transition-colors">
       <Power size={16} /> Shut Down
     </button>
   </div>
