@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   /**
    * Settings → Language → "Personal folders": renames an existing English
    * `~/Downloads`, `~/Documents`… to the folder names of the language the
@@ -19,13 +21,13 @@
   interface Plan { lang: string; items: Item[] }
   interface Result { renamed: number; created: number; skipped: number; errors: string[] }
 
-  let plan: Plan | null = null;
-  let loading = false;
-  let confirming = false;
-  let result: Result | null = null;
-  let error = '';
+  let plan = $state<Plan | null>(null);
+  let loading = $state(false);
+  let confirming = $state(false);
+  let result = $state<Result | null>(null);
+  let error = $state('');
 
-  $: work = plan ? plan.items.filter((i) => i.action === 'rename' || i.action === 'create') : [];
+  let work = $derived(plan ? plan.items.filter((i) => i.action === 'rename' || i.action === 'create') : []);
 
   async function check() {
     loading = true; error = ''; result = null; confirming = false;
@@ -50,8 +52,10 @@
   const base = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
   onMount(check);
   // Re-check when the person switches the UI language.
-  let lastLang = '';
-  $: if ($language !== lastLang) { if (lastLang) check(); lastLang = $language; }
+  let lastLang = $state('');
+  run(() => {
+    if ($language !== lastLang) { if (lastLang) check(); lastLang = $language; }
+  });
 </script>
 
 <div class="bg-slate-800 p-6 rounded-2xl border border-white/5 space-y-4">
@@ -81,16 +85,16 @@
   {/if}
 
   <div class="flex items-center gap-2">
-    <button class="px-3 py-1.5 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-40" disabled={loading} on:click={check}>{$t('ufold.check')}</button>
+    <button class="px-3 py-1.5 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-40" disabled={loading} onclick={check}>{$t('ufold.check')}</button>
     {#if work.length > 0 && !confirming}
-      <button class="px-3 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={loading} on:click={() => (confirming = true)}>{$t('ufold.apply')}</button>
+      <button class="px-3 py-1.5 rounded-lg text-sm bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={loading} onclick={() => (confirming = true)}>{$t('ufold.apply')}</button>
     {/if}
   </div>
   {#if confirming}
     <div class="flex items-center gap-2 flex-wrap rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2">
       <span class="text-xs text-amber-200 flex-1 min-w-[12rem]">{$t('ufold.confirm', { n: work.length })}</span>
-      <button class="px-3 py-1 rounded-lg text-xs bg-amber-500 text-slate-900 font-medium" on:click={apply}>{$t('ufold.confirm_yes')}</button>
-      <button class="px-3 py-1 rounded-lg text-xs bg-slate-700 text-slate-200" on:click={() => (confirming = false)}>{$t('ufold.confirm_no')}</button>
+      <button class="px-3 py-1 rounded-lg text-xs bg-amber-500 text-slate-900 font-medium" onclick={apply}>{$t('ufold.confirm_yes')}</button>
+      <button class="px-3 py-1 rounded-lg text-xs bg-slate-700 text-slate-200" onclick={() => (confirming = false)}>{$t('ufold.confirm_no')}</button>
     </div>
   {/if}
 </div>
