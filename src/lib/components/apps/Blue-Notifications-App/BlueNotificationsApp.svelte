@@ -11,15 +11,19 @@
   import type { NotificationRule } from './types';
   import { t } from '../../../stores/language';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
 
   const store = createNotificationsStore();
   const { rules, loading, error, checking } = store;
 
-  let showAdd = false;
-  let draftName = '';
-  let draftUrl = '';
-  let draftInterval = 30;
+  let showAdd = $state(false);
+  let draftName = $state('');
+  let draftUrl = $state('');
+  let draftInterval = $state(30);
 
   onMount(() => {
     store.load();
@@ -49,8 +53,8 @@
   <div class="flex items-center gap-2 px-4 h-11 border-b border-white/5 shrink-0">
     <Bell size={16} class="text-blue-400" />
     <span class="font-semibold">{$t('notif.title')}</span>
-    <div class="flex-1" />
-    <button on:click={() => (showAdd = !showAdd)} class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500">
+    <div class="flex-1"></div>
+    <button onclick={() => (showAdd = !showAdd)} class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500">
       <Plus size={13} /> {$t('notif.add_rule')}
     </button>
   </div>
@@ -67,8 +71,8 @@
         </select>
       </div>
       <div class="flex justify-end gap-2">
-        <button on:click={() => (showAdd = false)} class="text-xs px-3 py-1.5 rounded-lg hover:bg-white/5">{$t('notif.cancel')}</button>
-        <button on:click={addRule} disabled={!draftName.trim() || !draftUrl.trim()} class="text-xs px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40">{$t('notif.add')}</button>
+        <button onclick={() => (showAdd = false)} class="text-xs px-3 py-1.5 rounded-lg hover:bg-white/5">{$t('notif.cancel')}</button>
+        <button onclick={addRule} disabled={!draftName.trim() || !draftUrl.trim()} class="text-xs px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40">{$t('notif.add')}</button>
       </div>
     </div>
   {/if}
@@ -76,7 +80,7 @@
   {#if $error}
     <div class="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-300 text-xs shrink-0">
       <AlertTriangle size={13} /> {$error}
-      <button on:click={() => error.set(null)} class="ml-auto"><X size={12} /></button>
+      <button onclick={() => error.set(null)} class="ml-auto"><X size={12} /></button>
     </div>
   {/if}
 
@@ -99,14 +103,14 @@
             <div class="text-[10px] text-slate-500 truncate font-mono">{rule.url}</div>
             <div class="text-[10px] text-slate-600 mt-0.5">{$t('notif.check_every')} {intervalLabel(rule.intervalMinutes)} · {rule.lastSeenGuids.length} {$t('notif.tracked')}</div>
           </div>
-          <button on:click={() => store.checkNow(rule)} title={$t('notif.check_now')}
+          <button onclick={() => store.checkNow(rule)} title={$t('notif.check_now')}
             disabled={$checking.has(rule.id)} class="p-1.5 rounded-lg hover:bg-white/10 shrink-0">
             <RefreshCw size={14} class={$checking.has(rule.id) ? 'animate-spin text-blue-400' : 'text-slate-400'} />
           </button>
-          <button on:click={() => toggleEnabled(rule)} title={rule.enabled ? $t('notif.disable') : $t('notif.enable')} class="p-1.5 rounded-lg hover:bg-white/10 shrink-0">
+          <button onclick={() => toggleEnabled(rule)} title={rule.enabled ? $t('notif.disable') : $t('notif.enable')} class="p-1.5 rounded-lg hover:bg-white/10 shrink-0">
             {#if rule.enabled}<Bell size={14} class="text-blue-400" />{:else}<BellOff size={14} class="text-slate-500" />{/if}
           </button>
-          <button on:click={() => store.deleteRule(rule.id)} class="p-1.5 rounded-lg hover:bg-white/10 hover:text-red-400 text-slate-500 shrink-0"><Trash2 size={14} /></button>
+          <button onclick={() => store.deleteRule(rule.id)} class="p-1.5 rounded-lg hover:bg-white/10 hover:text-red-400 text-slate-500 shrink-0"><Trash2 size={14} /></button>
         </div>
       {/each}
     {/if}
