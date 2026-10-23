@@ -1,6 +1,11 @@
 <script lang="ts">
-  let component: any = null;
-  let failed = false;
+  interface Props {
+    [key: string]: any
+  }
+
+  let { ...rest }: Props = $props();
+  let component = $state<any>(null);
+  let failed = $state(false);
 
   import('./BlueEmojiApp.svelte')
     .then((mod) => (component = mod.default))
@@ -10,9 +15,10 @@
 {#if failed}
   <div class="flex items-center justify-center h-full text-red-400 text-sm">Failed to load Blue Emoji.</div>
 {:else if component}
-  <svelte:component this={component} {...$$restProps} />
+  {@const SvelteComponent = component}
+  <SvelteComponent {...rest} />
 {:else}
   <div class="flex items-center justify-center h-full bg-slate-900">
-    <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
   </div>
 {/if}
