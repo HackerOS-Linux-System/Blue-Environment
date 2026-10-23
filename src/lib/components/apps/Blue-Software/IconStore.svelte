@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run, self } from 'svelte/legacy';
+
   /**
    * Blue Software → Icons: the KDE Store's icon themes as a NATIVE catalogue.
    *
@@ -25,8 +27,13 @@
   import { iconThemes, ICON_THEMES_CHANGED, ICON_THEME_APPLIED, type IconThemeInfo } from '../../../utils/iconThemes';
   import IconStoreThumb from './IconStoreThumb.svelte';
 
-  /** Kept for API compatibility with the previous webview-based store — no native page to hide any more. */
-  export let visible: boolean = true;
+  
+  interface Props {
+    /** Kept for API compatibility with the previous webview-based store — no native page to hide any more. */
+    visible?: boolean;
+  }
+
+  let { visible = true }: Props = $props();
 
   const inTauri = SystemBridge.isTauri();
   const STORE_URL = 'https://store.kde.org/browse?cat=132&ord=latest';
@@ -37,37 +44,37 @@
     { id: 'name', key: 'iconstore.sort_name' },
   ];
 
-  let rootW = 0;
-  $: compact = isCompactWidth(rootW);
+  let rootW = $state(0);
+  let compact = $derived(isCompactWidth(rootW));
 
   // ── catalogue ──
-  let query = '';
-  let sort: StoreSort = 'new';
-  let items: StoreIcon[] = [];
+  let query = $state('');
+  let sort = $state<StoreSort>('new');
+  let items = $state<StoreIcon[]>([]);
   let page = 0;
-  let hasMore = false;
-  let total = 0;
-  let loading = false;
-  let loadError = '';
+  let hasMore = $state(false);
+  let total = $state(0);
+  let loading = $state(false);
+  let loadError = $state('');
   let seq = 0;
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
-  let scroller: HTMLDivElement;
-  let sentinel: HTMLDivElement;
+  let scroller = $state() as HTMLDivElement;
+  let sentinel = $state() as HTMLDivElement;
   let observer: IntersectionObserver | null = null;
   let started = false;
 
   // ── installed / installing ──
-  let installed: IconThemeInfo[] = [];
+  let installed = $state<IconThemeInfo[]>([]);
   let installedIds: Record<string, string[]> = {};
-  let showInstalled = true;
-  let busy: Record<string, boolean> = {};
-  let progress: Record<string, InstallProgress> = {};
-  let status: { kind: 'info' | 'ok' | 'error'; text: string; apply?: string[] } | null = null;
+  let showInstalled = $state(true);
+  let busy = $state<Record<string, boolean>>({});
+  let progress = $state<Record<string, InstallProgress>>({});
+  let status = $state<{ kind: 'info' | 'ok' | 'error'; text: string; apply?: string[] } | null>(null);
 
   // ── details ──
-  let selected: StoreIcon | null = null;
-  let detailLoading = false;
-  let previewIdx = 0;
+  let selected = $state<StoreIcon | null>(null);
+  let detailLoading = $state(false);
+  let previewIdx = $state(0);
 
   const unlisten: (() => void)[] = [];
 
@@ -199,7 +206,9 @@
     load(true);
   }
   // Lazy: the first visit to the section triggers the first request.
-  $: if (visible) start();
+  run(() => {
+    if (visible) start();
+  });
 
   onMount(async () => {
     refreshInstalled();
@@ -226,14 +235,14 @@
   }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window onkeydown={onKey} />
 
 <div bind:clientWidth={rootW} class="relative flex flex-col h-full min-h-0 bg-slate-900" class:hidden={!visible}>
   {#if !inTauri}
     <div class="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm p-6 text-center">
       <PackageOpen size={36} class="opacity-50" />
       <p>{$t('iconstore.needs_desktop')}</p>
-      <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs" on:click={openExternal}><ExternalLink size={13} /> {$t('iconstore.open_in_browser')}</button>
+      <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs" onclick={openExternal}><ExternalLink size={13} /> {$t('iconstore.open_in_browser')}</button>
     </div>
   {:else}
     <!-- toolbar -->
@@ -241,21 +250,21 @@
       <div class="relative flex-1 min-w-[10rem]">
         <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
         <input
-          type="search" bind:value={query} on:input={onQueryInput}
+          type="search" bind:value={query} oninput={onQueryInput}
           placeholder={$t('iconstore.search_ph')}
           class="w-full pl-8 pr-8 py-1.5 rounded-lg bg-slate-800 border border-white/5 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-blue-500/60"
         />
         {#if query}
-          <button class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/10" on:click={clearQuery} aria-label={$t('iconstore.close')}><X size={13} /></button>
+          <button class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/10" onclick={clearQuery} aria-label={$t('iconstore.close')}><X size={13} /></button>
         {/if}
       </div>
-      <select bind:value={sort} on:change={onSortChange} class="py-1.5 px-2 rounded-lg bg-slate-800 border border-white/5 text-xs text-slate-300 outline-none">
+      <select bind:value={sort} onchange={onSortChange} class="py-1.5 px-2 rounded-lg bg-slate-800 border border-white/5 text-xs text-slate-300 outline-none">
         {#each SORTS as s (s.id)}<option value={s.id}>{$t(s.key)}</option>{/each}
       </select>
-      <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 disabled:opacity-40" title={$t('iconstore.reload')} disabled={loading} on:click={() => load(true)}>
+      <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 disabled:opacity-40" title={$t('iconstore.reload')} disabled={loading} onclick={() => load(true)}>
         <RefreshCw size={15} class={loading ? 'animate-spin' : ''} />
       </button>
-      <button class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors {showInstalled ? 'bg-blue-600/30 text-blue-200' : 'hover:bg-white/10 text-slate-300'}" on:click={() => (showInstalled = !showInstalled)}>
+      <button class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors {showInstalled ? 'bg-blue-600/30 text-blue-200' : 'hover:bg-white/10 text-slate-300'}" onclick={() => (showInstalled = !showInstalled)}>
         <Palette size={14} /> {$t('iconstore.installed')} ({installed.length})
       </button>
     </div>
@@ -267,7 +276,7 @@
           <div class="h-full flex flex-col items-center justify-center gap-3 text-sm text-slate-400 text-center p-6">
             <AlertTriangle size={30} class="text-amber-400" />
             <p class="max-w-md break-words">{$t('iconstore.load_failed', { error: loadError })}</p>
-            <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs" on:click={() => load(true)}>{$t('iconstore.retry')}</button>
+            <button class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs" onclick={() => load(true)}>{$t('iconstore.retry')}</button>
           </div>
         {:else if !loading && items.length === 0}
           <div class="h-full flex flex-col items-center justify-center gap-2 text-sm text-slate-500"><PackageOpen size={30} class="opacity-50" /><p>{$t('iconstore.no_results')}</p></div>
@@ -276,11 +285,11 @@
           <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax({compact ? 150 : 190}px, 1fr));">
             {#each items as item (item.id)}
               <div class="group flex flex-col rounded-xl bg-slate-800/50 border border-white/5 overflow-hidden hover:border-blue-500/40 transition-colors">
-                <button class="block w-full aspect-[4/3] text-left" on:click={() => openDetails(item)} title={item.name}>
+                <button class="block w-full aspect-[4/3] text-left" onclick={() => openDetails(item)} title={item.name}>
                   <IconStoreThumb url={item.thumb} alt={item.name} />
                 </button>
                 <div class="p-2.5 flex flex-col gap-1.5 flex-1">
-                  <button class="text-left min-w-0" on:click={() => openDetails(item)}>
+                  <button class="text-left min-w-0" onclick={() => openDetails(item)}>
                     <div class="text-sm font-medium text-slate-100 truncate">{item.name}</div>
                     <div class="text-[11px] text-slate-500 truncate">{item.author ? $t('iconstore.by_author', { author: item.author }) : ''}</div>
                   </button>
@@ -296,7 +305,7 @@
                         <div class="h-full bg-blue-500 transition-[width] duration-150 {pct === null ? 'animate-pulse w-full' : ''}" style={pct === null ? '' : `width:${pct}%`}></div>
                       </div>
                     {:else}
-                      <button class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors {isInstalled(item) ? 'bg-white/10 hover:bg-white/15 text-slate-200' : 'bg-blue-600 hover:bg-blue-500 text-white'}" on:click={() => installItem(item)}>
+                      <button class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors {isInstalled(item) ? 'bg-white/10 hover:bg-white/15 text-slate-200' : 'bg-blue-600 hover:bg-blue-500 text-white'}" onclick={() => installItem(item)}>
                         {#if isInstalled(item)}<Check size={13} class="text-emerald-400" /> {$t('iconstore.reinstall')}{:else}<Download size={13} /> {$t('iconstore.install')}{/if}
                       </button>
                     {/if}
@@ -312,9 +321,9 @@
           {#if loading && items.length > 0}
             <Loader2 size={16} class="animate-spin text-slate-500" />
           {:else if loadError && items.length > 0}
-            <button class="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-xs text-slate-300" on:click={() => load(false)}>{$t('iconstore.retry')}</button>
+            <button class="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-xs text-slate-300" onclick={() => load(false)}>{$t('iconstore.retry')}</button>
           {:else if hasMore}
-            <button class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-400" on:click={() => load(false)}>{$t('iconstore.load_more')}</button>
+            <button class="px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-400" onclick={() => load(false)}>{$t('iconstore.load_more')}</button>
           {/if}
         </div>
         {#if loading && items.length === 0}
@@ -327,18 +336,18 @@
         <aside class="{compact ? 'w-40' : 'w-64'} shrink-0 border-l border-white/5 flex flex-col min-h-0 bg-slate-900">
           <div class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{$t('iconstore.installed')}</div>
           <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
-            <button class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-white/5 {installed.every((x) => !x.active) ? 'bg-blue-600/20' : ''}" on:click={() => apply(null)}>
+            <button class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-white/5 {installed.every((x) => !x.active) ? 'bg-blue-600/20' : ''}" onclick={() => apply(null)}>
               <span class="flex-1 truncate">{$t('iconstore.system_theme')}</span>
               {#if installed.every((x) => !x.active)}<Check size={13} class="text-blue-400" />{/if}
             </button>
             {#each installed as th (th.name)}
               <div class="group flex items-center gap-1 rounded-lg {th.active ? 'bg-blue-600/20' : 'hover:bg-white/5'}">
-                <button class="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2 text-left text-xs" on:click={() => apply(th.name)} title={th.path}>
+                <button class="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2 text-left text-xs" onclick={() => apply(th.name)} title={th.path}>
                   <span class="flex-1 truncate">{th.name}</span>
                   {#if th.active}<Check size={13} class="text-blue-400 shrink-0" />{/if}
                 </button>
                 {#if th.removable}
-                  <button class="p-1.5 mr-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-white/5 opacity-0 group-hover:opacity-100" title={$t('iconstore.remove')} on:click={() => remove(th)}><Trash2 size={13} /></button>
+                  <button class="p-1.5 mr-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-white/5 opacity-0 group-hover:opacity-100" title={$t('iconstore.remove')} onclick={() => remove(th)}><Trash2 size={13} /></button>
                 {/if}
               </div>
             {:else}
@@ -355,7 +364,7 @@
       <span class="truncate flex-1">{status ? status.text : $t('iconstore.hint')}</span>
       {#if status?.apply}
         {#each status.apply as name (name)}
-          <button class="shrink-0 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white" on:click={() => apply(name)}>{$t('iconstore.apply')} {status.apply.length > 1 ? name : ''}</button>
+          <button class="shrink-0 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white" onclick={() => apply(name)}>{$t('iconstore.apply')} {status.apply.length > 1 ? name : ''}</button>
         {/each}
       {/if}
     </div>
@@ -363,8 +372,8 @@
     <!-- details -->
     {#if selected}
       {@const sel = selected}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-3" on:click|self={closeDetails}>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="absolute inset-0 z-20 bg-black/60 flex items-center justify-center p-3" onclick={self(closeDetails)}>
         <div class="w-full max-w-3xl max-h-full flex flex-col rounded-2xl bg-slate-900 border border-white/10 shadow-2xl overflow-hidden" role="dialog" aria-label={sel.name}>
           <div class="flex items-center gap-2 px-4 py-3 border-b border-white/5 shrink-0">
             <div class="flex-1 min-w-0">
@@ -373,7 +382,7 @@
                 {[sel.author ? $t('iconstore.by_author', { author: sel.author }) : '', sel.version ? $t('iconstore.version', { v: sel.version }) : '', sel.changed ? $t('iconstore.updated', { date: shortDate(sel.changed) }) : ''].filter(Boolean).join(' · ')}
               </div>
             </div>
-            <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400" on:click={closeDetails} aria-label={$t('iconstore.close')}><X size={16} /></button>
+            <button class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400" onclick={closeDetails} aria-label={$t('iconstore.close')}><X size={16} /></button>
           </div>
           <div class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
             {#if sel.previews.length > 0 || sel.thumb}
@@ -382,8 +391,8 @@
                   <IconStoreThumb url={sel.previews[previewIdx] ?? sel.thumb} alt={sel.name} eager fit="contain" />
                 {/key}
                 {#if sel.previews.length > 1}
-                  <button class="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white" on:click={() => (previewIdx = (previewIdx - 1 + sel.previews.length) % sel.previews.length)}><ChevronLeft size={16} /></button>
-                  <button class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white" on:click={() => (previewIdx = (previewIdx + 1) % sel.previews.length)}><ChevronRight size={16} /></button>
+                  <button class="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white" onclick={() => (previewIdx = (previewIdx - 1 + sel.previews.length) % sel.previews.length)}><ChevronLeft size={16} /></button>
+                  <button class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white" onclick={() => (previewIdx = (previewIdx + 1) % sel.previews.length)}><ChevronRight size={16} /></button>
                   <span class="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] text-white">{previewIdx + 1} / {sel.previews.length}</span>
                 {/if}
               </div>
@@ -392,7 +401,7 @@
             <div class="flex items-center gap-4 text-xs text-slate-400">
               <span class="flex items-center gap-1"><Download size={12} /> {$t('iconstore.downloads_n', { n: formatCount(sel.downloadsCount) })}</span>
               {#if sel.score > 0}<span class="flex items-center gap-1"><Star size={12} class="text-amber-400" /> {$t('iconstore.rating', { score: sel.score })}</span>{/if}
-              <button class="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-white/10 text-slate-300" on:click={() => openStorePage(sel.detailUrl)}><ExternalLink size={12} /> {$t('iconstore.open_store_page')}</button>
+              <button class="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-white/10 text-slate-300" onclick={() => openStorePage(sel.detailUrl)}><ExternalLink size={12} /> {$t('iconstore.open_store_page')}</button>
             </div>
 
             {#if sel.description || sel.summary}
@@ -416,7 +425,7 @@
                       {#if busy[sel.id]}
                         <span class="text-[11px] text-slate-400 flex items-center gap-1.5 shrink-0"><Loader2 size={12} class="animate-spin" /> {percentText(sel.id)}</span>
                       {:else}
-                        <button class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed" disabled={!f.isArchive} on:click={() => installItem(sel, f)}>
+                        <button class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed" disabled={!f.isArchive} onclick={() => installItem(sel, f)}>
                           <Download size={13} /> {isInstalled(sel) ? $t('iconstore.reinstall') : $t('iconstore.install')}
                         </button>
                       {/if}
