@@ -14,21 +14,21 @@
   // comment for why this needs its own store instead of a Tailwind
   // class) — only the board background/overlay/text need to flip;
   // the snake/food accent colors already read fine on either.
-  let scheme: 'dark' | 'light' = 'dark';
+  let scheme = $state<'dark' | 'light'>('dark');
   const unsubScheme = colorScheme.subscribe((v) => { scheme = v; draw(); });
-  $: boardBg = scheme === 'light' ? '#f1f5f9' : '#0f172a';
-  $: overlayBg = scheme === 'light' ? 'rgba(241,245,249,0.8)' : 'rgba(15,23,42,0.75)';
-  $: overlayBgPaused = scheme === 'light' ? 'rgba(241,245,249,0.7)' : 'rgba(15,23,42,0.6)';
-  $: overlayText = scheme === 'light' ? '#0f172a' : '#fff';
+  let boardBg = $derived(scheme === 'light' ? '#f1f5f9' : '#0f172a');
+  let overlayBg = $derived(scheme === 'light' ? 'rgba(241,245,249,0.8)' : 'rgba(15,23,42,0.75)');
+  let overlayBgPaused = $derived(scheme === 'light' ? 'rgba(241,245,249,0.7)' : 'rgba(15,23,42,0.6)');
+  let overlayText = $derived(scheme === 'light' ? '#0f172a' : '#fff');
 
-  let canvasEl: HTMLCanvasElement;
+  let canvasEl = $state() as HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
   let snake: Point[] = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
   let dir: Point = { x: 1, y: 0 };
   let nextDir: Point = { x: 1, y: 0 };
   let food: Point = { x: 15, y: 10 };
-  let score = 0;
-  let paused = false;
+  let score = $state(0);
+  let paused = $state(false);
   let over = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -144,11 +144,11 @@
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>Score: <strong class="text-white">{score}</strong></span>
-    <button on:click={() => { paused = !paused; draw(); }} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">
+    <button onclick={() => { paused = !paused; draw(); }} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">
       {paused ? 'Resume' : 'Pause'}
     </button>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
-  <canvas bind:this={canvasEl} width={GRID * CELL} height={GRID * CELL} class="rounded-xl border border-white/10" />
+  <canvas bind:this={canvasEl} width={GRID * CELL} height={GRID * CELL} class="rounded-xl border border-white/10"></canvas>
   <p class="text-xs text-slate-500">Arrow keys / WASD to steer. Space to pause or retry.</p>
 </div>
