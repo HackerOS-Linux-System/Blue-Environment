@@ -1,16 +1,23 @@
 <script lang="ts">
+  import { run, createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { createEventDispatcher, tick } from 'svelte';
   import { FileCode, Search } from 'lucide-svelte';
   import type { FileNode } from './types';
 
-  export let visible = false;
-  export let fileTree: FileNode[] = [];
+  interface Props {
+    visible?: boolean;
+    fileTree?: FileNode[];
+  }
+
+  let { visible = false, fileTree = [] }: Props = $props();
 
   const dispatch = createEventDispatcher<{ open: string; close: void }>();
 
-  let query = '';
-  let selectedIdx = 0;
-  let inputEl: HTMLInputElement;
+  let query = $state('');
+  let selectedIdx = $state(0);
+  let inputEl = $state() as HTMLInputElement;
 
   /** Flattens the tree into files only (no directories — nothing to
    * "open" there) once per render rather than keeping a second store in
@@ -26,7 +33,7 @@
     return acc;
   }
 
-  $: allFiles = flatten(fileTree);
+  let allFiles = $derived(flatten(fileTree));
 
   /** Classic VS Code-style subsequence fuzzy match: every character of
    * `query` must appear in `name`, in order, but not necessarily
@@ -52,16 +59,20 @@
     return score;
   }
 
-  $: results = query
+  let results = $derived(query
     ? allFiles
         .map((f) => ({ ...f, score: fuzzyScore(f.name, query) }))
         .filter((f): f is typeof f & { score: number } => f.score !== null)
         .sort((a, b) => b.score - a.score)
         .slice(0, 50)
-    : allFiles.slice(0, 50);
+    : allFiles.slice(0, 50));
 
-  $: if (visible) { selectedIdx = 0; tick().then(() => inputEl?.focus()); }
-  $: if (query) selectedIdx = 0;
+  run(() => {
+    if (visible) { selectedIdx = 0; tick().then(() => inputEl?.focus()); }
+  });
+  run(() => {
+    if (query) selectedIdx = 0;
+  });
 
   function openSelected() {
     const target = results[selectedIdx];
@@ -78,17 +89,17 @@
 </script>
 
 {#if visible}
-  <div class="fixed inset-0 bg-black/40 z-50 flex items-start justify-center pt-24" on:click={close} role="presentation">
-    <div class="w-[480px] max-w-[90vw] bg-slate-800 rounded-xl border border-white/10 shadow-2xl overflow-hidden" on:click|stopPropagation role="presentation">
+  <div class="fixed inset-0 bg-black/40 z-50 flex items-start justify-center pt-24" onclick={close} role="presentation">
+    <div class="w-[480px] max-w-[90vw] bg-slate-800 rounded-xl border border-white/10 shadow-2xl overflow-hidden" onclick={stopPropagation(bubble('click'))} role="presentation">
       <div class="flex items-center gap-2 px-3 py-2 border-b border-white/5">
         <Search size={14} class="text-slate-500 shrink-0" />
-        <input bind:this={inputEl} bind:value={query} on:keydown={onKeydown}
+        <input bind:this={inputEl} bind:value={query} onkeydown={onKeydown}
           placeholder="Go to file… (type to fuzzy search)"
           class="flex-1 bg-transparent text-sm text-white focus:outline-none placeholder-slate-600" />
       </div>
       <div class="max-h-80 overflow-y-auto py-1">
         {#each results as f, i (f.path)}
-          <button on:click={() => { selectedIdx = i; openSelected(); }}
+          <button onclick={() => { selectedIdx = i; openSelected(); }}
             class="w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm {i === selectedIdx ? 'bg-blue-600/30 text-white' : 'text-slate-300 hover:bg-white/5'}">
             <FileCode size={13} class="text-yellow-400 shrink-0" />
             <span class="truncate">{f.name}</span>
