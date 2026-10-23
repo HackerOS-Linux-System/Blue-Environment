@@ -6,14 +6,23 @@
   import type { BlueWebSettings } from './types';
   import { BUILTIN_BLOCKLIST } from './webSettings';
 
-  export let settings: BlueWebSettings;
-  export let onUpdate: (patch: Partial<BlueWebSettings>) => void;
-  export let onAddBlocked: (domain: string) => void;
-  export let onRemoveBlocked: (domain: string) => void;
+  interface Props {
+    settings: BlueWebSettings;
+    onUpdate: (patch: Partial<BlueWebSettings>) => void;
+    onAddBlocked: (domain: string) => void;
+    onRemoveBlocked: (domain: string) => void;
+  }
+
+  let {
+    settings,
+    onUpdate,
+    onAddBlocked,
+    onRemoveBlocked
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
-  let newDomain = '';
+  let newDomain = $state('');
   function addDomain() {
     if (!newDomain.trim()) return;
     onAddBlocked(newDomain);
@@ -25,14 +34,14 @@
   <div class="max-w-xl mx-auto flex flex-col gap-8">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold">{$t('blueweb.settings')}</h1>
-      <button on:click={() => dispatch('close')} class="p-1.5 rounded-lg hover:bg-white/10"><X size={16} /></button>
+      <button onclick={() => dispatch('close')} class="p-1.5 rounded-lg hover:bg-white/10"><X size={16} /></button>
     </div>
 
     <section class="flex flex-col gap-3">
       <div class="flex items-center gap-2 text-sm font-medium text-slate-300"><Search size={14} /> {$t('blueweb.set.search_engine')}</div>
       <div class="grid grid-cols-2 gap-2">
         {#each SEARCH_ENGINES as engine}
-          <button on:click={() => onUpdate({ searchEngine: engine.id })}
+          <button onclick={() => onUpdate({ searchEngine: engine.id })}
             class="px-3 py-2 rounded-lg text-sm text-left border transition-colors {settings.searchEngine === engine.id ? 'bg-blue-600/15 border-blue-500/40' : 'bg-slate-800 border-white/5 hover:bg-white/5'}">
             {engine.name}
           </button>
@@ -42,13 +51,13 @@
 
     <section class="flex flex-col gap-3">
       <div class="flex items-center gap-2 text-sm font-medium text-slate-300"><Home size={14} /> {$t('blueweb.set.homepage')}</div>
-      <input value={settings.homepage} on:change={(e) => onUpdate({ homepage: e.currentTarget.value })}
+      <input value={settings.homepage} onchange={(e) => onUpdate({ homepage: e.currentTarget.value })}
         placeholder="https://…" class="bg-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none font-mono" />
     </section>
 
     <section class="flex flex-col gap-3">
       <div class="flex items-center gap-2 text-sm font-medium text-slate-300"><ZoomIn size={14} /> {$t('blueweb.set.default_zoom')}</div>
-      <select value={settings.defaultZoom} on:change={(e) => onUpdate({ defaultZoom: Number(e.currentTarget.value) })}
+      <select value={settings.defaultZoom} onchange={(e) => onUpdate({ defaultZoom: Number(e.currentTarget.value) })}
         class="bg-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none w-40">
         {#each ZOOM_LEVELS as z}<option value={z}>{Math.round(z * 100)}%</option>{/each}
       </select>
@@ -57,9 +66,9 @@
     <section class="flex flex-col gap-3">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2 text-sm font-medium text-slate-300"><ShieldCheck size={14} /> {$t('blueweb.set.content_blocking')}</div>
-        <button on:click={() => onUpdate({ contentBlockingEnabled: !settings.contentBlockingEnabled })}
+        <button onclick={() => onUpdate({ contentBlockingEnabled: !settings.contentBlockingEnabled })}
           class="relative w-10 h-5.5 rounded-full transition-colors {settings.contentBlockingEnabled ? 'bg-blue-600' : 'bg-slate-700'}">
-          <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.contentBlockingEnabled ? 'translate-x-[19px]' : 'translate-x-0.5'}" />
+          <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.contentBlockingEnabled ? 'translate-x-[19px]' : 'translate-x-0.5'}"></span>
         </button>
       </div>
       <p class="text-xs text-slate-500 -mt-1">
@@ -67,16 +76,16 @@
       </p>
       {#if settings.contentBlockingEnabled}
         <div class="flex gap-2">
-          <input bind:value={newDomain} on:keydown={(e) => e.key === 'Enter' && addDomain()}
+          <input bind:value={newDomain} onkeydown={(e) => e.key === 'Enter' && addDomain()}
             placeholder="example-ads.com" class="flex-1 bg-slate-800 rounded-lg px-3 py-1.5 text-xs focus:outline-none font-mono" />
-          <button on:click={addDomain} class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs flex items-center gap-1"><Plus size={12} /> {$t('blueweb.set.add')}</button>
+          <button onclick={addDomain} class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs flex items-center gap-1"><Plus size={12} /> {$t('blueweb.set.add')}</button>
         </div>
         {#if settings.customBlockedDomains.length > 0}
           <div class="flex flex-col gap-1 mt-1">
             {#each settings.customBlockedDomains as domain}
               <div class="flex items-center justify-between px-3 py-1.5 rounded-lg bg-slate-800/60 text-xs font-mono">
                 <span>{domain}</span>
-                <button on:click={() => onRemoveBlocked(domain)} class="text-slate-500 hover:text-red-400"><Trash2 size={12} /></button>
+                <button onclick={() => onRemoveBlocked(domain)} class="text-slate-500 hover:text-red-400"><Trash2 size={12} /></button>
               </div>
             {/each}
           </div>
@@ -89,9 +98,9 @@
         <div class="text-sm font-medium text-slate-300">{$t('blueweb.set.open_links_title')}</div>
         <p class="text-xs text-slate-500">{$t('blueweb.set.open_links_desc')}</p>
       </div>
-      <button on:click={() => onUpdate({ openLinksFromOtherAppsInNewTab: !settings.openLinksFromOtherAppsInNewTab })}
+      <button onclick={() => onUpdate({ openLinksFromOtherAppsInNewTab: !settings.openLinksFromOtherAppsInNewTab })}
         class="relative w-10 h-5.5 rounded-full transition-colors shrink-0 ml-4 {settings.openLinksFromOtherAppsInNewTab ? 'bg-blue-600' : 'bg-slate-700'}">
-        <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.openLinksFromOtherAppsInNewTab ? 'translate-x-[19px]' : 'translate-x-0.5'}" />
+        <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.openLinksFromOtherAppsInNewTab ? 'translate-x-[19px]' : 'translate-x-0.5'}"></span>
       </button>
     </section>
   </div>
