@@ -3,13 +3,17 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { createEventDispatcher } from 'svelte';
 
-  export let defaultName: string;
+  interface Props {
+    defaultName: string;
+  }
+
+  let { defaultName }: Props = $props();
 
   const dispatch = createEventDispatcher<{ confirm: { path: string; format: string }; cancel: void }>();
 
-  let name = defaultName.endsWith('.txt') ? defaultName : `${defaultName}.txt`;
-  let format = 'txt';
-  let dir = '~/Documents';
+  let name = $state(defaultName.endsWith('.txt') ? defaultName : `${defaultName}.txt`);
+  let format = $state('txt');
+  let dir = $state('~/Documents');
 
   const formats = [
     { ext: 'txt', label: 'Plain Text (.txt)' },
@@ -55,7 +59,7 @@
       <span class="block text-xs text-slate-500 mb-1.5">Save location</span>
       <div class="flex gap-2">
         <div class="flex-1 bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono truncate">{dir}</div>
-        <button on:click={pickDir} class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors flex items-center gap-1.5">
+        <button onclick={pickDir} class="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors flex items-center gap-1.5">
           <FolderOpen size={13} /> Browse
         </button>
       </div>
@@ -63,7 +67,7 @@
 
     <div class="flex gap-1.5 mb-4 flex-wrap">
       {#each shortcuts as d (d)}
-        <button on:click={() => (dir = d)} class="px-2.5 py-1 rounded-lg text-xs transition-colors {dir === d ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
+        <button onclick={() => (dir = d)} class="px-2.5 py-1 rounded-lg text-xs transition-colors {dir === d ? 'bg-blue-600/30 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
           {d.replace('~/', '').replace('~', 'Home') || 'Home'}
         </button>
       {/each}
@@ -72,14 +76,14 @@
     <div class="mb-4">
       <span class="block text-xs text-slate-500 mb-1.5">File name</span>
       <input bind:value={name} class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500/50"
-        autofocus on:keydown={(e) => e.key === 'Enter' && handleSave()} />
+        autofocus onkeydown={(e) => e.key === 'Enter' && handleSave()} />
     </div>
 
     <div class="mb-6">
       <span class="block text-xs text-slate-500 mb-1.5">Format</span>
       <div class="grid grid-cols-3 gap-1.5">
         {#each formats as f (f.ext)}
-          <button on:click={() => handleFormatChange(f.ext)} class="px-2 py-1.5 rounded-lg text-xs transition-colors text-left {format === f.ext ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
+          <button onclick={() => handleFormatChange(f.ext)} class="px-2 py-1.5 rounded-lg text-xs transition-colors text-left {format === f.ext ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'}">
             {f.label}
           </button>
         {/each}
@@ -92,8 +96,8 @@
     </div>
 
     <div class="flex gap-2 justify-end">
-      <button on:click={() => dispatch('cancel')} class="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">Cancel</button>
-      <button on:click={handleSave} class="px-5 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white font-medium transition-colors flex items-center gap-2">
+      <button onclick={() => dispatch('cancel')} class="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">Cancel</button>
+      <button onclick={handleSave} class="px-5 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white font-medium transition-colors flex items-center gap-2">
         <Save size={14} /> Save
       </button>
     </div>
