@@ -5,8 +5,8 @@
 
   interface UserInfo { username: string; uid: string; shell: string; home: string; groups: string[]; }
 
-  let users: UserInfo[] = [];
-  let loading = true;
+  let users = $state<UserInfo[]>([]);
+  let loading = $state(true);
   const currentUser = SystemBridge.getUsername();
 
   async function load() {
@@ -52,7 +52,7 @@
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-400">System users (UID 1000+)</p>
-      <button on:click={() => SystemBridge.launchApp('xterm -e "sudo adduser" &').catch(() => {})}
+      <button onclick={() => SystemBridge.launchApp('xterm -e "sudo adduser" &').catch(() => {})}
         class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm transition-colors">
         <Plus size={13} /> Add User
       </button>
@@ -82,7 +82,7 @@
             </div>
           </div>
           <div class="flex gap-1">
-            <button on:click={() => changePassword(u.username)} class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors whitespace-nowrap">
+            <button onclick={() => changePassword(u.username)} class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors whitespace-nowrap">
               Change Password
             </button>
           </div>
