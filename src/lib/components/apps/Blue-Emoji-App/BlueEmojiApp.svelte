@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { preventDefault } from 'svelte/legacy';
+
   // Blue Emoji — new app, not an expansion of an existing one. A
   // searchable emoji picker: click any emoji to copy it to the
   // clipboard (via SystemBridge.copyText — the same real
@@ -13,16 +15,20 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { t } from '../../../stores/language';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
 
   const store = createEmojiStore();
   const { recent, favorites } = store;
 
-  let query = '';
-  let activeCategory = EMOJI_CATEGORIES[0].id;
-  let justCopied: string | null = null;
+  let query = $state('');
+  let activeCategory = $state(EMOJI_CATEGORIES[0].id);
+  let justCopied = $state<string | null>(null);
   let copiedTimer: ReturnType<typeof setTimeout>;
-  let searchInputEl: HTMLInputElement;
+  let searchInputEl = $state() as HTMLInputElement;
 
   // Simple keyword index — emoji Unicode code points don't carry a
   // machine-readable name, so search matches against a small
@@ -52,12 +58,12 @@
     return (KEYWORDS[emoji] ?? '').includes(q);
   }
 
-  $: filteredCategories = EMOJI_CATEGORIES.map((cat) => ({
+  let filteredCategories = $derived(EMOJI_CATEGORIES.map((cat) => ({
     ...cat,
     emojis: cat.emojis.filter(matchesQuery),
-  })).filter((cat) => cat.emojis.length > 0);
+  })).filter((cat) => cat.emojis.length > 0));
 
-  $: isSearching = query.trim().length > 0;
+  let isSearching = $derived(query.trim().length > 0);
 
   async function pick(emoji: string) {
     await SystemBridge.copyText(emoji);
@@ -83,23 +89,23 @@
       placeholder={$t('emoji.search_placeholder')}
       class="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-slate-500" />
     {#if query}
-      <button on:click={() => (query = '')}><X size={13} class="text-slate-500 hover:text-white" /></button>
+      <button onclick={() => (query = '')}><X size={13} class="text-slate-500 hover:text-white" /></button>
     {/if}
   </div>
 
   {#if !isSearching}
     <div class="flex items-center gap-0.5 px-2 py-1.5 border-b border-white/5 overflow-x-auto shrink-0">
-      <button on:click={() => scrollToCategory('recent')} title={$t('emoji.recent')}
+      <button onclick={() => scrollToCategory('recent')} title={$t('emoji.recent')}
         class="p-1.5 rounded-lg hover:bg-white/10 shrink-0 {activeCategory === 'recent' ? 'bg-white/10' : ''}">
         <Clock size={15} class="text-slate-400" />
       </button>
-      <button on:click={() => scrollToCategory('favorites')} title={$t('emoji.favorites')}
+      <button onclick={() => scrollToCategory('favorites')} title={$t('emoji.favorites')}
         class="p-1.5 rounded-lg hover:bg-white/10 shrink-0 {activeCategory === 'favorites' ? 'bg-white/10' : ''}">
         <Star size={15} class="text-slate-400" />
       </button>
-      <div class="w-px h-5 bg-white/10 mx-0.5 shrink-0" />
+      <div class="w-px h-5 bg-white/10 mx-0.5 shrink-0"></div>
       {#each EMOJI_CATEGORIES as cat (cat.id)}
-        <button on:click={() => scrollToCategory(cat.id)} title={$t(cat.nameKey)}
+        <button onclick={() => scrollToCategory(cat.id)} title={$t(cat.nameKey)}
           class="text-base p-1.5 rounded-lg hover:bg-white/10 shrink-0 {activeCategory === cat.id ? 'bg-white/10' : ''}">
           {cat.icon}
         </button>
@@ -115,7 +121,7 @@
         </div>
         <div class="grid grid-cols-8 gap-0.5">
           {#each $recent as emoji (emoji)}
-            <button on:click={() => pick(emoji)} title={emoji}
+            <button onclick={() => pick(emoji)} title={emoji}
               class="relative aspect-square flex items-center justify-center text-xl rounded-lg hover:bg-white/10 transition-colors">
               {emoji}
               {#if justCopied === emoji}<span class="absolute inset-0 flex items-center justify-center bg-blue-500/80 rounded-lg"><Check size={14} /></span>{/if}
@@ -135,7 +141,7 @@
         {:else}
           <div class="grid grid-cols-8 gap-0.5">
             {#each $favorites as emoji (emoji)}
-              <button on:click={() => pick(emoji)} title={emoji}
+              <button onclick={() => pick(emoji)} title={emoji}
                 class="relative aspect-square flex items-center justify-center text-xl rounded-lg hover:bg-white/10 transition-colors">
                 {emoji}
                 {#if justCopied === emoji}<span class="absolute inset-0 flex items-center justify-center bg-blue-500/80 rounded-lg"><Check size={14} /></span>{/if}
@@ -153,7 +159,7 @@
         {/if}
         <div class="grid grid-cols-8 gap-0.5">
           {#each cat.emojis as emoji (emoji)}
-            <button on:click={() => pick(emoji)} on:contextmenu|preventDefault={() => store.toggleFavorite(emoji)}
+            <button onclick={() => pick(emoji)} oncontextmenu={preventDefault(() => store.toggleFavorite(emoji))}
               title={emoji + ' — ' + $t('emoji.right_click_favorite')}
               class="relative aspect-square flex items-center justify-center text-xl rounded-lg hover:bg-white/10 transition-colors group">
               {emoji}
