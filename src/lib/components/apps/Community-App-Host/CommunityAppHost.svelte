@@ -34,12 +34,16 @@
   import { createBlueApi } from '../../../utils/blueApi';
   import { closeWindow } from '../../../stores/windowManager';
 
-  export let windowId: string;
-  export let receipt: Receipt;
+  interface Props {
+    windowId: string;
+    receipt: Receipt;
+  }
 
-  let container: HTMLDivElement;
-  let error: string | null = null;
-  let loading = true;
+  let { windowId, receipt }: Props = $props();
+
+  let container = $state() as HTMLDivElement;
+  let error = $state<string | null>(null);
+  let loading = $state(true);
   let cleanup: (() => void) | void | null = null;
   let blobUrls: string[] = [];
 
@@ -115,7 +119,7 @@
       <div class="theme-text-secondary text-xs max-w-md break-words">{error}</div>
       <button
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs"
-        on:click={retry}
+        onclick={retry}
       >
         <RotateCcw size={14} /> Try again
       </button>
