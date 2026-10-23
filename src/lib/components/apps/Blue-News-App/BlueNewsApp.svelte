@@ -13,22 +13,26 @@
   import { AppId } from '../../../types';
   import { t } from '../../../stores/language';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
 
   const store = createNewsStore();
   const { sources, articles, loading, error } = store;
 
-  let showAdd = false;
-  let draftName = '';
-  let draftUrl = '';
-  let draftCategory = '';
-  let activeCategory = 'all';
-  let selectedArticle: NewsArticle | null = null;
+  let showAdd = $state(false);
+  let draftName = $state('');
+  let draftUrl = $state('');
+  let draftCategory = $state('');
+  let activeCategory = $state('all');
+  let selectedArticle = $state<NewsArticle | null>(null);
 
-  $: categories = ['all', ...new Set($sources.map((s) => s.category))];
-  $: visibleArticles = activeCategory === 'all'
+  let categories = $derived(['all', ...new Set($sources.map((s) => s.category))]);
+  let visibleArticles = $derived(activeCategory === 'all'
     ? $articles
-    : $articles.filter((a) => $sources.find((s) => s.id === a.sourceId)?.category === activeCategory);
+    : $articles.filter((a) => $sources.find((s) => s.id === a.sourceId)?.category === activeCategory));
 
   onMount(async () => {
     await store.loadSources();
@@ -79,17 +83,17 @@
     </div>
     <div class="flex-1 overflow-y-auto py-1">
       {#each categories as cat}
-        <button on:click={() => (activeCategory = cat)}
+        <button onclick={() => (activeCategory = cat)}
           class="w-full flex items-center px-3 py-2 text-left hover:bg-white/5 {activeCategory === cat ? 'bg-white/10 text-white' : 'text-slate-400'}">
           <span class="truncate">{cat === 'all' ? $t('news.all_sources') : cat}</span>
         </button>
       {/each}
-      <div class="h-px bg-white/5 my-1 mx-3" />
+      <div class="h-px bg-white/5 my-1 mx-3"></div>
       {#each $sources as src (src.id)}
         <div class="group flex items-center gap-2 px-3 py-1.5 hover:bg-white/5">
-          <button on:click={() => store.toggleSource(src.id)} class="w-2 h-2 rounded-full shrink-0 {src.enabled ? 'bg-green-400' : 'bg-slate-600'}" title={src.enabled ? $t('news.enabled') : $t('news.disabled')} />
+          <button onclick={() => store.toggleSource(src.id)} class="w-2 h-2 rounded-full shrink-0 {src.enabled ? 'bg-green-400' : 'bg-slate-600'}" title={src.enabled ? $t('news.enabled') : $t('news.disabled')}></button>
           <span class="flex-1 min-w-0 truncate text-xs {src.enabled ? 'text-slate-300' : 'text-slate-600'}">{src.name}</span>
-          <button on:click={() => store.removeSource(src.id)} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 shrink-0"><X size={11} /></button>
+          <button onclick={() => store.removeSource(src.id)} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 shrink-0"><X size={11} /></button>
         </div>
       {/each}
     </div>
@@ -100,12 +104,12 @@
           <input bind:value={draftUrl} placeholder={$t('news.url_placeholder')} class="bg-slate-800 rounded-md px-2 py-1 text-xs focus:outline-none font-mono" />
           <input bind:value={draftCategory} placeholder={$t('news.category_placeholder')} class="bg-slate-800 rounded-md px-2 py-1 text-xs focus:outline-none" />
           <div class="flex justify-end gap-1.5 mt-0.5">
-            <button on:click={() => (showAdd = false)} class="text-[10px] px-2 py-1 rounded-md hover:bg-white/5 text-slate-400">{$t('news.cancel')}</button>
-            <button on:click={addSource} disabled={!draftName.trim() || !draftUrl.trim()} class="text-[10px] px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-40">{$t('news.add')}</button>
+            <button onclick={() => (showAdd = false)} class="text-[10px] px-2 py-1 rounded-md hover:bg-white/5 text-slate-400">{$t('news.cancel')}</button>
+            <button onclick={addSource} disabled={!draftName.trim() || !draftUrl.trim()} class="text-[10px] px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-40">{$t('news.add')}</button>
           </div>
         </div>
       {:else}
-        <button on:click={() => (showAdd = true)} class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-slate-400 hover:bg-white/5 hover:text-white text-xs">
+        <button onclick={() => (showAdd = true)} class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-slate-400 hover:bg-white/5 hover:text-white text-xs">
           <Plus size={13} /> {$t('news.add_source')}
         </button>
       {/if}
@@ -116,7 +120,7 @@
   <div class="flex-1 flex flex-col min-w-0 border-r border-white/5">
     <div class="flex items-center justify-between px-4 h-11 border-b border-white/5 shrink-0">
       <span class="font-medium">{activeCategory === 'all' ? $t('news.all_sources') : activeCategory}</span>
-      <button on:click={() => store.refreshAll()} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400">
+      <button onclick={() => store.refreshAll()} class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400">
         <RefreshCw size={14} class={$loading ? 'animate-spin' : ''} />
       </button>
     </div>
@@ -135,7 +139,7 @@
         </div>
       {:else}
         {#each visibleArticles as article (article.sourceId + article.guid)}
-          <button on:click={() => (selectedArticle = article)}
+          <button onclick={() => (selectedArticle = article)}
             class="w-full flex flex-col gap-1 px-4 py-3 border-b border-white/[0.03] text-left hover:bg-white/5 {selectedArticle === article ? 'bg-blue-500/10' : ''}">
             <div class="flex items-center gap-2 text-[10px] text-slate-500">
               <span class="text-blue-400 font-medium">{article.sourceName}</span>
@@ -153,7 +157,7 @@
     {#if selectedArticle}
       <div class="flex items-center justify-between px-4 h-11 border-b border-white/5 shrink-0">
         <span class="text-xs text-blue-400 font-medium truncate">{selectedArticle.sourceName}</span>
-        <button on:click={() => (selectedArticle = null)}><X size={14} class="text-slate-400" /></button>
+        <button onclick={() => (selectedArticle = null)}><X size={14} class="text-slate-400" /></button>
       </div>
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         <h2 class="text-base font-semibold text-white leading-snug">{selectedArticle.title}</h2>
@@ -163,10 +167,10 @@
         {/if}
       </div>
       <div class="flex items-center gap-2 p-3 border-t border-white/5 shrink-0">
-        <button on:click={() => selectedArticle && openArticle(selectedArticle)} class="flex-1 flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500">
+        <button onclick={() => selectedArticle && openArticle(selectedArticle)} class="flex-1 flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500">
           <ExternalLink size={13} /> {$t('news.read_full')}
         </button>
-        <button on:click={() => selectedArticle && saveForLater(selectedArticle)} title={$t('news.save_for_later')} class="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+        <button onclick={() => selectedArticle && saveForLater(selectedArticle)} title={$t('news.save_for_later')} class="p-2 rounded-lg bg-white/5 hover:bg-white/10">
           <ListPlus size={14} />
         </button>
       </div>
