@@ -16,18 +16,18 @@
   let scheme: 'dark' | 'light' = 'dark';
   const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
-  let canvasEl: HTMLCanvasElement;
+  let canvasEl = $state() as HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
   let raf: number;
 
   let paddleX = W / 2 - PADDLE_W / 2;
   let ball = { x: W / 2, y: H - 40, vx: 3, vy: -3 };
   let bricks: boolean[][] = [];
-  let score = 0;
+  let score = $state(0);
   let lives = 3;
   let over = false;
   let won = false;
-  let paused = false;
+  let paused = $state(false);
   let leftHeld = false, rightHeld = false;
 
   function resetBricks() {
@@ -184,12 +184,12 @@
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>Score: <strong class="text-white">{score}</strong></span>
-    <button on:click={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">
+    <button onclick={() => (paused = !paused)} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">
       {paused ? 'Resume' : 'Pause'}
     </button>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
   <canvas bind:this={canvasEl} width={W} height={H} class="rounded-xl border border-white/10 cursor-none"
-    on:pointermove={handlePointerMove} />
+    onpointermove={handlePointerMove}></canvas>
   <p class="text-xs text-slate-500">Move the mouse, or ←/→ / A/D. Space to pause or retry.</p>
 </div>
