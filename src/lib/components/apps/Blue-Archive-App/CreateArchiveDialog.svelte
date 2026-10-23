@@ -19,15 +19,15 @@
     }
   }
 
-  let name = 'archive';
-  let format: ArchiveFormat = 'zip';
-  let dir = '~/Documents';
-  let files: string[] = [];
-  let log = '';
-  let busy = false;
-  let error = '';
+  let name = $state('archive');
+  let format = $state<ArchiveFormat>('zip');
+  let dir = $state('~/Documents');
+  let files = $state<string[]>([]);
+  let log = $state('');
+  let busy = $state(false);
+  let error = $state('');
 
-  $: outputPath = `${dir}/${name}.${format}`;
+  let outputPath = $derived(`${dir}/${name}.${format}`);
 
   async function addFiles() {
     const paths = await SystemBridge.pickFiles([], 'Select files to compress');
@@ -87,7 +87,7 @@
         <h2 class="text-white font-semibold">Create Archive</h2>
         <p class="text-slate-500 text-xs">Compress files into a new archive</p>
       </div>
-      <button on:click={() => dispatch('close')} class="ml-auto text-slate-600 hover:text-white"><X size={16} /></button>
+      <button onclick={() => dispatch('close')} class="ml-auto text-slate-600 hover:text-white"><X size={16} /></button>
     </div>
 
     <div class="space-y-3 mb-4">
@@ -102,7 +102,7 @@
         </div>
         <div class="flex gap-1.5 mt-1.5 flex-wrap">
           {#each dirShortcuts as d (d)}
-            <button on:click={() => (dir = d)} class="px-2 py-1 rounded-lg text-xs transition-colors {dir === d ? 'bg-blue-600/30 text-blue-300' : 'bg-slate-800 text-slate-500 hover:text-white'}">
+            <button onclick={() => (dir = d)} class="px-2 py-1 rounded-lg text-xs transition-colors {dir === d ? 'bg-blue-600/30 text-blue-300' : 'bg-slate-800 text-slate-500 hover:text-white'}">
               {d.replace('~/', '')}
             </button>
           {/each}
@@ -114,7 +114,7 @@
       <span class="block text-xs text-slate-500 mb-1.5">Format</span>
       <div class="grid grid-cols-3 gap-1.5">
         {#each FORMATS as f (f.id)}
-          <button on:click={() => (format = f.id)} class="px-2 py-2 rounded-xl text-xs text-left transition-colors {format === f.id ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
+          <button onclick={() => (format = f.id)} class="px-2 py-2 rounded-xl text-xs text-left transition-colors {format === f.id ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30' : 'bg-slate-800 text-slate-400 hover:text-white'}">
             <div class="font-mono font-medium">{f.label}</div>
             <div class="text-slate-600 text-[10px] mt-0.5">{f.note}</div>
           </button>
@@ -126,8 +126,8 @@
       <div class="flex items-center justify-between mb-1.5">
         <span class="text-xs text-slate-500">Files to compress ({files.length})</span>
         <div class="flex gap-1.5">
-          <button on:click={addFiles} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><Plus size={11} /> Files</button>
-          <button on:click={addFolder} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><FolderOpen size={11} /> Folder</button>
+          <button onclick={addFiles} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><Plus size={11} /> Files</button>
+          <button onclick={addFolder} class="flex items-center gap-1 px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition-colors"><FolderOpen size={11} /> Folder</button>
         </div>
       </div>
       {#if files.length === 0}
@@ -137,7 +137,7 @@
           {#each files as f (f)}
             <div class="flex items-center gap-2 px-3 py-1.5 border-b border-white/5 last:border-0">
               <span class="flex-1 text-xs font-mono text-slate-400 truncate">{f}</span>
-              <button on:click={() => (files = files.filter((p) => p !== f))} class="text-slate-700 hover:text-red-400 shrink-0"><X size={11} /></button>
+              <button onclick={() => (files = files.filter((p) => p !== f))} class="text-slate-700 hover:text-red-400 shrink-0"><X size={11} /></button>
             </div>
           {/each}
         </div>
@@ -155,8 +155,8 @@
     {#if error}<div class="mb-4 text-sm text-red-400">{error}</div>{/if}
 
     <div class="flex gap-2 justify-end">
-      <button on:click={() => dispatch('close')} class="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">Cancel</button>
-      <button on:click={create} disabled={busy || !files.length} class="px-5 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 rounded-lg text-sm text-white font-medium flex items-center gap-2">
+      <button onclick={() => dispatch('close')} class="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">Cancel</button>
+      <button onclick={create} disabled={busy || !files.length} class="px-5 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 rounded-lg text-sm text-white font-medium flex items-center gap-2">
         {#if busy}<Loader2 size={14} class="animate-spin" />Creating…{:else}<Save size={14} />Create{/if}
       </button>
     </div>
