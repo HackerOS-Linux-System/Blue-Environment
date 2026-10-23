@@ -2,7 +2,11 @@
   import { tick } from 'svelte';
   import { createEventDispatcher } from 'svelte';
 
-  export let content: string;
+  interface Props {
+    content: string;
+  }
+
+  let { content }: Props = $props();
 
   const dispatch = createEventDispatcher<{ change: string }>();
 
@@ -78,15 +82,15 @@
 
   interface Sel { r: number; c: number; }
 
-  let grid: Grid = (() => { try { return JSON.parse(content) as Grid; } catch { return makeGrid(); } })();
-  let sel: Sel = { r: 0, c: 0 };
-  let editing = false;
-  let editVal = '';
+  let grid = $state<Grid>((() => { try { return JSON.parse(content) as Grid; } catch { return makeGrid(); } })());
+  let sel = $state<Sel>({ r: 0, c: 0 });
+  let editing = $state(false);
+  let editVal = $state('');
   const colWidths = Array(DEFAULT_COLS).fill(100);
-  let inputEl: HTMLInputElement;
+  let inputEl = $state() as HTMLInputElement;
 
-  $: rows = grid.length || DEFAULT_ROWS;
-  $: cols = grid[0]?.length || DEFAULT_COLS;
+  let rows = $derived(grid.length || DEFAULT_ROWS);
+  let cols = $derived(grid[0]?.length || DEFAULT_COLS);
 
   function commit(r: number, c: number, val: string) {
     const next = grid.map((row) => [...row]);
@@ -126,10 +130,10 @@
   }
 </script>
 
-<div class="flex-1 flex flex-col overflow-hidden" on:keydown={handleKey} tabindex="0" style="outline:none;">
+<div class="flex-1 flex flex-col overflow-hidden" onkeydown={handleKey} tabindex="0" style="outline:none;">
   <div class="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-white/5 bg-slate-900">
     <span class="text-slate-500 text-xs font-mono w-10 shrink-0">{colLabel(sel.c)}{sel.r + 1}</span>
-    <div class="w-px h-4 bg-white/10" />
+    <div class="w-px h-4 bg-white/10"></div>
     <span class="text-slate-400 text-sm font-mono flex-1">{editing ? editVal : grid[sel.r]?.[sel.c]?.raw ?? ''}</span>
   </div>
 
@@ -137,7 +141,7 @@
     <table class="border-collapse" style="font-size:13px; font-family:monospace;">
       <thead>
         <tr>
-          <th class="shrink-0 sticky top-0 left-0 z-20 w-10 h-7 bg-slate-800 border-b border-r border-white/10" />
+          <th class="shrink-0 sticky top-0 left-0 z-20 w-10 h-7 bg-slate-800 border-b border-r border-white/10"></th>
           {#each Array.from({ length: cols }, (_, c) => c) as c (c)}
             <th style="width:{colWidths[c]}px; min-width:{colWidths[c]}px;" class="sticky top-0 z-10 h-7 bg-slate-800 border-b border-r border-white/10 text-slate-400 text-center text-xs select-none">{colLabel(c)}</th>
           {/each}
@@ -153,10 +157,10 @@
               {@const display = cellDisplay(cell, grid)}
               <td style="width:{colWidths[c]}px; min-width:{colWidths[c]}px;"
                 class="h-7 border-b border-r border-white/5 text-xs px-1.5 cursor-cell relative {isSelected ? 'bg-blue-900/40 ring-2 ring-inset ring-blue-500 z-10' : 'hover:bg-white/5'}"
-                on:click={() => (sel = { r, c })} on:dblclick={() => startEdit(r, c)}>
+                onclick={() => (sel = { r, c })} ondblclick={() => startEdit(r, c)}>
                 {#if isSelected && editing}
-                  <input bind:this={inputEl} bind:value={editVal} on:blur={finishEdit}
-                    on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); finishEdit(); sel = { ...sel, r: sel.r + 1 }; } if (e.key === 'Escape') { e.stopPropagation(); editing = false; } }}
+                  <input bind:this={inputEl} bind:value={editVal} onblur={finishEdit}
+                    onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); finishEdit(); sel = { ...sel, r: sel.r + 1 }; } if (e.key === 'Escape') { e.stopPropagation(); editing = false; } }}
                     class="absolute inset-0 w-full h-full bg-blue-900 text-white px-1.5 text-xs focus:outline-none z-20 font-mono" />
                 {:else}
                   <span class="text-slate-200 select-none">{display}</span>
