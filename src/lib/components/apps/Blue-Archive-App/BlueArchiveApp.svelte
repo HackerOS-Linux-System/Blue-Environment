@@ -5,7 +5,11 @@
   import CreateArchiveDialog from './CreateArchiveDialog.svelte';
 
   import { showContextMenu } from '../../../stores/contextMenu';
-  export let openPath: string | undefined = undefined;
+  interface Props {
+    openPath?: string | undefined;
+  }
+
+  let { openPath = undefined }: Props = $props();
   const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
   function entryMenu(e: MouseEvent, entry: { path: string; is_dir: boolean }) {
     e.stopPropagation();
@@ -26,16 +30,16 @@
   }
   const { archive, loading, status, error, openFile, extract, openPath: loadPath } = createArchive();
   onMount(() => { if (openPath) loadPath(openPath); });
-  let showCreate = false;
-  let search = '';
-  let sortBy: 'name' | 'size' = 'name';
+  let showCreate = $state(false);
+  let search = $state('');
+  let sortBy = $state<'name' | 'size'>('name');
 
-  $: entries = ($archive?.info.entries ?? [])
+  let entries = $derived(($archive?.info.entries ?? [])
     .filter((e) => !search || e.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => (sortBy === 'size' ? b.size - a.size : a.name.localeCompare(b.name)));
+    .sort((a, b) => (sortBy === 'size' ? b.size - a.size : a.name.localeCompare(b.name))));
 
-  $: dirs = entries.filter((e) => e.is_dir);
-  $: files = entries.filter((e) => !e.is_dir);
+  let dirs = $derived(entries.filter((e) => e.is_dir));
+  let files = $derived(entries.filter((e) => !e.is_dir));
 </script>
 
 <div class="flex flex-col h-full bg-slate-900 text-white">
@@ -46,16 +50,16 @@
   <div class="flex items-center gap-2 px-4 py-2.5 border-b border-white/5 shrink-0 bg-slate-800/50">
     <Archive size={18} class="text-blue-400" />
     <span class="font-semibold text-sm">{$archive?.name || 'Blue Archive'}</span>
-    <div class="flex-1" />
-    <button on:click={() => (showCreate = true)} class="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-500 rounded-lg text-xs">
+    <div class="flex-1"></div>
+    <button onclick={() => (showCreate = true)} class="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-500 rounded-lg text-xs">
       <Plus size={12} /> New Archive
     </button>
     {#if $archive}
-      <button on:click={() => extract($archive)} disabled={$loading} class="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50">
+      <button onclick={() => extract($archive)} disabled={$loading} class="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50">
         {#if $loading}<Loader2 size={12} class="animate-spin" />{:else}<Download size={12} />{/if} Extract All
       </button>
     {/if}
-    <button on:click={openFile} disabled={$loading} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50">
+    <button onclick={openFile} disabled={$loading} class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50">
       <FolderOpen size={12} /> {$archive ? 'Open Another' : 'Open Archive'}
     </button>
   </div>
@@ -67,7 +71,7 @@
     <div class="flex-1 flex flex-col items-center justify-center gap-4 text-center">
       <Archive size={48} class="text-slate-600" />
       <p class="text-slate-400 text-sm">Open a .zip, .tar.gz, .7z or similar archive to inspect its contents.</p>
-      <button on:click={openFile} class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm">Open Archive</button>
+      <button onclick={openFile} class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm">Open Archive</button>
       <p class="text-xs text-slate-600">Supports tar, zip, 7z and more via system tools</p>
     </div>
   {/if}
@@ -87,15 +91,15 @@
         </select>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-2 space-y-0.5" on:contextmenu={archiveMenu} role="presentation">
+      <div class="flex-1 overflow-y-auto p-2 space-y-0.5" oncontextmenu={archiveMenu} role="presentation">
         {#each dirs as e, i (i)}
-          <div on:contextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
+          <div oncontextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
             <Folder size={14} class="text-blue-400 shrink-0" />
             <span class="text-sm text-slate-300 truncate flex-1">{e.path}</span>
           </div>
         {/each}
         {#each files as e, i (i)}
-          <div on:contextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
+          <div oncontextmenu={(ev) => entryMenu(ev, e)} role="presentation" class="flex items-center gap-2 px-2 py-1.5 hover:bg-white/5 rounded">
             <File size={14} class="text-yellow-400 shrink-0" />
             <span class="text-sm text-slate-300 truncate flex-1">{e.path}</span>
             <span class="text-xs text-slate-600 shrink-0">{e.size > 0 ? `${(e.size / 1024).toFixed(1)} KB` : ''}</span>
