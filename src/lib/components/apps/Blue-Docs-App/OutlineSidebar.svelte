@@ -2,10 +2,14 @@
   import { Hash } from 'lucide-svelte';
   import type { DocFormat } from './types';
 
-  export let content: string;
-  export let format: DocFormat;
+  interface Props {
+    content: string;
+    format: DocFormat;
+  }
 
-  $: headings = (() => {
+  let { content, format }: Props = $props();
+
+  let headings = $derived((() => {
     const list: { level: number; text: string }[] = [];
     if (format === 'rich') {
       const div = document.createElement('div');
@@ -18,11 +22,11 @@
       }
     }
     return list;
-  })();
+  })());
 
-  $: words = content.replace(/<[^>]+>/g, '').trim().split(/\s+/).filter(Boolean).length;
-  $: chars = content.replace(/<[^>]+>/g, '').length;
-  $: lines = content.split('\n').length;
+  let words = $derived(content.replace(/<[^>]+>/g, '').trim().split(/\s+/).filter(Boolean).length);
+  let chars = $derived(content.replace(/<[^>]+>/g, '').length);
+  let lines = $derived(content.split('\n').length);
 </script>
 
 <div class="w-52 border-l border-white/5 flex flex-col bg-slate-900/50 shrink-0">
