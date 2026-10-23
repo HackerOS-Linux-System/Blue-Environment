@@ -1,18 +1,16 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { Music } from 'lucide-svelte';
   import { toAssetUrl } from '../../../utils/systemBridge';
   import { coverFile } from './musicIO';
 
-  /** A track of the album — its embedded art or the folder's cover.jpg is used. */
-  export let trackPath: string | null;
-  /** Shared lookup key (one request per album). */
-  export let cacheKey: string | undefined = undefined;
-  export let size = 40;
-  export let rounded = 'rounded-lg';
+  
+  
 
-  let src: string | null = null;
-  let el: HTMLDivElement;
-  let requested = '';
+  let src = $state<string | null>(null);
+  let el = $state() as HTMLDivElement;
+  let requested = $state('');
 
   // Loads when scrolled into view, and again when the track/album changes.
   function load() {
@@ -22,11 +20,24 @@
     requested = id;
     coverFile(trackPath, cacheKey).then((p) => { if (requested === id) src = p ? toAssetUrl(p) : null; });
   }
-  $: if (trackPath !== undefined && visible) load();
-  $: if (!trackPath) { src = null; requested = ''; }
 
-  let visible = false;
+  let visible = $state(false);
   import { onMount, onDestroy } from 'svelte';
+  interface Props {
+    /** A track of the album — its embedded art or the folder's cover.jpg is used. */
+    trackPath: string | null;
+    /** Shared lookup key (one request per album). */
+    cacheKey?: string | undefined;
+    size?: number;
+    rounded?: string;
+  }
+
+  let {
+    trackPath,
+    cacheKey = undefined,
+    size = 40,
+    rounded = 'rounded-lg'
+  }: Props = $props();
   let io: IntersectionObserver | undefined;
   onMount(() => {
     if (typeof IntersectionObserver === 'undefined') { visible = true; return; }
@@ -34,11 +45,17 @@
     io.observe(el);
   });
   onDestroy(() => io?.disconnect());
+  run(() => {
+    if (trackPath !== undefined && visible) load();
+  });
+  run(() => {
+    if (!trackPath) { src = null; requested = ''; }
+  });
 </script>
 
 <div bind:this={el} class="shrink-0 overflow-hidden bg-slate-800 flex items-center justify-center {rounded}" style="width:{size}px;height:{size}px">
   {#if src}
-    <img {src} alt="" class="w-full h-full object-cover" draggable="false" on:error={() => (src = null)} />
+    <img {src} alt="" class="w-full h-full object-cover" draggable="false" onerror={() => (src = null)} />
   {:else}
     <Music size={Math.max(12, Math.round(size / 2.6))} class="text-slate-600" />
   {/if}
