@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run as run_1, stopPropagation } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
@@ -10,27 +12,27 @@
     type Project, type BpNode, type Entity,
   } from './engineModel';
 
-  let project: Project = newProject();
-  let projectDir = '';
-  let tab: 'viewport' | 'blueprint' | 'code' = 'viewport';
+  let project = $state<Project>(newProject());
+  let projectDir = $state('');
+  let tab = $state<'viewport' | 'blueprint' | 'code'>('viewport');
   const TABS: { id: 'viewport' | 'blueprint' | 'code'; label: string }[] = [
     { id: 'viewport', label: 'Scena' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'code', label: 'Kod' },
   ];
-  let selEntity = 0;
-  let selNode: number | null = null;
-  let linking: { from: number; pin: string } | null = null;
+  let selEntity = $state(0);
+  let selNode = $state<number | null>(null);
+  let linking = $state<{ from: number; pin: string } | null>(null);
   let dragging: { id: number; dx: number; dy: number } | null = null;
-  let svgEl: SVGSVGElement;
-  let playSrc = '';
-  let log: string[] = [];
-  let target: 'web' | 'linux' | 'windows' = 'web';
-  let building = false;
-  let lastOutput = '';
-  let codeFiles: { path: string; content: string }[] = [];
-  let codeError = '';
-  let codeSel = 0;
-  let aiPrompt = '';
-  let aiBusy = false;
+  let svgEl = $state() as SVGSVGElement;
+  let playSrc = $state('');
+  let log = $state<string[]>([]);
+  let target = $state<'web' | 'linux' | 'windows'>('web');
+  let building = $state(false);
+  let lastOutput = $state('');
+  let codeFiles = $state<{ path: string; content: string }[]>([]);
+  let codeError = $state('');
+  let codeSel = $state(0);
+  let aiPrompt = $state('');
+  let aiBusy = $state(false);
   let unlisten: (() => void) | undefined;
 
   const say = (s: string) => (log = [...log.slice(-300), s]);
@@ -43,8 +45,8 @@
   });
   onDestroy(() => { window.removeEventListener('message', onMsg); unlisten?.(); });
 
-  $: ent = project.entities[selEntity] as Entity | undefined;
-  $: node = project.blueprint.nodes.find((n) => n.id === selNode) ?? null;
+  let ent = $derived(project.entities[selEntity] as Entity | undefined);
+  let node = $derived(project.blueprint.nodes.find((n) => n.id === selNode) ?? null);
 
   // ───────── scena ─────────
   function addEntity() {
@@ -99,7 +101,9 @@
     try { codeFiles = await invoke('engine_generate', { project, target }); codeSel = 0; }
     catch (e) { codeFiles = []; codeError = String(e); }
   }
-  $: if (tab === 'code') { target; project; refreshCode(); }
+  run_1(() => {
+    if (tab === 'code') { target; project; refreshCode(); }
+  });
 
   async function build() {
     building = true; log = []; say(`▶ Budowanie (${target})…`);
@@ -140,38 +144,38 @@
 <div class="h-full flex flex-col bg-slate-900 text-slate-200 text-sm">
   <div class="flex items-center gap-2 px-3 py-2 border-b border-white/5">
     <input class="bg-slate-800 rounded-lg px-2 py-1 w-40" bind:value={project.name} />
-    <button class="p-1.5 rounded-lg hover:bg-white/10" title="Zapisz" on:click={save}><Save size={15} /></button>
-    <button class="p-1.5 rounded-lg hover:bg-white/10" title="Otwórz" on:click={open}><FolderOpen size={15} /></button>
+    <button class="p-1.5 rounded-lg hover:bg-white/10" title="Zapisz" onclick={save}><Save size={15} /></button>
+    <button class="p-1.5 rounded-lg hover:bg-white/10" title="Otwórz" onclick={open}><FolderOpen size={15} /></button>
     <div class="flex gap-1 ml-3">
       {#each TABS as t}
-        <button class="px-3 py-1 rounded-lg {tab === t.id ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" on:click={() => (tab = t.id)}>{t.label}</button>
+        <button class="px-3 py-1 rounded-lg {tab === t.id ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" onclick={() => (tab = t.id)}>{t.label}</button>
       {/each}
     </div>
-    <div class="flex-1" />
-    {#if playSrc}<button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white" on:click={stop}><Square size={13} /> Stop</button>
-    {:else}<button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-green-600 hover:bg-green-500 text-white" on:click={play}><Play size={13} /> Graj</button>{/if}
+    <div class="flex-1"></div>
+    {#if playSrc}<button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white" onclick={stop}><Square size={13} /> Stop</button>
+    {:else}<button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-green-600 hover:bg-green-500 text-white" onclick={play}><Play size={13} /> Graj</button>{/if}
     <select class="bg-slate-800 rounded-lg px-2 py-1" bind:value={target}>
       <option value="web">Web (JS)</option><option value="linux">Linux (Rust)</option><option value="windows">Windows (Rust)</option>
     </select>
-    <button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={building} on:click={build}><Hammer size={13} /> {building ? 'Buduję…' : 'Zbuduj'}</button>
-    {#if lastOutput}<button class="px-3 py-1 rounded-lg hover:bg-white/10" on:click={run}>Uruchom wynik</button>{/if}
+    <button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={building} onclick={build}><Hammer size={13} /> {building ? 'Buduję…' : 'Zbuduj'}</button>
+    {#if lastOutput}<button class="px-3 py-1 rounded-lg hover:bg-white/10" onclick={run}>Uruchom wynik</button>{/if}
   </div>
 
   <div class="flex flex-1 min-h-0">
     <!-- Hierarchia sceny -->
     <div class="w-48 border-r border-white/5 flex flex-col">
       <div class="flex items-center justify-between px-3 py-2 text-xs text-slate-400">Obiekty
-        <span><button class="p-1 hover:text-white" on:click={addEntity}><Plus size={14} /></button><button class="p-1 hover:text-red-400" on:click={delEntity}><Trash2 size={13} /></button></span></div>
+        <span><button class="p-1 hover:text-white" onclick={addEntity}><Plus size={14} /></button><button class="p-1 hover:text-red-400" onclick={delEntity}><Trash2 size={13} /></button></span></div>
       <div class="flex-1 overflow-y-auto px-2 space-y-1">
         {#each project.entities as e, i}
-          <button class="w-full text-left px-2 py-1 rounded-lg flex items-center gap-2 {selEntity === i ? 'bg-blue-600/40' : 'hover:bg-white/5'}" on:click={() => (selEntity = i)}>
+          <button class="w-full text-left px-2 py-1 rounded-lg flex items-center gap-2 {selEntity === i ? 'bg-blue-600/40' : 'hover:bg-white/5'}" onclick={() => (selEntity = i)}>
             <Box size={13} style="color:{e.color}" /> {e.name}</button>
         {/each}
       </div>
       <div class="p-2 border-t border-white/5 space-y-1">
         <div class="text-xs text-slate-400 flex items-center gap-1"><Sparkles size={12} /> Asystent AI</div>
-        <textarea class="w-full bg-slate-800 rounded-lg p-1.5 text-xs h-16 resize-none outline-none" placeholder="np. gracz porusza się strzałkami, a Spacja zmienia kolor" bind:value={aiPrompt} />
-        <button class="w-full px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40" disabled={aiBusy || !aiPrompt.trim()} on:click={askAi}>{aiBusy ? 'Myślę…' : 'Wygeneruj graf'}</button>
+        <textarea class="w-full bg-slate-800 rounded-lg p-1.5 text-xs h-16 resize-none outline-none" placeholder="np. gracz porusza się strzałkami, a Spacja zmienia kolor" bind:value={aiPrompt}></textarea>
+        <button class="w-full px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40" disabled={aiBusy || !aiPrompt.trim()} onclick={askAi}>{aiBusy ? 'Myślę…' : 'Wygeneruj graf'}</button>
       </div>
     </div>
 
@@ -180,11 +184,11 @@
       {#if tab === 'viewport'}
         <div class="flex-1 bg-black flex items-center justify-center overflow-hidden relative">
           {#if playSrc}
-            <iframe title="Gra" sandbox="allow-scripts" srcdoc={playSrc} class="w-full h-full border-0" />
+            <iframe title="Gra" sandbox="allow-scripts" srcdoc={playSrc} class="w-full h-full border-0"></iframe>
           {:else}
             <div class="relative" style="width:{project.width / 1.6}px; height:{project.height / 1.6}px; background:{project.background}">
               {#each project.entities as e, i}
-                <div class="absolute {selEntity === i ? 'ring-2 ring-white/70' : ''}" style="left:{e.x / 1.6}px; top:{e.y / 1.6}px; width:{e.w / 1.6}px; height:{e.h / 1.6}px; background:{e.color}; border-radius:{e.shape === 'circle' ? '50%' : '2px'}" />
+                <div class="absolute {selEntity === i ? 'ring-2 ring-white/70' : ''}" style="left:{e.x / 1.6}px; top:{e.y / 1.6}px; width:{e.w / 1.6}px; height:{e.h / 1.6}px; background:{e.color}; border-radius:{e.shape === 'circle' ? '50%' : '2px'}"></div>
               {/each}
             </div>
           {/if}
@@ -195,28 +199,28 @@
             <div class="text-xs text-slate-400 mb-1">Dodaj węzeł</div>
             {#each Object.entries(NODE_CATALOG) as [kind, spec]}
               <button class="w-full text-left px-2 py-1 rounded-lg text-xs hover:bg-white/10" style="border-left:3px solid {spec.color}"
-                on:click={() => (project = addNode(project, kind, 60 + (project.blueprint.nodes.length % 5) * 30, 200 + (project.blueprint.nodes.length % 6) * 30))}>{spec.title}</button>
+                onclick={() => (project = addNode(project, kind, 60 + (project.blueprint.nodes.length % 5) * 30, 200 + (project.blueprint.nodes.length % 6) * 30))}>{spec.title}</button>
             {/each}
           </div>
           <div class="flex-1 relative overflow-auto bg-slate-950/60">
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <svg bind:this={svgEl} class="w-[1600px] h-[900px]" on:pointermove={moveDrag} on:pointerup={endDrag} on:click={() => (linking = null)}>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <svg bind:this={svgEl} class="w-[1600px] h-[900px]" onpointermove={moveDrag} onpointerup={endDrag} onclick={() => (linking = null)}>
               {#each project.blueprint.edges as ed}
                 <path d={edgePath(ed.from, ed.fromPin, ed.to)} fill="none" stroke={ed.fromPin === 'false' ? '#f87171' : '#94a3b8'} stroke-width="2"
-                  class="cursor-pointer hover:stroke-white" on:click|stopPropagation={() => (project.blueprint.edges = project.blueprint.edges.filter((x) => x !== ed))} />
+                  class="cursor-pointer hover:stroke-white" onclick={stopPropagation(() => (project.blueprint.edges = project.blueprint.edges.filter((x) => x !== ed)))} />
               {/each}
               {#each project.blueprint.nodes as n (n.id)}
                 {@const spec = NODE_CATALOG[n.kind]}
                 <g transform="translate({n.x},{n.y})">
                   <rect width={NODE_W} height={Math.max(56, 24 + spec.outs.length * 18 + 16)} rx="8" fill="#1e293b" stroke={selNode === n.id ? '#60a5fa' : '#334155'} stroke-width="2"
-                    on:pointerdown|stopPropagation={(e) => startDrag(e, n)} class="cursor-move" />
+                    onpointerdown={stopPropagation((e: any) => startDrag(e, n))} class="cursor-move" />
                   <rect width={NODE_W} height="22" rx="8" fill={spec.color} pointer-events="none" />
                   <text x="8" y="15" font-size="11" fill="white" pointer-events="none">{spec.title}</text>
                   <text x="8" y={36} font-size="10" fill="#94a3b8" pointer-events="none">{summary(n)}</text>
-                  {#if !spec.event}<circle cx="0" cy="20" r="6" fill="#0f172a" stroke="#94a3b8" stroke-width="2" class="cursor-pointer" on:click|stopPropagation={() => inPin(n)} />{/if}
+                  {#if !spec.event}<circle cx="0" cy="20" r="6" fill="#0f172a" stroke="#94a3b8" stroke-width="2" class="cursor-pointer" onclick={stopPropagation(() => inPin(n))} />{/if}
                   {#each spec.outs as pin, i}
                     <circle cx={NODE_W} cy={20 + i * 18} r="6" fill={linking?.from === n.id && linking.pin === pin ? '#60a5fa' : '#0f172a'} stroke={pin === 'false' ? '#f87171' : '#94a3b8'} stroke-width="2" class="cursor-pointer"
-                      on:click|stopPropagation={() => outPin(n, pin)} />
+                      onclick={stopPropagation(() => outPin(n, pin))} />
                     {#if spec.outs.length > 1}<text x={NODE_W - 12} y={24 + i * 18} font-size="9" fill="#94a3b8" text-anchor="end" pointer-events="none">{pin === 'true' ? 'tak' : 'nie'}</text>{/if}
                   {/each}
                 </g>
@@ -228,7 +232,7 @@
       {:else}
         <div class="flex-1 flex flex-col min-h-0">
           {#if codeError}<div class="p-3 text-red-300 text-xs">{codeError}</div>{:else}
-            <div class="flex gap-1 p-2 border-b border-white/5">{#each codeFiles as f, i}<button class="px-2 py-1 rounded text-xs {codeSel === i ? 'bg-blue-600 text-white' : 'hover:bg-white/10'}" on:click={() => (codeSel = i)}>{f.path}</button>{/each}</div>
+            <div class="flex gap-1 p-2 border-b border-white/5">{#each codeFiles as f, i}<button class="px-2 py-1 rounded text-xs {codeSel === i ? 'bg-blue-600 text-white' : 'hover:bg-white/10'}" onclick={() => (codeSel = i)}>{f.path}</button>{/each}</div>
             <pre class="flex-1 overflow-auto p-3 text-[11px] text-slate-300">{codeFiles[codeSel]?.content ?? ''}</pre>
           {/if}
         </div>
@@ -246,17 +250,17 @@
         {#each spec.params as p}
           <label class="block text-xs text-slate-400">{p.label}
             {#if p.key === 'actor'}
-              <select class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={node.params[p.key]} on:change={() => (project = project)}>
+              <select class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={node.params[p.key]} onchange={() => (project = project)}>
                 {#each project.entities as e}<option value={e.name}>{e.name}</option>{/each}</select>
             {:else}
-              <input class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={node.params[p.key]} on:input={() => (project = project)} />
+              <input class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={node.params[p.key]} oninput={() => (project = project)} />
             {/if}
           </label>
         {/each}
-        <button class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-500/20 text-red-400" on:click={delNode}><Trash2 size={13} /> Usuń węzeł</button>
+        <button class="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-500/20 text-red-400" onclick={delNode}><Trash2 size={13} /> Usuń węzeł</button>
       {:else if ent}
         <div class="font-semibold text-white">Obiekt</div>
-        <label class="block text-xs text-slate-400">Nazwa<input class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={ent.name} on:input={() => (project = project)} /></label>
+        <label class="block text-xs text-slate-400">Nazwa<input class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={ent.name} oninput={() => (project = project)} /></label>
         <div class="grid grid-cols-2 gap-2 text-xs text-slate-400">
           <label>X<input type="number" class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={ent.x} /></label>
           <label>Y<input type="number" class="w-full bg-slate-800 rounded px-2 py-1 text-slate-200" bind:value={ent.y} /></label>
