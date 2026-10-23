@@ -4,18 +4,27 @@
   import type { BookmarkItem, HistoryEntry, DownloadItem } from './types';
   import { createEventDispatcher } from 'svelte';
 
-  export let panel: 'bookmarks' | 'history' | 'downloads' | 'none';
-  export let bookmarks: BookmarkItem[];
-  export let history: HistoryEntry[];
-  export let downloads: DownloadItem[] = [];
+  interface Props {
+    panel: 'bookmarks' | 'history' | 'downloads' | 'none';
+    bookmarks: BookmarkItem[];
+    history: HistoryEntry[];
+    downloads?: DownloadItem[];
+  }
+
+  let {
+    panel,
+    bookmarks,
+    history,
+    downloads = []
+  }: Props = $props();
 
   const dispatch = createEventDispatcher<{
     close: void; navigate: string; clearHistory: void;
     removeDownload: string; revealDownload: string;
   }>();
 
-  $: empty = panel === 'bookmarks' ? $t('blueweb.empty_bookmarks') : panel === 'history' ? $t('blueweb.empty_history') : $t('blueweb.empty_downloads');
-  $: itemCount = panel === 'bookmarks' ? bookmarks.length : panel === 'history' ? history.length : downloads.length;
+  let empty = $derived(panel === 'bookmarks' ? $t('blueweb.empty_bookmarks') : panel === 'history' ? $t('blueweb.empty_history') : $t('blueweb.empty_downloads'));
+  let itemCount = $derived(panel === 'bookmarks' ? bookmarks.length : panel === 'history' ? history.length : downloads.length);
 </script>
 
 {#if panel !== 'none'}
@@ -24,9 +33,9 @@
       <span class="font-medium text-sm">{$t(`blueweb.panel.${panel}`)}</span>
       <div class="flex items-center gap-2">
         {#if panel === 'history' && history.length > 0}
-          <button on:click={() => dispatch('clearHistory')} class="text-xs text-red-400 hover:text-red-300">{$t('blueweb.clear')}</button>
+          <button onclick={() => dispatch('clearHistory')} class="text-xs text-red-400 hover:text-red-300">{$t('blueweb.clear')}</button>
         {/if}
-        <button on:click={() => dispatch('close')}><X size={14} class="text-slate-400" /></button>
+        <button onclick={() => dispatch('close')}><X size={14} class="text-slate-400" /></button>
       </div>
     </div>
     <div class="flex-1 overflow-y-auto">
@@ -35,7 +44,7 @@
       {/if}
       {#if panel === 'bookmarks'}
         {#each bookmarks as b, i (i)}
-          <button on:click={() => { dispatch('navigate', b.url); dispatch('close'); }} class="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/5 text-left transition-colors">
+          <button onclick={() => { dispatch('navigate', b.url); dispatch('close'); }} class="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/5 text-left transition-colors">
             {#if b.favicon}<img src={b.favicon} alt="" class="w-3.5 h-3.5 shrink-0 rounded-sm" />{:else}<Globe size={13} class="text-slate-400 shrink-0" />{/if}
             <div class="flex-1 min-w-0">
               <div class="text-sm text-white truncate">{b.title}</div>
@@ -46,7 +55,7 @@
         {/each}
       {:else if panel === 'history'}
         {#each history as h, i (i)}
-          <button on:click={() => { dispatch('navigate', h.url); dispatch('close'); }} class="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/5 text-left transition-colors">
+          <button onclick={() => { dispatch('navigate', h.url); dispatch('close'); }} class="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/5 text-left transition-colors">
             {#if h.favicon}<img src={h.favicon} alt="" class="w-3.5 h-3.5 shrink-0 rounded-sm" />{:else}<Globe size={13} class="text-slate-400 shrink-0" />{/if}
             <div class="flex-1 min-w-0">
               <div class="text-sm text-white truncate">{h.title}</div>
@@ -65,8 +74,8 @@
               <div class="text-[10px] text-slate-500 truncate">{$t(`blueweb.state.${d.state}`)}</div>
             </div>
             {#if d.state !== 'downloading'}
-              <button on:click={() => dispatch('revealDownload', d.id)} title={$t('blueweb.show_in_folder')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400"><FolderOpen size={13} /></button>
-              <button on:click={() => dispatch('removeDownload', d.id)} title={$t('blueweb.remove_from_list')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400"><Trash2 size={13} /></button>
+              <button onclick={() => dispatch('revealDownload', d.id)} title={$t('blueweb.show_in_folder')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-blue-400"><FolderOpen size={13} /></button>
+              <button onclick={() => dispatch('removeDownload', d.id)} title={$t('blueweb.remove_from_list')} class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400"><Trash2 size={13} /></button>
             {/if}
           </div>
         {/each}
