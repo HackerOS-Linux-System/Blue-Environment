@@ -10,7 +10,7 @@
 
   const session = createTerminalSession();
   const { tabs, activeTab } = session;
-  let showSettings = false;
+  let showSettings = $state(false);
 
   onDestroy(() => session.dispose());
 
@@ -48,13 +48,13 @@
       <div
         class="absolute inset-0 {$activeTab === tab.id ? '' : 'invisible pointer-events-none'}"
         style="padding:4px;"
-        on:contextmenu={(e) => termMenu(e, tab.id)}
+        oncontextmenu={(e) => termMenu(e, tab.id)}
         use:bindTerminal={tab.id}
-      />
+></div>
     {/each}
     {#if $tabs.length === 0}
       <div class="flex items-center justify-center h-full text-slate-600">
-        <button on:click={session.newTab} class="flex items-center gap-2 hover:text-white transition-colors">
+        <button onclick={session.newTab} class="flex items-center gap-2 hover:text-white transition-colors">
           <Plus size={16} /> New Terminal
         </button>
       </div>
