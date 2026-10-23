@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   /**
    * Blue Environment — TV shell ("10-foot UI").
    *
@@ -36,13 +38,13 @@
   import { initRemoteReceiver } from '../lib/utils/remoteReceiver';
   import { FOCUSABLE_SELECTOR } from '../lib/altShell/spatialNav';
 
-  let wallpaper = '';
-  let theme = 'dark';
-  let shellThemeId: string | undefined;
-  let systemThemeId: string | null | undefined;
-  let appsEnabled: Record<string, boolean> = {};
-  let use24h = true;
-  let showTransferProgress = true;
+  let wallpaper = $state('');
+  let theme = $state('dark');
+  let shellThemeId = $state<string | undefined>();
+  let systemThemeId = $state<string | null | undefined>();
+  let appsEnabled = $state<Record<string, boolean>>({});
+  let use24h = $state(true);
+  let showTransferProgress = $state(true);
 
   const stop = startAltShell((cfg) => {
     if (cfg.wallpaper) wallpaper = cfg.wallpaper;
@@ -55,22 +57,22 @@
   });
   onDestroy(stop);
 
-  let now = new Date();
+  let now = $state(new Date());
   let clock: ReturnType<typeof setInterval>;
   let raf = 0;
   const pad = new PadTracker();
 
   type Panel = 'none' | 'menu' | 'power';
-  let panel: Panel = 'none';
+  let panel = $state<Panel>('none');
 
-  $: apps = listLauncherApps(APPS as any, appsEnabled);
-  $: running = $windows.filter((w) => !w.isExternal).sort((a, b) => b.zIndex - a.zIndex);
-  $: appOpen = running.some((w) => w.id === $activeWindowId && !w.isMinimized);
-  $: runningItems = running.map<RecentItem>((w) => ({
+  let apps = $derived(listLauncherApps(APPS as any, appsEnabled));
+  let running = $derived($windows.filter((w) => !w.isExternal).sort((a, b) => b.zIndex - a.zIndex));
+  let appOpen = $derived(running.some((w) => w.id === $activeWindowId && !w.isMinimized));
+  let runningItems = $derived(running.map<RecentItem>((w) => ({
     id: w.id, title: w.title, icon: (APPS as any)[w.appId]?.icon, active: w.id === $activeWindowId && !w.isMinimized,
-  }));
+  })));
 
-  let rootEl: HTMLElement;
+  let rootEl = $state() as HTMLElement;
 
   /** The desktop Settings app is swapped for a remote-friendly one in this shell. */
   const overrides = { [AppId.SETTINGS]: TvSettings };
@@ -116,7 +118,9 @@
   }
   // Whenever a screen comes (back) into view — home, or an app — put the focus
   // where it was, or on the first control the first time.
-  $: if (panel === 'none') { void appOpen; void $activeWindowId; restoreFocusOnScreen(); }
+  run(() => {
+    if (panel === 'none') { void appOpen; void $activeWindowId; restoreFocusOnScreen(); }
+  });
 
   function go(dir: Dir) {
     const region = activeRegion();
@@ -216,11 +220,11 @@
   function openSettings() { panel = 'none'; openApp(AppId.SETTINGS); }
 </script>
 
-<svelte:window on:keydown={onKey} on:focusin={onFocusIn} />
+<svelte:window onkeydown={onKey} onfocusin={onFocusIn} />
 
 <ShellFrame variant="tv" {wallpaper} {shellThemeId} {systemThemeId} {theme} keyboardOnFocus={true} {showTransferProgress}>
   <div class="absolute inset-0" bind:this={rootEl}>
-    <div class="absolute inset-0 bg-black/35 pointer-events-none" />
+    <div class="absolute inset-0 bg-black/35 pointer-events-none"></div>
     {#if !appOpen}
       <TvHome {apps} running={runningItems} {now} {use24h} on:launch={(e) => launch(e.detail)} on:resume={(e) => resume(e.detail)} />
     {/if}
