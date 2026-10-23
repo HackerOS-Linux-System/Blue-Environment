@@ -14,18 +14,18 @@
     return $language === 'pl' ? text.pl : text.en;
   }
 
-  let query = '';
-  let selectedId: string = HELP_ARTICLES[0].id;
+  let query = $state('');
+  let selectedId = $state<string>(HELP_ARTICLES[0].id);
 
-  $: filtered = query.trim()
+  let filtered = $derived(query.trim()
     ? HELP_ARTICLES.filter((a) => pick(a.title).toLowerCase().includes(query.trim().toLowerCase()))
-    : HELP_ARTICLES;
+    : HELP_ARTICLES);
 
-  $: byCategory = (Object.keys(HELP_CATEGORIES) as HelpArticle['category'][])
+  let byCategory = $derived((Object.keys(HELP_CATEGORIES) as HelpArticle['category'][])
     .map((cat) => ({ cat, articles: filtered.filter((a) => a.category === cat) }))
-    .filter((g) => g.articles.length > 0);
+    .filter((g) => g.articles.length > 0));
 
-  $: selected = HELP_ARTICLES.find((a) => a.id === selectedId) ?? HELP_ARTICLES[0];
+  let selected = $derived(HELP_ARTICLES.find((a) => a.id === selectedId) ?? HELP_ARTICLES[0]);
 
   function replayWelcome() {
     // Deliberately does NOT call markWelcomeCompleted() — this just
@@ -64,7 +64,7 @@
         </div>
         {#each group.articles as article (article.id)}
           <button
-            on:click={() => (selectedId = article.id)}
+            onclick={() => (selectedId = article.id)}
             class="w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors {selectedId === article.id ? 'bg-blue-600/15 text-blue-300' : 'text-slate-300 hover:bg-white/5'}">
             <span class="flex-1 truncate">{pick(article.title)}</span>
             <ChevronRight size={13} class="shrink-0 opacity-50" />
@@ -78,7 +78,7 @@
       {/if}
     </div>
 
-    <button on:click={replayWelcome} class="flex items-center gap-2 p-4 border-t border-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+    <button onclick={replayWelcome} class="flex items-center gap-2 p-4 border-t border-white/5 text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
       <Sparkles size={14} class="text-blue-400" />
       {$language === 'pl' ? 'Uruchom ponownie samouczek powitalny' : 'Replay the welcome tour'}
     </button>
