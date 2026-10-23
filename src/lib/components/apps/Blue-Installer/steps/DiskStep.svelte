@@ -6,7 +6,11 @@
   import type { PartitionPlanEntry } from '../types';
   import PartitionEditor from './PartitionEditor.svelte';
 
-  export let state: InstallState;
+  interface Props {
+    state: InstallState;
+  }
+
+  let { state }: Props = $props();
   const { config, disks, disksLoading, validatePartitionPlan } = state;
 
   onMount(() => state.loadDisks());
@@ -32,7 +36,7 @@
 <div class="flex-1 flex flex-col px-10 py-8 overflow-y-auto">
   <div class="flex items-center justify-between mb-2">
     <div class="flex items-center gap-2"><HardDrive size={20} class="text-blue-400" /><h2 class="text-xl font-semibold text-white">Select installation disk</h2></div>
-    <button on:click={state.loadDisks} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-500"><RefreshCw size={14} class={$disksLoading ? 'animate-spin' : ''} /></button>
+    <button onclick={state.loadDisks} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-500"><RefreshCw size={14} class={$disksLoading ? 'animate-spin' : ''} /></button>
   </div>
   <p class="text-sm text-slate-500 mb-4 max-w-xl">The selected disk will be <strong class="text-red-400">completely erased</strong>. Make sure you've backed up anything important.</p>
 
@@ -43,7 +47,7 @@
   {:else}
     <div class="space-y-2 max-w-xl">
       {#each $disks as d (d.path)}
-        <button on:click={() => config.update((c) => ({ ...c, disk: d }))}
+        <button onclick={() => config.update((c) => ({ ...c, disk: d }))}
           class="w-full flex items-center gap-4 p-4 rounded-xl border transition-colors {$config.disk?.path === d.path ? 'bg-blue-600/15 border-blue-500/40' : 'bg-slate-800/50 border-white/5 hover:bg-white/5'}">
           <HardDrive size={22} class={$config.disk?.path === d.path ? 'text-blue-400' : 'text-slate-500'} />
           <div class="flex-1 text-left">
@@ -65,11 +69,11 @@
   <div class="mt-6 max-w-2xl">
     <div class="text-xs text-slate-500 mb-2">Partitioning mode</div>
     <div class="flex gap-2">
-      <button on:click={() => selectMode('erase')}
+      <button onclick={() => selectMode('erase')}
         class="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors {$config.diskMode === 'erase' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
         Erase disk (recommended)
       </button>
-      <button on:click={() => selectMode('manual')}
+      <button onclick={() => selectMode('manual')}
         class="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors {$config.diskMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}">
         Manual partitioning
       </button>
