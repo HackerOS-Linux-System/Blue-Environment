@@ -4,7 +4,11 @@
   import { TIMEZONES } from '../types';
   import type { InstallState } from '../installState';
 
-  export let state: InstallState;
+  interface Props {
+    state: InstallState;
+  }
+
+  let { state }: Props = $props();
   const { config } = state;
 
   let now = new Date();
@@ -37,7 +41,7 @@
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{group.region}</div>
         <div class="grid grid-cols-2 gap-2">
           {#each group.zones as zone (zone)}
-            <button on:click={() => select(zone)}
+            <button onclick={() => select(zone)}
               class="flex items-center justify-between px-3.5 py-2 rounded-xl border text-sm transition-colors {$config.timezone === zone ? 'bg-blue-600/15 border-blue-500/40 text-white' : 'bg-slate-800/50 border-white/5 text-slate-300 hover:bg-white/5'}">
               <span class="truncate">{zone.replace(/_/g, ' ')}</span>
               <span class="flex items-center gap-1.5 shrink-0 text-xs text-slate-500">
