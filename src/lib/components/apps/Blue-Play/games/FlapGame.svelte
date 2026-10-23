@@ -16,14 +16,14 @@
   let scheme: 'dark' | 'light' = 'dark';
   const unsubScheme = colorScheme.subscribe((v) => { scheme = v; });
 
-  let canvasEl: HTMLCanvasElement;
+  let canvasEl = $state() as HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
   let raf: number;
 
   let birdY = H / 2, birdV = 0;
   let pipes: Pipe[] = [];
   let frame = 0;
-  let score = 0;
+  let score = $state(0);
   let over = false;
   let started = false;
 
@@ -138,8 +138,8 @@
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>Score: <strong class="text-white">{score}</strong></span>
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
-  <canvas bind:this={canvasEl} width={W} height={H} class="rounded-xl border border-white/10 cursor-pointer" on:click={flap} />
+  <canvas bind:this={canvasEl} width={W} height={H} class="rounded-xl border border-white/10 cursor-pointer" onclick={flap}></canvas>
   <p class="text-xs text-slate-500">Click the game or press Space to flap.</p>
 </div>
