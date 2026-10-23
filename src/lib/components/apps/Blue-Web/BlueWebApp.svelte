@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { t as tr } from '../../../stores/language';
   // ── Real embedded browsing ────────────────────────────────────────────
   // Previously every URL opened in a brand-new, separate OS window and
@@ -63,7 +65,6 @@
   import NewTabPage from './NewTabPage.svelte';
   import WebSettingsPanel from './WebSettingsPanel.svelte';
 
-  export let windowId: string;
   // Launch-arg entry point — other apps opening a link (see
   // AboutApp.svelte, and `utils/openInBlueWeb.ts`) call `openApp(AppId.
   // BLUE_WEB, false, undefined, { launchUrl: url })` rather than
@@ -72,22 +73,28 @@
   // to be. `openApp` always creates a fresh window (this codebase has
   // no single-instance-app dedup), so there's no "already open, add a
   // tab to the existing window" case to handle here — every launch is
-  // a new window, navigated straight to `launchUrl`.
-  export let launchUrl: string | undefined = undefined;
+  
+  interface Props {
+    windowId: string;
+    // a new window, navigated straight to `launchUrl`.
+    launchUrl?: string | undefined;
+  }
+
+  let { windowId, launchUrl = undefined }: Props = $props();
 
   type Panel = 'bookmarks' | 'history' | 'downloads' | 'none';
 
-  let panel: Panel = 'none';
-  let lastError: string | null = null;
-  $: engineName = (SEARCH_ENGINES.find((e) => e.id === $settings.searchEngine) ?? SEARCH_ENGINES[0]).name;
-  let contentEl: HTMLDivElement;
+  let panel = $state<Panel>('none');
+  let lastError = $state<string | null>(null);
+  let engineName = $derived((SEARCH_ENGINES.find((e) => e.id === $settings.searchEngine) ?? SEARCH_ENGINES[0]).name);
+  let contentEl = $state() as HTMLDivElement;
   let lastRect: { x: number; y: number; width: number; height: number } | null = null;
   let rafId: number | null = null;
-  let findBarOpen = false;
-  let findQuery = '';
-  let findInputEl: HTMLInputElement;
-  let downloads: DownloadItem[] = [];
-  let settingsOpen = false;
+  let findBarOpen = $state(false);
+  let findQuery = $state('');
+  let findInputEl = $state() as HTMLInputElement;
+  let downloads = $state<DownloadItem[]>([]);
+  let settingsOpen = $state(false);
 
   const webSettings = createWebSettings();
   const { settings } = webSettings;
@@ -132,24 +139,26 @@
   // While an app window is being dragged/resized, embedded (native) webviews
   // become click-through so the shell keeps receiving mousemove/mouseup — see
   // `windowInteracting` in overlayState.ts.
-  $: setInteractive(!$windowInteracting);
+  run(() => {
+    setInteractive(!$windowInteracting);
+  });
 
-  $: activeTab = $tabs.find((t) => t.id === $activeId) ?? $tabs[0];
-  $: isSecure = activeTab.url.startsWith('https://') || activeTab.isNew;
-  $: isBookmarked = hist.isBookmarked(activeTab.url);
-  $: canGoBack = $navIdx > 0;
-  $: zoomPct = Math.round((activeTab.zoom ?? 1) * 100);
+  let activeTab = $derived($tabs.find((t) => t.id === $activeId) ?? $tabs[0]);
+  let isSecure = $derived(activeTab.url.startsWith('https://') || activeTab.isNew);
+  let isBookmarked = $derived(hist.isBookmarked(activeTab.url));
+  let canGoBack = $derived($navIdx > 0);
+  let zoomPct = $derived(Math.round((activeTab.zoom ?? 1) * 100));
 
   // ── Visibility ──────────────────────────────────────────────────────
   /** The page is (almost) completely covered right now, so it is hidden. */
-  let occluded = false;
+  let occluded = $state(false);
   /** Whether the native page may be shown. The single input to `reconcileVisibility`. */
-  $: wantVisible = !occluded && !settingsOpen;
+  let wantVisible = $derived(!occluded && !settingsOpen);
   // Kept for tabs.ts's `getShouldBeVisible` (a freshly created webview asks right away).
-  $: webviewShouldBeVisible = wantVisible;
+  let webviewShouldBeVisible = $derived(wantVisible);
 
   /** What the native layer currently shows: `nativeHidden` => the DOM placeholder is on view. */
-  let nativeHidden = false;
+  let nativeHidden = $state(false);
   let shownTabId: string | null = null;
 
   /** The part of the page that should be visible (`null` = all of it). Recomputed every frame. */
@@ -218,7 +227,7 @@
     }
   }
 
-  $: { wantVisible; $activeId; reconcileVisibility(); }
+  run(() => { wantVisible; $activeId; reconcileVisibility(); });
 
   /** Rects of everything drawn above this window's page right now. `null` = unknown (be safe). */
   function coverRects(): Rect[] | null {
@@ -484,22 +493,22 @@
   }
 </script>
 
-<svelte:window on:keydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="flex flex-col h-full bg-slate-900 text-white select-none">
   <div class="flex items-center h-9 bg-slate-950/70 border-b border-white/5 overflow-x-auto shrink-0">
     {#each $tabs as t (t.id)}
-      <div on:click={() => activeId.set(t.id)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => activeId.set(t.id))(); } }}
+      <div onclick={() => activeId.set(t.id)} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => activeId.set(t.id))(); } }}
         class="group flex items-center gap-1.5 px-3 h-full shrink-0 cursor-pointer border-r border-white/5 transition-colors max-w-[180px] {t.id === $activeId ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'} {t.isPrivate ? 'bg-indigo-950/40' : ''}">
         {#if t.isPrivate}<EyeOff size={11} class="shrink-0 text-indigo-400" />
-        {:else if t.favicon}<img src={t.favicon} alt="" class="w-3 h-3 shrink-0 rounded-sm" on:error={() => (t.favicon = undefined)} />
+        {:else if t.favicon}<img src={t.favicon} alt="" class="w-3 h-3 shrink-0 rounded-sm" onerror={() => (t.favicon = undefined)} />
         {:else}<Globe size={12} class="shrink-0 opacity-60" />{/if}
         <span class="text-xs truncate flex-1">{t.title || (t.isPrivate ? $tr('blueweb.new_private_tab') : $tr('blueweb.new_tab'))}</span>
-        <button on:click={(e) => closeTab(t.id, e)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 shrink-0 ml-1"><X size={10} /></button>
+        <button onclick={(e) => closeTab(t.id, e)} class="opacity-0 group-hover:opacity-100 hover:text-red-400 shrink-0 ml-1"><X size={10} /></button>
       </div>
     {/each}
-    <button on:click={() => addTab()} title="{$tr('blueweb.new_tab')} (Ctrl+T)" class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={14} /></button>
-    <button on:click={() => addTab(true)} title="{$tr('blueweb.new_private_tab')} (Ctrl+Shift+N)" class="p-2 text-slate-500 hover:text-indigo-300 shrink-0"><EyeOff size={12} /></button>
+    <button onclick={() => addTab()} title="{$tr('blueweb.new_tab')} (Ctrl+T)" class="p-2 text-slate-500 hover:text-white shrink-0"><Plus size={14} /></button>
+    <button onclick={() => addTab(true)} title="{$tr('blueweb.new_private_tab')} (Ctrl+Shift+N)" class="p-2 text-slate-500 hover:text-indigo-300 shrink-0"><EyeOff size={12} /></button>
   </div>
 
   <AddressBar
@@ -523,12 +532,12 @@
   {#if findBarOpen}
     <div class="flex items-center gap-2 px-3 h-11 bg-slate-800 border-b border-white/10 shrink-0">
       <Search size={13} class="text-slate-400 shrink-0" />
-      <input bind:this={findInputEl} bind:value={findQuery} on:keydown={handleFindKeydown}
-        on:input={() => find(findQuery)}
+      <input bind:this={findInputEl} bind:value={findQuery} onkeydown={handleFindKeydown}
+        oninput={() => find(findQuery)}
         placeholder={$tr('blueweb.find_placeholder')} class="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none" />
-      <button on:click={() => find(findQuery, true)} title={$tr('blueweb.find_prev')} class="p-1 rounded hover:bg-white/10"><ArrowUp size={13} /></button>
-      <button on:click={() => find(findQuery, false)} title={$tr('blueweb.find_next')} class="p-1 rounded hover:bg-white/10"><ArrowDown size={13} /></button>
-      <button on:click={closeFindBar} class="p-1 rounded hover:bg-white/10"><X size={13} /></button>
+      <button onclick={() => find(findQuery, true)} title={$tr('blueweb.find_prev')} class="p-1 rounded hover:bg-white/10"><ArrowUp size={13} /></button>
+      <button onclick={() => find(findQuery, false)} title={$tr('blueweb.find_next')} class="p-1 rounded hover:bg-white/10"><ArrowDown size={13} /></button>
+      <button onclick={closeFindBar} class="p-1 rounded hover:bg-white/10"><X size={13} /></button>
     </div>
   {/if}
 
@@ -592,9 +601,9 @@
 
   {#if !activeTab.isNew}
     <div class="flex items-center justify-end gap-1 px-2 h-6 bg-slate-950/70 border-t border-white/5 shrink-0 text-slate-400">
-      <button on:click={() => adjustZoom(-1)} title="{$tr('blueweb.zoom_out')} (Ctrl+-)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomOut size={12} /></button>
-      <button on:click={() => setZoom(1)} title="{$tr('blueweb.zoom_reset')} (Ctrl+0)" class="text-[10px] w-9 text-center hover:text-white">{zoomPct}%</button>
-      <button on:click={() => adjustZoom(1)} title="{$tr('blueweb.zoom_in')} (Ctrl+=)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomIn size={12} /></button>
+      <button onclick={() => adjustZoom(-1)} title="{$tr('blueweb.zoom_out')} (Ctrl+-)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomOut size={12} /></button>
+      <button onclick={() => setZoom(1)} title="{$tr('blueweb.zoom_reset')} (Ctrl+0)" class="text-[10px] w-9 text-center hover:text-white">{zoomPct}%</button>
+      <button onclick={() => adjustZoom(1)} title="{$tr('blueweb.zoom_in')} (Ctrl+=)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomIn size={12} /></button>
       {#if downloads.some((d) => d.state === 'downloading')}
         <span class="flex items-center gap-1 ml-2 text-[10px] text-blue-300"><Download size={11} class="animate-bounce" /> {$tr('blueweb.downloading')}</span>
       {/if}
