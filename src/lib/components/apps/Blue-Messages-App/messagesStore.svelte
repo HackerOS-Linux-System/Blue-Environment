@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   // NOTE: this file is a plain store module (no markup, no component
   // instance) — the only reason it carries a .svelte extension instead
   // of .ts (like its sibling Blue-Docs-App/document.ts) is to match
