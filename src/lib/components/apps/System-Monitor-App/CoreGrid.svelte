@@ -2,7 +2,11 @@
   import type { CpuInfo } from './types';
   import Bar from './Bar.svelte';
 
-  export let cpu: CpuInfo | null;
+  interface Props {
+    cpu: CpuInfo | null;
+  }
+
+  let { cpu }: Props = $props();
 
   function coreColor(u: number) { return u > 90 ? '#ef4444' : u > 70 ? '#f59e0b' : '#3b82f6'; }
 </script>
