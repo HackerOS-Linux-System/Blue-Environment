@@ -26,13 +26,13 @@
     by_app: Record<string, number>;
   }
 
-  let hasPattern = false;
-  let hasFingerprint = false;
-  let parental: ParentalControlsConfig | null = null;
-  let todayMinutes = 0;
-  let clonedCount = 0;
-  let keyboardEnabled = false;
-  let loading = true;
+  let hasPattern = $state(false);
+  let hasFingerprint = $state(false);
+  let parental = $state<ParentalControlsConfig | null>(null);
+  let todayMinutes = $state(0);
+  let clonedCount = $state(0);
+  let keyboardEnabled = $state(false);
+  let loading = $state(true);
 
   onMount(async () => {
     const username = SystemBridge.getUsername();
@@ -64,7 +64,7 @@
     return `${h} h ${m} min`;
   }
 
-  $: lockConfigured = hasPattern || hasFingerprint;
+  let lockConfigured = $derived(hasPattern || hasFingerprint);
 </script>
 
 <div class="h-full overflow-y-auto bg-slate-950 text-white p-6 space-y-5">
@@ -82,7 +82,7 @@
     <div class="flex items-center justify-center py-16 text-slate-500 text-sm">{$t('settings.screen_time.loading')}</div>
   {:else}
     <!-- Lock screen -->
-    <button on:click={() => goToSettingsTab('security')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
+    <button onclick={() => goToSettingsTab('security')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
       <div class="w-10 h-10 rounded-xl {lockConfigured ? 'bg-emerald-500/15' : 'bg-amber-500/15'} flex items-center justify-center shrink-0">
         {#if hasFingerprint}<Fingerprint size={18} class={lockConfigured ? 'text-emerald-400' : 'text-amber-400'} />
         {:else}<Lock size={18} class={lockConfigured ? 'text-emerald-400' : 'text-amber-400'} />{/if}
@@ -98,7 +98,7 @@
     </button>
 
     <!-- Parental controls -->
-    <button on:click={() => goToSettingsTab('parental_controls')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
+    <button onclick={() => goToSettingsTab('parental_controls')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
       <div class="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
         <Users size={18} class="text-blue-400" />
       </div>
@@ -114,7 +114,7 @@
     </button>
 
     <!-- Screen time -->
-    <button on:click={() => goToSettingsTab('screen_time')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
+    <button onclick={() => goToSettingsTab('screen_time')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
       <div class="w-10 h-10 rounded-xl bg-purple-500/15 flex items-center justify-center shrink-0">
         <Hourglass size={18} class="text-purple-400" />
       </div>
@@ -126,7 +126,7 @@
     </button>
 
     <!-- Cloned apps -->
-    <button on:click={() => goToSettingsTab('cloned_apps')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
+    <button onclick={() => goToSettingsTab('cloned_apps')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
       <div class="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center shrink-0">
         <Copy size={18} class="text-orange-400" />
       </div>
@@ -140,7 +140,7 @@
     </button>
 
     <!-- On-screen keyboard -->
-    <button on:click={() => goToSettingsTab('keyboard')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
+    <button onclick={() => goToSettingsTab('keyboard')} class="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 border border-white/5 hover:bg-slate-900/70 transition-colors text-left">
       <div class="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center shrink-0">
         <Keyboard size={18} class="text-teal-400" />
       </div>
