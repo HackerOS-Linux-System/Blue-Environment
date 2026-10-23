@@ -4,10 +4,14 @@
   import { SystemBridge, type BatteryStatus } from '../lib/utils/systemBridge';
   import { formatClock, formatDate } from '../lib/altShell/shellUtils';
 
-  export let now: Date;
-  export let use24h = true;
+  interface Props {
+    now: Date;
+    use24h?: boolean;
+  }
 
-  let battery: BatteryStatus | null = null;
+  let { now, use24h = true }: Props = $props();
+
+  let battery = $state<BatteryStatus | null>(null);
   let timer: ReturnType<typeof setInterval>;
   async function refresh() { try { battery = await SystemBridge.getBatteryStatus(); } catch { /* keep last */ } }
   onMount(() => { refresh(); timer = setInterval(refresh, 30000); });
