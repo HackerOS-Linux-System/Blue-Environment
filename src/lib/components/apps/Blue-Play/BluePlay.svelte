@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { onMount, onDestroy } from 'svelte';
   import {
     Gamepad2, ArrowLeft, Trophy, PlayCircle, RotateCcw, Plus, X, HardDrive,
@@ -24,27 +27,27 @@
   // as a real follow-up rather than pretended-away.
 
   type Tab = 'games' | 'library';
-  let tab: Tab = 'games';
+  let tab = $state<Tab>('games');
 
-  let activeGame: GameDef | null = null;
+  let activeGame = $state<GameDef | null>(null);
   let stats: Record<string, { highScore: number; playCount: number; lastPlayed?: string; playtimeSeconds?: number }> = {};
-  let library: BlueGameLibraryEntry[] = [];
-  let liveScore = 0;
+  let library = $state<BlueGameLibraryEntry[]>([]);
+  let liveScore = $state(0);
   let unlistenExit: (() => void) | null = null;
 
   // Runtime (Wine/Proton/umu) detection
-  let runtimes: Awaited<ReturnType<typeof SystemBridge.bluePlayDetectRuntimes>> | null = null;
-  let runtimesLoading = false;
+  let runtimes = $state<Awaited<ReturnType<typeof SystemBridge.bluePlayDetectRuntimes>> | null>(null);
+  let runtimesLoading = $state(false);
 
   // Add-game dialog
-  let showAddDialog = false;
-  let addKind: 'native' | 'windows' = 'native';
-  let addTitle = '';
-  let addPath = '';
-  let addRuntime: 'wine' | 'proton' | 'umu' = 'wine';
-  let addProtonPath = '';
-  let launchingId: string | null = null;
-  let launchError: string | null = null;
+  let showAddDialog = $state(false);
+  let addKind = $state<'native' | 'windows'>('native');
+  let addTitle = $state('');
+  let addPath = $state('');
+  let addRuntime = $state<'wine' | 'proton' | 'umu'>('wine');
+  let addProtonPath = $state('');
+  let launchingId = $state<string | null>(null);
+  let launchError = $state<string | null>(null);
 
   onMount(async () => {
     const cfg = await configStore.init();
@@ -185,13 +188,13 @@
     // not just that the spawn call returned.
   }
 
-  $: canAddWindows = runtimes ? (runtimes.wine_available || runtimes.umu_available || runtimes.proton_available || runtimes.steam_proton_versions.length > 0) : true;
+  let canAddWindows = $derived(runtimes ? (runtimes.wine_available || runtimes.umu_available || runtimes.proton_available || runtimes.steam_proton_versions.length > 0) : true);
 </script>
 
 <div class="h-full flex flex-col bg-slate-900 text-white">
   <div class="shrink-0 border-b border-white/5 px-4 py-3 flex items-center gap-3">
     {#if activeGame}
-      <button on:click={backToLibrary} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-300"><ArrowLeft size={16} /></button>
+      <button onclick={backToLibrary} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-300"><ArrowLeft size={16} /></button>
       <Gamepad2 size={16} class="text-purple-400" />
       <span class="font-semibold text-sm">{activeGame.title}</span>
       <span class="ml-auto flex items-center gap-3 text-xs text-slate-400">
@@ -202,8 +205,8 @@
       <Gamepad2 size={16} class="text-purple-400" />
       <span class="font-semibold text-sm">Blue Play</span>
       <div class="ml-4 flex bg-slate-800 rounded-lg p-0.5">
-        <button on:click={() => (tab = 'games')} class="px-3 py-1 rounded-md text-xs font-medium {tab === 'games' ? 'bg-blue-600 text-white' : 'text-slate-400'}">Games</button>
-        <button on:click={() => (tab = 'library')} class="px-3 py-1 rounded-md text-xs font-medium {tab === 'library' ? 'bg-blue-600 text-white' : 'text-slate-400'}">Library</button>
+        <button onclick={() => (tab = 'games')} class="px-3 py-1 rounded-md text-xs font-medium {tab === 'games' ? 'bg-blue-600 text-white' : 'text-slate-400'}">Games</button>
+        <button onclick={() => (tab = 'library')} class="px-3 py-1 rounded-md text-xs font-medium {tab === 'library' ? 'bg-blue-600 text-white' : 'text-slate-400'}">Library</button>
       </div>
       <span class="ml-auto text-xs text-slate-500">{tab === 'games' ? `${GAMES.length} games` : `${library.length} added`}</span>
     {/if}
@@ -211,14 +214,14 @@
 
   {#if activeGame}
     <div class="flex-1 overflow-auto flex items-center justify-center p-6">
-      <svelte:component this={activeGame.component} on:score={handleGameEvent} on:gameOver={handleGameEvent} />
+      <activeGame.component on:score={handleGameEvent} on:gameOver={handleGameEvent} />
     </div>
 
   {:else if tab === 'games'}
     <div class="flex-1 overflow-y-auto p-5">
       <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
         {#each GAMES as game (game.id)}
-          <button on:click={() => playGame(game)}
+          <button onclick={() => playGame(game)}
             class="text-left rounded-2xl border border-white/10 overflow-hidden hover:border-white/20 hover:-translate-y-0.5 transition-all group">
             <div class="h-24 bg-gradient-to-br {game.color} flex items-center justify-center">
               <Gamepad2 size={32} class="text-white/70 group-hover:scale-110 transition-transform" />
@@ -269,10 +272,10 @@
       </div>
 
       <div class="flex gap-2">
-        <button on:click={() => openAddDialog('native')} class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/10 text-sm text-slate-300 hover:border-white/20 hover:text-white">
+        <button onclick={() => openAddDialog('native')} class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/10 text-sm text-slate-300 hover:border-white/20 hover:text-white">
           <HardDrive size={14} /> Add native Linux game
         </button>
-        <button on:click={() => openAddDialog('windows')} disabled={!canAddWindows} class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/10 text-sm text-slate-300 hover:border-white/20 hover:text-white disabled:opacity-40">
+        <button onclick={() => openAddDialog('windows')} disabled={!canAddWindows} class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/10 text-sm text-slate-300 hover:border-white/20 hover:text-white disabled:opacity-40">
           <Monitor size={14} /> Add Windows game (.exe)
         </button>
       </div>
@@ -280,7 +283,7 @@
       {#if launchError}
         <div class="bg-red-500/10 border border-red-500/20 text-red-300 text-xs rounded-lg px-3 py-2 flex items-start justify-between gap-2">
           <span>{launchError}</span>
-          <button on:click={() => (launchError = null)}><X size={12} /></button>
+          <button onclick={() => (launchError = null)}><X size={12} /></button>
         </div>
       {/if}
 
@@ -298,11 +301,11 @@
                   {#if playtime(entry.id) > 0}<span class="flex items-center gap-0.5 shrink-0"><Clock size={9} /> {formatPlaytime(playtime(entry.id))}</span>{/if}
                 </div>
               </div>
-              <button on:click={() => launchExternal(entry)} disabled={launchingId === entry.id}
+              <button onclick={() => launchExternal(entry)} disabled={launchingId === entry.id}
                 class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-xs font-medium shrink-0">
                 {#if launchingId === entry.id}<Loader2 size={12} class="animate-spin" /> Running…{:else}<PlayCircle size={12} /> Play{/if}
               </button>
-              <button on:click={() => removeGame(entry)} class="p-1.5 text-slate-500 hover:text-red-400 shrink-0"><Trash2 size={13} /></button>
+              <button onclick={() => removeGame(entry)} class="p-1.5 text-slate-500 hover:text-red-400 shrink-0"><Trash2 size={13} /></button>
             </div>
           {/each}
         </div>
@@ -312,15 +315,15 @@
 </div>
 
 {#if showAddDialog}
-  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" on:click={() => (showAddDialog = false)} role="button" tabindex="0" on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showAddDialog = false))(); } }}>
-    <div class="bg-slate-900 border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4" on:click|stopPropagation>
+  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onclick={() => (showAddDialog = false)} role="button" tabindex="0" onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); (() => (showAddDialog = false))(); } }}>
+    <div class="bg-slate-900 border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4" onclick={stopPropagation(bubble('click'))}>
       <div class="flex items-center justify-between">
         <h3 class="font-semibold text-sm">Add {addKind === 'windows' ? 'Windows' : 'native Linux'} game</h3>
-        <button on:click={() => (showAddDialog = false)} class="text-slate-500 hover:text-white"><X size={16} /></button>
+        <button onclick={() => (showAddDialog = false)} class="text-slate-500 hover:text-white"><X size={16} /></button>
       </div>
       <div>
         <span class="text-xs text-slate-400 block mb-1">Executable</span>
-        <button on:click={pickExecutable} class="w-full flex items-center gap-2 px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-left text-slate-300 hover:bg-slate-700">
+        <button onclick={pickExecutable} class="w-full flex items-center gap-2 px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-left text-slate-300 hover:bg-slate-700">
           <FolderOpen size={14} class="shrink-0" />
           <span class="truncate">{addPath || 'Choose file…'}</span>
         </button>
@@ -344,7 +347,7 @@
           {/if}
         </div>
       {/if}
-      <button on:click={confirmAddGame} disabled={!addTitle.trim() || !addPath.trim()}
+      <button onclick={confirmAddGame} disabled={!addTitle.trim() || !addPath.trim()}
         class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
         <Plus size={14} /> Add to library
       </button>
