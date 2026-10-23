@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { SystemBridge } from '../../../utils/systemBridge';
 
-  export let videoPath: string | undefined;
-  export let currentTime: number;
+  interface Props {
+    videoPath: string | undefined;
+    currentTime: number;
+  }
+
+  let { videoPath, currentTime }: Props = $props();
 
   interface SubLine { start: number; end: number; text: string; }
 
@@ -26,9 +32,8 @@
     return lines;
   }
 
-  let lines: SubLine[] = [];
+  let lines = $state<SubLine[]>([]);
 
-  $: if (videoPath) loadSubs(videoPath); else lines = [];
 
   async function loadSubs(path: string) {
     const base = path.replace(/\.[^.]+$/, '');
@@ -42,7 +47,10 @@
     lines = [];
   }
 
-  $: active = lines.find((l) => currentTime >= l.start && currentTime <= l.end)?.text ?? '';
+  run(() => {
+    if (videoPath) loadSubs(videoPath); else lines = [];
+  });
+  let active = $derived(lines.find((l) => currentTime >= l.start && currentTime <= l.end)?.text ?? '');
 </script>
 
 {#if active}
