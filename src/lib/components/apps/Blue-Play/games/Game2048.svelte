@@ -4,10 +4,10 @@
   const dispatch = createEventDispatcher<{ score: number; gameOver: number }>();
 
   const SIZE = 4;
-  let board: number[][] = [];
-  let score = 0;
-  let over = false;
-  let won = false;
+  let board = $state<number[][]>([]);
+  let score = $state(0);
+  let over = $state(false);
+  let won = $state(false);
 
   const TILE_COLORS: Record<number, string> = {
     2: 'bg-slate-700 text-slate-100', 4: 'bg-slate-600 text-slate-100',
@@ -144,10 +144,10 @@
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span>Score: <strong class="text-white">{score}</strong></span>
     {#if won}<span class="text-emerald-400 text-xs font-semibold">2048 reached! Keep going.</span>{/if}
-    <button on:click={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
+    <button onclick={reset} class="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs">Restart</button>
   </div>
   <div class="relative bg-slate-800 p-2 rounded-xl border border-white/10"
-    on:touchstart={onTouchStart} on:touchend={onTouchEnd}>
+    ontouchstart={onTouchStart} ontouchend={onTouchEnd}>
     <div class="grid grid-cols-4 gap-2" style="width: 272px;">
       {#each board as row, r (r)}
         {#each row as cell, c (c)}
@@ -160,7 +160,7 @@
     {#if over}
       <div class="absolute inset-0 bg-slate-950/80 rounded-xl flex flex-col items-center justify-center gap-2">
         <span class="text-white font-bold">Game Over</span>
-        <button on:click={reset} class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm">Try again</button>
+        <button onclick={reset} class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm">Try again</button>
       </div>
     {/if}
   </div>
