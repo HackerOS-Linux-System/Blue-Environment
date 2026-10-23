@@ -8,13 +8,13 @@
 
   interface Cell { mine: boolean; revealed: boolean; flagged: boolean; adjacent: number; }
 
-  let grid: Cell[][] = [];
-  let over = false;
-  let won = false;
-  let flagsUsed = 0;
+  let grid = $state<Cell[][]>([]);
+  let over = $state(false);
+  let won = $state(false);
+  let flagsUsed = $state(0);
   let revealedCount = 0;
   let startTime = 0;
-  let score = 0;
+  let score = $state(0);
 
   function emptyGrid(): Cell[][] {
     return Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => ({
@@ -112,7 +112,7 @@
 <div class="flex flex-col items-center gap-3">
   <div class="flex items-center gap-4 text-sm text-slate-300">
     <span class="flex items-center gap-1"><Bomb size={13} class="text-red-400" /> {MINES - flagsUsed}</span>
-    <button on:click={reset} class="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"><RotateCcw size={11} /> Restart</button>
+    <button onclick={reset} class="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"><RotateCcw size={11} /> Restart</button>
     {#if won}<span class="text-emerald-400 font-semibold">Cleared! Score: {score}</span>{/if}
     {#if over}<span class="text-red-400 font-semibold">Boom!</span>{/if}
   </div>
@@ -120,8 +120,8 @@
     {#each grid as row, r (r)}
       {#each row as cell, c (c)}
         <button
-          on:click={() => reveal(r, c)}
-          on:contextmenu={(e) => toggleFlag(r, c, e)}
+          onclick={() => reveal(r, c)}
+          oncontextmenu={(e) => toggleFlag(r, c, e)}
           class="w-[22px] h-[22px] flex items-center justify-center text-[11px] font-bold select-none
             {cell.revealed ? (cell.mine ? 'bg-red-900' : 'bg-slate-900') : 'bg-slate-700 hover:bg-slate-650'}"
           style={cell.revealed && cell.adjacent > 0 ? `color:${NUM_COLORS[cell.adjacent]}` : ''}
