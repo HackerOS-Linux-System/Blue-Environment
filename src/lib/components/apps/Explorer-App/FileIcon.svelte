@@ -7,11 +7,15 @@
     resolveAssociationLocally, ICON_COMPONENTS,
   } from '../../../utils/fileTypeAssociations';
 
-  export let file: FileEntry;
-  export let size = 40;
+  interface Props {
+    file: FileEntry;
+    size?: number;
+  }
 
-  $: ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  $: codeExt = ['rs', 'ts', 'tsx', 'js', 'jsx', 'py', 'go', 'c', 'cpp'].includes(ext);
+  let { file, size = 40 }: Props = $props();
+
+  let ext = $derived(file.name.split('.').pop()?.toLowerCase() ?? '');
+  let codeExt = $derived(['rs', 'ts', 'tsx', 'js', 'jsx', 'py', 'go', 'c', 'cpp'].includes(ext));
 
   // User-defined associations (Settings > Custom File Types) always win
   // over the built-in rules below — this is the "let users add icon
@@ -19,12 +23,12 @@
   // component previously had no hook for at all (a closed if/else
   // chain with nowhere for a user preference to plug in).
   onMount(() => { ensureFileTypeAssociationsLoaded(); });
-  $: customMatch = file.is_dir ? null : resolveAssociationLocally(file.name, file.mime_type, $fileTypeAssociations);
-  $: CustomIcon = customMatch ? ICON_COMPONENTS[customMatch.icon] : null;
+  let customMatch = $derived(file.is_dir ? null : resolveAssociationLocally(file.name, file.mime_type, $fileTypeAssociations));
+  let CustomIcon = $derived(customMatch ? ICON_COMPONENTS[customMatch.icon] : null);
 </script>
 
 {#if customMatch && CustomIcon}
-  <svelte:component this={CustomIcon} {size} style="color: {customMatch.color}" />
+  <CustomIcon {size} style="color: {customMatch.color}" />
 {:else if file.is_dir}
   <Folder {size} class="text-blue-400" />
 {:else if file.mime_type.startsWith('image/')}
