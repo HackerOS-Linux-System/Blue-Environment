@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   // Blue Accounts — password/account manager. See
   // src-tauri/src/BlueAccounts/crypto.rs's module doc for the actual
   // encryption scheme (Argon2id + AES-256-GCM) backing this UI — this
@@ -27,17 +29,23 @@
     node.focus();
   }
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
   // Every app is handed its window id; this one doesn't need it.
-  $: windowId;
+  run(() => {
+    windowId;
+  });
 
   type Screen = 'loading' | 'create' | 'unlock' | 'vault';
-  let screen: Screen = 'loading';
+  let screen = $state<Screen>('loading');
 
-  let masterPassword = '';
-  let masterPasswordConfirm = '';
-  let unlockError = '';
-  let busy = false;
+  let masterPassword = $state('');
+  let masterPasswordConfirm = $state('');
+  let unlockError = $state('');
+  let busy = $state(false);
 
   // Held only for the current session, in memory, to pass as the
   // required parameter on every mutating command (see vault.rs's
@@ -45,24 +53,24 @@
   // this either).
   let sessionPassword = '';
 
-  let entries: VaultEntry[] = [];
-  let search = '';
-  let selectedId: string | null = null;
-  let editing: VaultEntry | null = null;
-  let showPasswordFor = new Set<string>();
-  let copiedField: string | null = null;
+  let entries = $state<VaultEntry[]>([]);
+  let search = $state('');
+  let selectedId = $state<string | null>(null);
+  let editing = $state<VaultEntry | null>(null);
+  let showPasswordFor = $state(new Set<string>());
+  let copiedField = $state<string | null>(null);
 
-  let showGenerator = false;
-  let genLength = 20;
-  let genSymbols = true;
-  let genDigits = true;
-  let genUppercase = true;
-  let generatedPassword = '';
+  let showGenerator = $state(false);
+  let genLength = $state(20);
+  let genSymbols = $state(true);
+  let genDigits = $state(true);
+  let genUppercase = $state(true);
+  let generatedPassword = $state('');
 
-  $: filteredEntries = entries.filter(
+  let filteredEntries = $derived(entries.filter(
     (e) => !search.trim() || e.title.toLowerCase().includes(search.toLowerCase()) || e.username.toLowerCase().includes(search.toLowerCase())
-  );
-  $: selectedEntry = entries.find((e) => e.id === selectedId) ?? null;
+  ));
+  let selectedEntry = $derived(entries.find((e) => e.id === selectedId) ?? null);
 
   onMount(async () => {
     const exists = await SystemBridge.accountsVaultExists();
@@ -214,12 +222,12 @@
           type="password"
           bind:value={masterPasswordConfirm}
           placeholder="Confirm master password"
-          on:keydown={(e) => e.key === 'Enter' && submitCreate()}
+          onkeydown={(e) => e.key === 'Enter' && submitCreate()}
           class="bg-slate-800 border border-white/10 rounded px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
         {#if unlockError}<p class="text-xs text-red-400">{unlockError}</p>{/if}
         <button
-          on:click={submitCreate}
+          onclick={submitCreate}
           disabled={busy}
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-2 text-sm font-medium flex items-center justify-center gap-2"
         >
@@ -240,12 +248,12 @@
           bind:value={masterPassword}
           placeholder="Master password"
           use:autofocusAction
-          on:keydown={(e) => e.key === 'Enter' && submitUnlock()}
+          onkeydown={(e) => e.key === 'Enter' && submitUnlock()}
           class="bg-slate-800 border border-white/10 rounded px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
         {#if unlockError}<p class="text-xs text-red-400">{unlockError}</p>{/if}
         <button
-          on:click={submitUnlock}
+          onclick={submitUnlock}
           disabled={busy || !masterPassword}
           class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-2 text-sm font-medium flex items-center justify-center gap-2"
         >
@@ -262,7 +270,7 @@
           <Search class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
           <input bind:value={search} placeholder="Search" class="w-full bg-slate-900 border border-white/10 rounded pl-7 pr-2 py-1.5 text-xs outline-none focus:border-blue-500" />
         </div>
-        <button on:click={startNewEntry} class="shrink-0 w-7 h-7 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500" title="New entry">
+        <button onclick={startNewEntry} class="shrink-0 w-7 h-7 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500" title="New entry">
           <Plus class="w-4 h-4" />
         </button>
       </div>
@@ -273,7 +281,7 @@
           {#each filteredEntries as entry (entry.id)}
             <button
               class="w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors {entry.id === selectedId ? 'bg-white/10' : ''}"
-              on:click={() => { selectedId = entry.id; editing = null; }}
+              onclick={() => { selectedId = entry.id; editing = null; }}
             >
               <div class="font-medium truncate">{entry.title || '(untitled)'}</div>
               <div class="text-xs text-slate-500 truncate">{entry.username}</div>
@@ -282,7 +290,7 @@
         {/if}
       </div>
       <div class="p-2 border-t border-white/10">
-        <button on:click={lockVault} class="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-slate-400 hover:bg-white/5">
+        <button onclick={lockVault} class="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-slate-400 hover:bg-white/5">
           <Lock class="w-3.5 h-3.5" /> Lock vault
         </button>
       </div>
@@ -294,19 +302,19 @@
         <div class="p-4 flex flex-col gap-3 overflow-y-auto">
           <div class="flex items-center justify-between">
             <span class="font-medium">{entries.some((e) => e.id === editing?.id) ? 'Edit entry' : 'New entry'}</span>
-            <button on:click={() => (editing = null)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
+            <button onclick={() => (editing = null)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
           </div>
           <input bind:value={editing.title} placeholder="Title" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
           <input bind:value={editing.username} placeholder="Username / email" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
           <div class="flex gap-2">
             <input bind:value={editing.password} type="text" placeholder="Password" class="flex-1 bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500 font-mono" />
-            <button on:click={() => (showGenerator = true)} class="shrink-0 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-xs flex items-center gap-1" title="Generate password">
+            <button onclick={() => (showGenerator = true)} class="shrink-0 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-xs flex items-center gap-1" title="Generate password">
               <RefreshCw class="w-3.5 h-3.5" />
             </button>
           </div>
           <input bind:value={editing.url} placeholder="URL" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
-          <textarea bind:value={editing.notes} placeholder="Notes" rows="3" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500 resize-none" />
-          <button on:click={saveEditing} disabled={busy || !editing.title.trim()} class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium flex items-center justify-center gap-2">
+          <textarea bind:value={editing.notes} placeholder="Notes" rows="3" class="bg-slate-800 border border-white/10 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500 resize-none"></textarea>
+          <button onclick={saveEditing} disabled={busy || !editing.title.trim()} class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium flex items-center justify-center gap-2">
             {#if busy}<Loader2 class="w-4 h-4 animate-spin" />{/if} Save
           </button>
         </div>
@@ -315,8 +323,8 @@
           <div class="flex items-center justify-between">
             <h2 class="font-medium text-base">{selectedEntry.title}</h2>
             <div class="flex gap-2">
-              <button on:click={() => startEdit(selectedEntry)} class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded">Edit</button>
-              <button on:click={() => deleteEntry(selectedEntry.id)} class="px-2.5 py-1 text-xs bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded flex items-center gap-1"><Trash2 class="w-3 h-3" /> Delete</button>
+              <button onclick={() => startEdit(selectedEntry)} class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded">Edit</button>
+              <button onclick={() => deleteEntry(selectedEntry.id)} class="px-2.5 py-1 text-xs bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded flex items-center gap-1"><Trash2 class="w-3 h-3" /> Delete</button>
             </div>
           </div>
 
@@ -326,7 +334,7 @@
                 <div class="text-[10px] text-slate-500 uppercase tracking-wide">Username</div>
                 <div class="truncate">{selectedEntry.username || '—'}</div>
               </div>
-              <button on:click={() => copyToClipboard(selectedEntry.username, 'username')} class="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
+              <button onclick={() => copyToClipboard(selectedEntry.username, 'username')} class="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
                 {#if copiedField === 'username'}<Check class="w-3.5 h-3.5 text-emerald-400" />{:else}<Copy class="w-3.5 h-3.5 text-slate-400" />{/if}
               </button>
             </div>
@@ -337,10 +345,10 @@
                 <div class="truncate font-mono">{showPasswordFor.has(selectedEntry.id) ? selectedEntry.password : '••••••••••••'}</div>
               </div>
               <div class="flex items-center gap-1 shrink-0">
-                <button on:click={() => togglePasswordVisible(selectedEntry.id)} class="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
+                <button onclick={() => togglePasswordVisible(selectedEntry.id)} class="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
                   {#if showPasswordFor.has(selectedEntry.id)}<EyeOff class="w-3.5 h-3.5 text-slate-400" />{:else}<Eye class="w-3.5 h-3.5 text-slate-400" />{/if}
                 </button>
-                <button on:click={() => copyToClipboard(selectedEntry.password, 'password')} class="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
+                <button onclick={() => copyToClipboard(selectedEntry.password, 'password')} class="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10">
                   {#if copiedField === 'password'}<Check class="w-3.5 h-3.5 text-emerald-400" />{:else}<Copy class="w-3.5 h-3.5 text-slate-400" />{/if}
                 </button>
               </div>
@@ -374,7 +382,7 @@
       <div class="bg-slate-900 border border-white/10 rounded-lg w-80 p-4 flex flex-col gap-3">
         <div class="flex items-center justify-between">
           <span class="font-medium text-sm">Generate password</span>
-          <button on:click={() => (showGenerator = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
+          <button onclick={() => (showGenerator = false)} class="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10"><X class="w-4 h-4" /></button>
         </div>
         <div class="bg-slate-800 rounded px-3 py-2 font-mono text-sm break-all min-h-[2.5rem]">{generatedPassword || '—'}</div>
         <label class="flex items-center justify-between text-xs">
@@ -384,10 +392,10 @@
         <label class="flex items-center gap-2 text-xs"><input type="checkbox" bind:checked={genUppercase} /> Uppercase letters</label>
         <label class="flex items-center gap-2 text-xs"><input type="checkbox" bind:checked={genDigits} /> Digits</label>
         <label class="flex items-center gap-2 text-xs"><input type="checkbox" bind:checked={genSymbols} /> Symbols</label>
-        <button on:click={generatePassword} class="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1.5 text-sm flex items-center justify-center gap-2">
+        <button onclick={generatePassword} class="bg-slate-800 hover:bg-slate-700 rounded px-3 py-1.5 text-sm flex items-center justify-center gap-2">
           <RefreshCw class="w-3.5 h-3.5" /> Generate
         </button>
-        <button on:click={useGeneratedPassword} disabled={!generatedPassword} class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium">
+        <button onclick={useGeneratedPassword} disabled={!generatedPassword} class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded px-3 py-1.5 text-sm font-medium">
           Use this password
         </button>
       </div>
