@@ -1,13 +1,19 @@
 <script lang="ts">
+  import { stopPropagation } from 'svelte/legacy';
+
   /** Hour grid shared by the Week (7 columns) and Day (1 column) views. */
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { t } from '../../../stores/language';
   import { layoutDay } from './recurrence';
   import type { Occurrence } from './types';
 
-  export let days: string[];
-  export let byDate: Record<string, Occurrence[]>;
-  export let today: string;
+  interface Props {
+    days: string[];
+    byDate: Record<string, Occurrence[]>;
+    today: string;
+  }
+
+  let { days, byDate, today }: Props = $props();
   const dispatch = createEventDispatcher<{ slot: { date: string; minutes: number }; open: Occurrence }>();
 
   const HOUR_H = 48;
@@ -17,8 +23,8 @@
   // Monday-first index of an ISO date (for the column header's weekday name)
   const wdIndex = (iso: string) => (new Date(iso + 'T00:00:00').getDay() + 6) % 7;
 
-  let scroller: HTMLDivElement;
-  let nowMin = minutesNow();
+  let scroller = $state() as HTMLDivElement;
+  let nowMin = $state(minutesNow());
   let timer: ReturnType<typeof setInterval>;
   function minutesNow() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
   onMount(() => {
@@ -38,7 +44,7 @@
 <div class="flex flex-col flex-1 min-h-0">
   <!-- header: weekday + date, then the all-day strip -->
   <div class="grid shrink-0 border-b border-white/5" style={cols()}>
-    <div />
+    <div></div>
     {#each days as d (d)}
       <div class="text-center py-1.5 border-l border-white/5">
         <div class="text-[10px] uppercase tracking-wider text-slate-500">{$t(WEEKDAY_KEYS[wdIndex(d)])}</div>
@@ -51,7 +57,7 @@
     {#each days as d (d)}
       <div class="border-l border-white/5 p-0.5 space-y-0.5">
         {#each (byDate[d] ?? []).filter((o) => !o.event.time) as o (o.key)}
-          <button on:click={() => dispatch('open', o)} class="w-full text-left truncate rounded px-1.5 py-0.5 text-[10px] text-white" style="background:{o.event.color}cc" title={o.event.title}>{o.event.title}</button>
+          <button onclick={() => dispatch('open', o)} class="w-full text-left truncate rounded px-1.5 py-0.5 text-[10px] text-white" style="background:{o.event.color}cc" title={o.event.title}>{o.event.title}</button>
         {/each}
       </div>
     {/each}
@@ -64,11 +70,11 @@
         {#each HOURS as h (h)}<div class="absolute right-1.5 text-[9px] text-slate-600 -translate-y-1.5" style="top:{h * HOUR_H}px">{h === 0 ? '' : `${pad(h)}:00`}</div>{/each}
       </div>
       {#each days as d (d)}
-        <div class="relative border-l border-white/5" on:click={(e) => clickSlot(e, d)} role="presentation">
-          {#each HOURS as h (h)}<div class="absolute left-0 right-0 border-t border-white/[0.04]" style="top:{h * HOUR_H}px" />{/each}
+        <div class="relative border-l border-white/5" onclick={(e) => clickSlot(e, d)} role="presentation">
+          {#each HOURS as h (h)}<div class="absolute left-0 right-0 border-t border-white/[0.04]" style="top:{h * HOUR_H}px"></div>{/each}
           {#each layoutDay(byDate[d] ?? []) as p (p.occ.key)}
             <button
-              on:click|stopPropagation={() => dispatch('open', p.occ)}
+              onclick={stopPropagation(() => dispatch('open', p.occ))}
               class="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden text-white text-[10px] leading-tight border border-black/20 hover:brightness-110"
               style="top:{(p.startMin / 60) * HOUR_H}px; height:{Math.max(18, ((p.endMin - p.startMin) / 60) * HOUR_H - 2)}px; left:calc({(p.lane / p.lanes) * 100}% + 1px); width:calc({100 / p.lanes}% - 3px); background:{p.occ.event.color}dd;"
               title="{p.occ.event.time} {p.occ.event.title}">
@@ -77,7 +83,7 @@
           {/each}
           {#if d === today}
             <div class="absolute left-0 right-0 pointer-events-none" style="top:{(nowMin / 60) * HOUR_H}px">
-              <div class="h-px bg-red-500" /><div class="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
+              <div class="h-px bg-red-500"></div><div class="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500"></div>
             </div>
           {/if}
         </div>
