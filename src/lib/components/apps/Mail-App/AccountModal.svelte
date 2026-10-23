@@ -3,7 +3,11 @@
   import type { MailAccount } from './accounts';
   import { createEventDispatcher } from 'svelte';
 
-  export let account: MailAccount | null = null;
+  interface Props {
+    account?: MailAccount | null;
+  }
+
+  let { account = null }: Props = $props();
 
   const dispatch = createEventDispatcher<{ save: MailAccount; close: void }>();
 
@@ -14,12 +18,12 @@
     icloud: { imapHost: 'imap.mail.me.com', imapPort: 993, smtpHost: 'smtp.mail.me.com', smtpPort: 587, useSsl: true },
   };
 
-  let form: MailAccount = account ?? {
+  let form: MailAccount = $state(account ?? {
     id: Date.now().toString(), name: '', email: '', imapHost: '', imapPort: 993,
     smtpHost: '', smtpPort: 587, username: '', password: '', useSsl: true,
-  };
-  let showPass = false;
-  let preset = '';
+  });
+  let showPass = $state(false);
+  let preset = $state('');
 
   function applyPreset(p: string) {
     preset = p;
@@ -41,7 +45,7 @@
         <Settings size={16} class="text-blue-400" />
         <span class="font-semibold">{account ? 'Edit Account' : 'Add Account'}</span>
       </div>
-      <button on:click={() => dispatch('close')} class="text-slate-400 hover:text-white"><X size={16} /></button>
+      <button onclick={() => dispatch('close')} class="text-slate-400 hover:text-white"><X size={16} /></button>
     </div>
 
     <div class="p-5 space-y-4">
@@ -49,7 +53,7 @@
         <span class="block text-xs text-slate-400 mb-2">Quick setup</span>
         <div class="flex gap-2 flex-wrap">
           {#each Object.keys(PRESETS) as p (p)}
-            <button on:click={() => applyPreset(p)} class="px-3 py-1.5 rounded-lg text-xs capitalize transition-colors {preset === p ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">{p}</button>
+            <button onclick={() => applyPreset(p)} class="px-3 py-1.5 rounded-lg text-xs capitalize transition-colors {preset === p ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">{p}</button>
           {/each}
         </div>
       </div>
@@ -80,7 +84,7 @@
               <input type="password" bind:value={form.password} placeholder="App password / token"
                 class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 pr-9" />
             {/if}
-            <button type="button" on:click={() => (showPass = !showPass)} class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+            <button type="button" onclick={() => (showPass = !showPass)} class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
               {#if showPass}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
             </button>
           </div>
@@ -126,8 +130,8 @@
     </div>
 
     <div class="flex justify-end gap-2 px-5 py-4 border-t border-white/5">
-      <button on:click={() => dispatch('close')} class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
-      <button on:click={handleSave} disabled={!form.email || !form.imapHost} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm text-white">
+      <button onclick={() => dispatch('close')} class="px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
+      <button onclick={handleSave} disabled={!form.email || !form.imapHost} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm text-white">
         {account ? 'Save changes' : 'Add account'}
       </button>
     </div>
