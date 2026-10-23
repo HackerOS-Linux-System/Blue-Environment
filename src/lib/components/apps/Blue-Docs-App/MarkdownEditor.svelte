@@ -3,16 +3,20 @@
   import { createEventDispatcher } from 'svelte';
   import { colorScheme } from '../../../stores/colorScheme';
 
-  export let content: string;
+  interface Props {
+    content: string;
+  }
+
+  let { content }: Props = $props();
   const dispatch = createEventDispatcher<{ change: string }>();
 
-  let preview = false;
+  let preview = $state(false);
   // The rendered preview goes through {@html}, so the inline styles baked
   // into that markup (inline-code background, <hr> border) can't be
   // reached by a CSS class at all — they need to be chosen at render
   // time instead, same underlying reason as colorScheme.ts's canvas
   // games, just for generated HTML instead of canvas pixels.
-  $: isLight = $colorScheme === 'light';
+  let isLight = $derived($colorScheme === 'light');
 
   function renderMd(md: string, isLight: boolean): string {
     const codeBg = isLight ? 'rgba(15,23,42,.06)' : 'rgba(255,255,255,.08)';
@@ -38,16 +42,16 @@
 
 <div class="flex-1 flex flex-col overflow-hidden">
   <div class="shrink-0 flex items-center gap-1 px-3 py-1.5 border-b border-white/5 bg-slate-900/50">
-    <button on:click={() => (preview = false)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {!preview ? 'bg-blue-600/25 text-blue-300' : 'text-slate-500 hover:text-white'}"><Edit3 size={12} /> Edit</button>
-    <button on:click={() => (preview = true)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {preview ? 'bg-blue-600/25 text-blue-300' : 'text-slate-500 hover:text-white'}"><Eye size={12} /> Preview</button>
+    <button onclick={() => (preview = false)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {!preview ? 'bg-blue-600/25 text-blue-300' : 'text-slate-500 hover:text-white'}"><Edit3 size={12} /> Edit</button>
+    <button onclick={() => (preview = true)} class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors {preview ? 'bg-blue-600/25 text-blue-300' : 'text-slate-500 hover:text-white'}"><Eye size={12} /> Preview</button>
   </div>
 
   {#if preview}
     <div class="flex-1 overflow-y-auto p-8 docs-markdown-preview" style="font-family:system-ui,sans-serif; line-height:1.7;">{@html renderMd(content, isLight)}</div>
   {:else}
-    <textarea value={content} on:input={(e) => dispatch('change', e.currentTarget.value)}
+    <textarea value={content} oninput={(e) => dispatch('change', e.currentTarget.value)}
       class="flex-1 bg-transparent text-slate-200 p-8 resize-none focus:outline-none text-sm leading-relaxed font-mono"
       placeholder="# Your document title&#10;&#10;Start writing in Markdown…" spellcheck="false"
-      style="font-family:'JetBrains Mono','Fira Code',monospace;" />
+      style="font-family:'JetBrains Mono','Fira Code',monospace;"></textarea>
   {/if}
 </div>
