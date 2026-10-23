@@ -2,9 +2,13 @@
   import { onMount } from 'svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
 
-  let container: HTMLDivElement;
+  let { windowId }: Props = $props();
+
+  let container = $state() as HTMLDivElement;
 
   onMount(() => {
     (async () => {
@@ -56,4 +60,4 @@
   });
 </script>
 
-<div bind:this={container} class="w-full h-full" />
+<div bind:this={container} class="w-full h-full"></div>
