@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { onMount } from 'svelte';
   import { Video, X, Plus } from 'lucide-svelte';
   import { createPlaylist } from './playlist';
@@ -9,37 +11,43 @@
   const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
   import { showContextMenu } from '../../../stores/contextMenu';
   import { openInMPV } from './playlist';
-  export let openPath: string | undefined = undefined;
+  interface Props {
+    openPath?: string | undefined;
+  }
+
+  let { openPath = undefined }: Props = $props();
   const { playlist, currentIdx, openFiles, addPath, remove } = createPlaylist();
   onMount(() => { if (openPath) addPath(openPath); });
 
-  let videoEl: HTMLVideoElement;
-  let containerEl: HTMLDivElement;
-  let playing = false;
-  let current = 0;
-  let duration = 0;
-  let volume = 1;
-  let muted = false;
-  let speed = 1;
+  let videoEl = $state() as HTMLVideoElement;
+  let containerEl = $state() as HTMLDivElement;
+  let playing = $state(false);
+  let current = $state(0);
+  let duration = $state(0);
+  let volume = $state(1);
+  let muted = $state(false);
+  let speed = $state(1);
   let fullscreen = false;
-  let showPlaylist = false;
-  let showSettings = false;
+  let showPlaylist = $state(false);
+  let showSettings = $state(false);
 
-  $: currentItem = $playlist[$currentIdx];
+  let currentItem = $derived($playlist[$currentIdx]);
 
-  $: if (videoEl && currentItem) {
-    // `currentItem.url` is a `file://<path>` string (playlist.ts) —
-    // same webview-loading restriction as every `file://` icon fixed
-    // in AppIconGlyph.svelte applies here too: a plain `<video
-    // src="file://...">` silently fails to load in the actual Tauri
-    // app. `SubtitleTrack`'s `videoPath` prop below deliberately keeps
-    // using the raw `currentItem.url` (stripped of the prefix, not
-    // converted) since that's a real filesystem path handed to a Tauri
-    // command, not a webview `src=` — only the actual `<video>` element
-    // needs the asset-protocol conversion.
-    videoEl.src = toAssetUrl(currentItem.url);
-    videoEl.play().catch(() => {});
-  }
+  run(() => {
+    if (videoEl && currentItem) {
+      // `currentItem.url` is a `file://<path>` string (playlist.ts) —
+      // same webview-loading restriction as every `file://` icon fixed
+      // in AppIconGlyph.svelte applies here too: a plain `<video
+      // src="file://...">` silently fails to load in the actual Tauri
+      // app. `SubtitleTrack`'s `videoPath` prop below deliberately keeps
+      // using the raw `currentItem.url` (stripped of the prefix, not
+      // converted) since that's a real filesystem path handed to a Tauri
+      // command, not a webview `src=` — only the actual `<video>` element
+      // needs the asset-protocol conversion.
+      videoEl.src = toAssetUrl(currentItem.url);
+      videoEl.play().catch(() => {});
+    }
+  });
 
   const copyText = (t: string) => navigator.clipboard.writeText(t).catch(() => {});
   const rawPath = (url: string) => url.replace(/^file:\/\//, '');
@@ -94,7 +102,7 @@
   // This is distinct from the generic window-level PiP available on every
   // app via the titlebar button (see Window.svelte) — that one keeps the
   // whole app window small and floating, this one floats just the video.
-  $: canPiP = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document;
+  let canPiP = $derived(typeof document !== 'undefined' && 'pictureInPictureEnabled' in document);
   async function togglePiP() {
     if (!videoEl) return;
     try {
@@ -106,22 +114,22 @@
 
 <div bind:this={containerEl} class="flex flex-col h-full bg-black text-white overflow-hidden relative">
   <div class="flex flex-1 overflow-hidden">
-    <div class="flex-1 flex items-center justify-center bg-black relative" on:contextmenu={videoMenu} role="presentation">
+    <div class="flex-1 flex items-center justify-center bg-black relative" oncontextmenu={videoMenu} role="presentation">
       {#if !currentItem}
         <div class="flex flex-col items-center gap-4 text-slate-600">
           <Video size={48} />
           <p class="text-sm text-slate-400">No video open</p>
-          <button on:click={openFiles} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm text-white">Open video files</button>
+          <button onclick={openFiles} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm text-white">Open video files</button>
         </div>
       {:else}
         <video
           bind:this={videoEl}
           class="max-w-full max-h-full"
-          on:play={() => (playing = true)}
-          on:pause={() => (playing = false)}
-          on:timeupdate={() => (current = videoEl?.currentTime ?? 0)}
-          on:loadedmetadata={() => (duration = videoEl?.duration ?? 0)}
-          on:ended={() => { if ($currentIdx < $playlist.length - 1) currentIdx.set($currentIdx + 1); }}
+          onplay={() => (playing = true)}
+          onpause={() => (playing = false)}
+          ontimeupdate={() => (current = videoEl?.currentTime ?? 0)}
+          onloadedmetadata={() => (duration = videoEl?.duration ?? 0)}
+          onended={() => { if ($currentIdx < $playlist.length - 1) currentIdx.set($currentIdx + 1); }}
         >
           <track kind="captions" />
         </video>
@@ -133,14 +141,14 @@
       <div class="w-56 bg-slate-900 border-l border-white/5 flex flex-col overflow-hidden shrink-0">
         <div class="flex items-center justify-between px-3 py-2 border-b border-white/5">
           <span class="text-xs font-medium">Playlist ({$playlist.length})</span>
-          <button on:click={openFiles} class="text-blue-400 hover:text-blue-300"><Plus size={14} /></button>
+          <button onclick={openFiles} class="text-blue-400 hover:text-blue-300"><Plus size={14} /></button>
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each $playlist as item, i (i)}
-            <div on:contextmenu={(e) => playlistItemMenu(e, i)} on:click={() => currentIdx.set(i)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => currentIdx.set(i))(); } }}
+            <div oncontextmenu={(e) => playlistItemMenu(e, i)} onclick={() => currentIdx.set(i)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); (() => currentIdx.set(i))(); } }}
               class="flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-white/5 group {i === $currentIdx ? 'bg-blue-600/20 text-white' : 'text-slate-400 hover:bg-white/5'}">
               <span class="flex-1 text-xs truncate">{item.name}</span>
-              <button on:click={(e) => { e.stopPropagation(); remove(i); }} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400">
+              <button onclick={(e) => { e.stopPropagation(); remove(i); }} class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400">
                 <X size={11} />
               </button>
             </div>
@@ -153,7 +161,7 @@
       <div class="absolute bottom-20 right-4 bg-slate-800 rounded-xl p-3 border border-white/10 shadow-xl z-10 w-40">
         <div class="text-xs text-slate-400 mb-2">Playback Speed</div>
         {#each speeds as s (s)}
-          <button on:click={() => changeSpeed(s)} class="w-full text-left px-2 py-1.5 rounded text-xs {speed === s ? 'bg-blue-600 text-white' : 'hover:bg-white/10 text-slate-300'}">
+          <button onclick={() => changeSpeed(s)} class="w-full text-left px-2 py-1.5 rounded text-xs {speed === s ? 'bg-blue-600 text-white' : 'hover:bg-white/10 text-slate-300'}">
             {s}x
           </button>
         {/each}
