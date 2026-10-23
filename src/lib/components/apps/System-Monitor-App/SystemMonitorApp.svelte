@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { stopPropagation } from 'svelte/legacy';
+
   import { watchedInvoke } from '../../../stores/appHealth';
   import { onMount, onDestroy } from 'svelte';
   import {
@@ -17,30 +19,34 @@
     type ProcessEntry, type CpuInfo, type MemInfo, type DiskEntry, type NetInterface, type GpuInfo, type TempSensor,
   } from './types';
 
-  export let windowId: string | undefined = undefined;
+  interface Props {
+    windowId?: string | undefined;
+  }
+
+  let { windowId = undefined }: Props = $props();
   const invoke = watchedInvoke(windowId, (cmd, args) => SystemBridge.invokeCommand(cmd, args));
 
-  let tab: MonitorTab = 'overview';
+  let tab = $state<MonitorTab>('overview');
 
-  let cpuHist: HistPoint[] = [];
-  let ramHist: HistPoint[] = [];
-  let netHist: HistPoint[] = [];
+  let cpuHist = $state<HistPoint[]>([]);
+  let ramHist = $state<HistPoint[]>([]);
+  let netHist = $state<HistPoint[]>([]);
   let diskHist: HistPoint[] = [];
-  let gpuHist: HistPoint[] = [];
+  let gpuHist = $state<HistPoint[]>([]);
 
-  let cpu: CpuInfo | null = null;
-  let mem: MemInfo | null = null;
-  let disks: DiskEntry[] = [];
-  let nets: NetInterface[] = [];
-  let gpus: GpuInfo[] = [];
-  let temps: TempSensor[] = [];
-  let procs: ProcessEntry[] = [];
+  let cpu = $state<CpuInfo | null>(null);
+  let mem = $state<MemInfo | null>(null);
+  let disks = $state<DiskEntry[]>([]);
+  let nets = $state<NetInterface[]>([]);
+  let gpus = $state<GpuInfo[]>([]);
+  let temps = $state<TempSensor[]>([]);
+  let procs = $state<ProcessEntry[]>([]);
 
-  let sort: SortKey = 'cpu';
-  let asc = false;
-  let query = '';
-  let selPid: number | null = null;
-  let killing: number | null = null;
+  let sort = $state<SortKey>('cpu');
+  let asc = $state(false);
+  let query = $state('');
+  let selPid = $state<number | null>(null);
+  let killing = $state<number | null>(null);
   let interval: ReturnType<typeof setInterval>;
 
   let ticking = false;
@@ -90,7 +96,7 @@
     killing = null;
   }
 
-  $: sorted = [...procs]
+  let sorted = $derived([...procs]
     .filter((p) => !query || p.name.toLowerCase().includes(query.toLowerCase()) || String(p.pid).includes(query))
     .sort((a, b) => {
       let v = 0;
@@ -100,7 +106,7 @@
       if (sort === 'pid') v = a.pid - b.pid;
       if (sort === 'user') v = a.user.localeCompare(b.user);
       return asc ? v : -v;
-    });
+    }));
 
   function sortBy(k: SortKey) {
     if (sort === k) asc = !asc;
@@ -126,20 +132,20 @@
     { k: 'memory', label: 'Memory', cls: 'w-24 text-right' },
   ];
 
-  $: memRows = mem ? [
+  let memRows = $derived(mem ? [
     ['Used', mem.used, '#a855f7'], ['Available', mem.available, '#10b981'], ['Cached', mem.cached, '#3b82f6'],
     ['Buffers', mem.buffers, '#0ea5e9'], ['Free', mem.free, '#22c55e'],
-  ] as [string, number, string][] : [];
+  ] as [string, number, string][] : []);
 </script>
 
 <div class="flex flex-col h-full bg-slate-950 text-white overflow-hidden">
   <div class="shrink-0 flex bg-slate-900 border-b border-white/5 overflow-x-auto scrollbar-hide">
     {#each TABS as t (t.id)}
-      <button on:click={() => (tab = t.id)} class="flex items-center gap-1.5 px-4 py-3 text-sm shrink-0 border-b-2 transition-colors {tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}">
-        <svelte:component this={t.icon} size={13} /> {t.label}
+      <button onclick={() => (tab = t.id)} class="flex items-center gap-1.5 px-4 py-3 text-sm shrink-0 border-b-2 transition-colors {tab === t.id ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}">
+        <t.icon size={13} /> {t.label}
       </button>
     {/each}
-    <button on:click={tick} class="ml-auto p-3 text-slate-600 hover:text-slate-400" title="Refresh"><RefreshCw size={14} /></button>
+    <button onclick={tick} class="ml-auto p-3 text-slate-600 hover:text-slate-400" title="Refresh"><RefreshCw size={14} /></button>
   </div>
 
   <div class="flex-1 overflow-y-auto p-4">
@@ -293,7 +299,7 @@
                 <span class="text-sm font-medium text-white font-mono">{n.name}</span>
                 {#if n.ip4}<span class="text-xs text-slate-500">{n.ip4}</span>{/if}
               </div>
-              <div class="w-2 h-2 rounded-full {n.connected ? 'bg-green-400' : 'bg-slate-700'}" />
+              <div class="w-2 h-2 rounded-full {n.connected ? 'bg-green-400' : 'bg-slate-700'}"></div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div class="text-center"><div class="text-xs text-slate-500 mb-1">Download</div><div class="text-lg font-light tabular-nums text-emerald-400">{fmtBps(n.rx_bps)}</div><div class="text-xs text-slate-600">{fmtBytes(n.rx_bytes)} total</div></div>
@@ -354,27 +360,27 @@
         <div class="relative">
           <Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input bind:value={query} placeholder="Filter by name or PID…" class="w-full bg-slate-800 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" />
-          {#if query}<button on:click={() => (query = '')} class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"><X size={13} /></button>{/if}
+          {#if query}<button onclick={() => (query = '')} class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"><X size={13} /></button>{/if}
         </div>
         <div class="bg-slate-800/60 rounded-2xl border border-white/5 overflow-hidden">
           <table class="w-full text-xs">
             <thead>
               <tr class="border-b border-white/5 text-left">
                 {#each THS as th (th.k)}
-                  <th on:click={() => sortBy(th.k)} class="py-2 px-3 text-left cursor-pointer hover:text-white select-none text-slate-500 text-xs font-medium {th.cls}">
+                  <th onclick={() => sortBy(th.k)} class="py-2 px-3 text-left cursor-pointer hover:text-white select-none text-slate-500 text-xs font-medium {th.cls}">
                     <span class="inline-flex items-center gap-0.5">
                       {th.label}
                       {#if sort === th.k}{#if asc}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if}
                     </span>
                   </th>
                 {/each}
-                <th class="w-16" />
+                <th class="w-16"></th>
               </tr>
             </thead>
             <tbody>
               {#each sorted.slice(0, 120) as p (p.pid)}
                 {@const isSel = selPid === p.pid}
-                <tr on:click={() => (selPid = isSel ? null : p.pid)} class="border-b border-white/[0.03] cursor-pointer transition-colors {isSel ? 'bg-blue-900/20' : 'hover:bg-white/[0.03]'}">
+                <tr onclick={() => (selPid = isSel ? null : p.pid)} class="border-b border-white/[0.03] cursor-pointer transition-colors {isSel ? 'bg-blue-900/20' : 'hover:bg-white/[0.03]'}">
                   <td class="px-3 py-1.5 font-mono text-slate-500">{p.pid}</td>
                   <td class="px-3 py-1.5">
                     <div class="text-slate-200 font-medium truncate max-w-[160px]">{p.name}</div>
@@ -385,7 +391,7 @@
                   <td class="px-3 py-1.5 text-right text-slate-400 tabular-nums">{fmtBytes(p.memory)}</td>
                   <td class="px-3 py-1.5 text-right">
                     {#if isSel}
-                      <button on:click|stopPropagation={() => killProc(p.pid)} disabled={killing === p.pid} class="px-2 py-0.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-[10px] transition-colors">
+                      <button onclick={stopPropagation(() => killProc(p.pid))} disabled={killing === p.pid} class="px-2 py-0.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-[10px] transition-colors">
                         {killing === p.pid ? '…' : 'Kill'}
                       </button>
                     {/if}
