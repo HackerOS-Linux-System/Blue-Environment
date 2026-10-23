@@ -13,19 +13,19 @@
   const ROTATIONS = ['normal', '90', '180', '270'];
   const CONFIRM_SECONDS = 15;
 
-  let outputs: Output[] = [];
-  let cfgs: Cfg[] = [];
-  let previous: Cfg[] = [];
-  let unavailable = '';
-  let loading = true;
-  let selected = '';
-  let error = '';
-  let applying = false;
-  let countdown = 0;
+  let outputs = $state<Output[]>([]);
+  let cfgs = $state<Cfg[]>([]);
+  let previous = $state<Cfg[]>([]);
+  let unavailable = $state('');
+  let loading = $state(true);
+  let selected = $state('');
+  let error = $state('');
+  let applying = $state(false);
+  let countdown = $state(0);
   let countdownTimer: ReturnType<typeof setInterval> | undefined;
 
-  let canvas: HTMLDivElement | undefined;
-  let canvasW = 560;
+  let canvas = $state<HTMLDivElement | undefined>();
+  let canvasW = $state(560);
   let drag: { name: string; startX: number; startY: number; origX: number; origY: number } | null = null;
 
   const currentMode = (o: Output) => o.modes.find((m) => m.current) ?? o.modes.find((m) => m.preferred) ?? o.modes[0];
@@ -42,17 +42,17 @@
     return { name: c.name, x: c.x, y: c.y, w, h };
   }
 
-  $: enabledRects = cfgs.filter((c) => c.enabled).map(rectOf);
-  $: bounds = (() => {
+  let enabledRects = $derived(cfgs.filter((c) => c.enabled).map(rectOf));
+  let bounds = $derived((() => {
     if (!enabledRects.length) return { w: 1920, h: 1080 };
     return { w: Math.max(...enabledRects.map((r) => r.x + r.w)), h: Math.max(...enabledRects.map((r) => r.y + r.h)) };
-  })();
-  $: k = Math.min(canvasW / Math.max(bounds.w * 1.15, 1), 0.16);
-  $: connected = isConnected(enabledRects);
-  $: overlapping = anyOverlap(enabledRects);
-  $: sel = cfgs.find((c) => c.name === selected) ?? null;
-  $: selOutput = outputs.find((o) => o.name === selected) ?? null;
-  $: dirty = JSON.stringify(cfgs) !== JSON.stringify(previous);
+  })());
+  let k = $derived(Math.min(canvasW / Math.max(bounds.w * 1.15, 1), 0.16));
+  let connected = $derived(isConnected(enabledRects));
+  let overlapping = $derived(anyOverlap(enabledRects));
+  let sel = $derived(cfgs.find((c) => c.name === selected) ?? null);
+  let selOutput = $derived(outputs.find((o) => o.name === selected) ?? null);
+  let dirty = $derived(JSON.stringify(cfgs) !== JSON.stringify(previous));
 
   async function load() {
     loading = true; error = '';
@@ -148,17 +148,17 @@
     <div class="flex items-center justify-between gap-2">
       <h3 class="text-sm font-medium text-white">{$t('displays.arrangement')}</h3>
       <div class="flex gap-1.5 text-xs">
-        <button on:click={row} class="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg"><AlignHorizontalSpaceAround size={12} /> {$t('displays.row')}</button>
-        <button on:click={load} class="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg"><RotateCcw size={12} /> {$t('displays.reset')}</button>
+        <button onclick={row} class="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg"><AlignHorizontalSpaceAround size={12} /> {$t('displays.row')}</button>
+        <button onclick={load} class="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg"><RotateCcw size={12} /> {$t('displays.reset')}</button>
       </div>
     </div>
 
     <div bind:this={canvas} class="relative w-full rounded-lg bg-slate-950/60 border border-white/5 overflow-hidden touch-none" style="height:{Math.max(140, bounds.h * k + 40)}px"
-         on:pointermove={move} on:pointerup={up} on:pointercancel={up} role="application" aria-label={$t('displays.arrangement')}>
+         onpointermove={move} onpointerup={up} onpointercancel={up} role="application" aria-label={$t('displays.arrangement')}>
       {#each cfgs.filter((c) => c.enabled) as c (c.name)}
         {@const r = rectOf(c)}
         <div role="button" tabindex="0" aria-label={c.name}
-             on:pointerdown={(e) => down(e, c)} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selected = c.name; }}
+             onpointerdown={(e) => down(e, c)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selected = c.name; }}
              class="absolute border-2 rounded-md flex flex-col items-center justify-center cursor-move select-none {selected === c.name ? 'border-blue-500 bg-blue-500/20' : 'border-white/30 bg-white/5'}"
              style="left:{20 + r.x * k}px;top:{20 + r.y * k}px;width:{r.w * k}px;height:{r.h * k}px">
           <Monitor size={16} class="text-blue-300" />
@@ -175,21 +175,21 @@
       <div class="grid sm:grid-cols-2 gap-3 text-xs border-t border-white/5 pt-3">
         <div class="sm:col-span-2 flex items-center gap-2">
           <span class="text-sm text-white font-medium">{sel.name}</span><span class="text-slate-500 truncate">{selOutput.description}</span>
-          <label class="ml-auto flex items-center gap-1.5 text-slate-300"><input type="checkbox" bind:checked={sel.enabled} on:change={() => { cfgs = cfgs; normalizeAll(); }} /> {$t('displays.enabled')}</label>
+          <label class="ml-auto flex items-center gap-1.5 text-slate-300"><input type="checkbox" bind:checked={sel.enabled} onchange={() => { cfgs = cfgs; normalizeAll(); }} /> {$t('displays.enabled')}</label>
         </div>
         {#if sel.enabled}
           <label class="grid gap-1 text-slate-400">{$t('displays.resolution')}
-            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" value={`${sel.width}x${sel.height}@${sel.refresh}`} on:change={(e) => setMode(sel, e.currentTarget.value)}>
+            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" value={`${sel.width}x${sel.height}@${sel.refresh}`} onchange={(e) => setMode(sel, e.currentTarget.value)}>
               {#each selOutput.modes as m}<option value={`${m.width}x${m.height}@${m.refresh}`}>{m.width}×{m.height} @ {m.refresh.toFixed(0)} Hz{m.preferred ? ' ★' : ''}</option>{/each}
             </select>
           </label>
           <label class="grid gap-1 text-slate-400">{$t('displays.scale')}
-            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" bind:value={sel.scale} on:change={() => { cfgs = cfgs; normalizeAll(); }}>
+            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" bind:value={sel.scale} onchange={() => { cfgs = cfgs; normalizeAll(); }}>
               {#each SCALES as s}<option value={s}>{Math.round(s * 100)}%</option>{/each}
             </select>
           </label>
           <label class="grid gap-1 text-slate-400">{$t('displays.rotation')}
-            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" bind:value={sel.transform} on:change={() => { cfgs = cfgs; normalizeAll(); }}>
+            <select class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-white" bind:value={sel.transform} onchange={() => { cfgs = cfgs; normalizeAll(); }}>
               {#each ROTATIONS as r}<option value={r}>{r === 'normal' ? $t('displays.rot_normal') : `${r}°`}</option>{/each}
             </select>
           </label>
@@ -202,11 +202,11 @@
     {#if countdown > 0}
       <div class="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-sm" role="alertdialog" aria-label={$t('displays.keep_title')}>
         <span class="flex-1 text-amber-100">{$t('displays.keep_body').replace('{s}', String(countdown))}</span>
-        <button on:click={keep} class="flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-xs"><Check size={12} /> {$t('displays.keep')}</button>
-        <button on:click={revert} class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs">{$t('displays.revert')}</button>
+        <button onclick={keep} class="flex items-center gap-1 px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-xs"><Check size={12} /> {$t('displays.keep')}</button>
+        <button onclick={revert} class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs">{$t('displays.revert')}</button>
       </div>
     {:else}
-      <button on:click={apply} disabled={!dirty || applying || overlapping} class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm disabled:opacity-40">{#if applying}<Loader2 size={14} class="animate-spin" />{/if} {$t('displays.apply')}</button>
+      <button onclick={apply} disabled={!dirty || applying || overlapping} class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm disabled:opacity-40">{#if applying}<Loader2 size={14} class="animate-spin" />{/if} {$t('displays.apply')}</button>
     {/if}
   </div>
 {/if}
