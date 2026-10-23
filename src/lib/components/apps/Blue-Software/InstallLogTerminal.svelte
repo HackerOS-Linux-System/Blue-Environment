@@ -3,7 +3,11 @@
   import type { InstallLog } from './types';
   import { createEventDispatcher } from 'svelte';
 
-  export let log: InstallLog;
+  interface Props {
+    log: InstallLog;
+  }
+
+  let { log }: Props = $props();
   const dispatch = createEventDispatcher<{ close: void }>();
 </script>
 
@@ -22,7 +26,7 @@
       {/if}
     </span>
     {#if log.done}
-      <button on:click={() => dispatch('close')} class="text-slate-500 hover:text-white"><X size={12} /></button>
+      <button onclick={() => dispatch('close')} class="text-slate-500 hover:text-white"><X size={12} /></button>
     {/if}
   </div>
   <div class="overflow-y-auto p-3 font-mono text-xs text-slate-300 space-y-0.5" style="max-height:110px;">
