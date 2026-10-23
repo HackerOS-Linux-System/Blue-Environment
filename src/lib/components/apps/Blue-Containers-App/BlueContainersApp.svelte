@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run as run_1 } from 'svelte/legacy';
+
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { Play, Square, RotateCw, Trash2, Terminal, Download, Plus, RefreshCw, FileText, Box } from 'lucide-svelte';
@@ -8,28 +10,28 @@
   interface Ctr { id: string; name: string; image: string; state: string; status: string; created: number; distrobox: boolean }
   interface Img { id: string; tags: string[]; size: number; created: number }
 
-  let tab: 'containers' | 'images' = 'containers';
-  let status: Status | null = null;
-  let containers: Ctr[] = [];
-  let images: Img[] = [];
-  let busy = '';
-  let error = '';
-  let logs = '';
-  let logsFor = '';
+  let tab = $state<'containers' | 'images'>('containers');
+  let status = $state<Status | null>(null);
+  let containers = $state<Ctr[]>([]);
+  let images = $state<Img[]>([]);
+  let busy = $state('');
+  let error = $state('');
+  let logs = $state('');
+  let logsFor = $state('');
   let timer: ReturnType<typeof setInterval>;
 
   // dialog "Nowa skrzynka"
-  let showCreate = false;
-  let newName = '';
-  let newImage = 'docker.io/library/ubuntu:24.04';
-  let nvidia = false;
-  let init = false;
+  let showCreate = $state(false);
+  let newName = $state('');
+  let newImage = $state('docker.io/library/ubuntu:24.04');
+  let nvidia = $state(false);
+  let init = $state(false);
   const SUGGESTED = [
     'docker.io/library/ubuntu:24.04', 'docker.io/library/debian:stable', 'docker.io/library/archlinux:latest',
     'registry.fedoraproject.org/fedora-toolbox:41', 'quay.io/toolbx/arch-toolbox:latest',
     'docker.io/library/alpine:latest', 'docker.io/opensuse/tumbleweed:latest',
   ];
-  let pullImage = '';
+  let pullImage = $state('');
 
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
     busy = label; error = '';
@@ -65,21 +67,23 @@
 
   onMount(() => { refresh(); timer = setInterval(refresh, 5000); });
   onDestroy(() => clearInterval(timer));
-  $: if (tab === 'images' && status?.connected) invoke<Img[]>('containers_images').then((i) => (images = i)).catch(() => {});
+  run_1(() => {
+    if (tab === 'images' && status?.connected) invoke<Img[]>('containers_images').then((i) => (images = i)).catch(() => {});
+  });
 </script>
 
 <div class="h-full flex flex-col bg-slate-900 text-slate-200 text-sm">
   <div class="flex items-center gap-2 px-3 py-2 border-b border-white/5">
     <Box size={18} class="text-blue-400" />
     <div class="flex gap-1">
-      <button class="px-3 py-1 rounded-lg {tab === 'containers' ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" on:click={() => (tab = 'containers')}>Kontenery</button>
-      <button class="px-3 py-1 rounded-lg {tab === 'images' ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" on:click={() => (tab = 'images')}>Obrazy</button>
+      <button class="px-3 py-1 rounded-lg {tab === 'containers' ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" onclick={() => (tab = 'containers')}>Kontenery</button>
+      <button class="px-3 py-1 rounded-lg {tab === 'images' ? 'bg-blue-600 text-white' : 'hover:bg-white/5'}" onclick={() => (tab = 'images')}>Obrazy</button>
     </div>
-    <div class="flex-1" />
+    <div class="flex-1"></div>
     {#if status?.engine}<span class="text-xs text-slate-500">{status.engine}</span>{/if}
-    <button class="p-1.5 rounded hover:bg-white/10" title="Odśwież" on:click={refresh}><RefreshCw size={15} /></button>
+    <button class="p-1.5 rounded hover:bg-white/10" title="Odśwież" onclick={refresh}><RefreshCw size={15} /></button>
     {#if status?.distrobox}
-      <button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white" on:click={() => (showCreate = true)}><Plus size={14} /> Nowa skrzynka</button>
+      <button class="flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white" onclick={() => (showCreate = true)}><Plus size={14} /> Nowa skrzynka</button>
     {/if}
   </div>
 
@@ -99,20 +103,20 @@
       {#each containers as c (c.id)}
         <div class="bg-slate-800 rounded-xl p-3 border border-white/5">
           <div class="flex items-center gap-3">
-            <span class="w-2.5 h-2.5 rounded-full {stateColor(c.state)}" />
+            <span class="w-2.5 h-2.5 rounded-full {stateColor(c.state)}"></span>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-white truncate">{c.name}{#if c.distrobox}<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">distrobox</span>{/if}</div>
               <div class="text-xs text-slate-500 truncate">{c.image} · {c.status}</div>
             </div>
-            {#if c.distrobox}<button class="p-1.5 rounded hover:bg-white/10" title="Otwórz terminal" on:click={() => enter(c)}><Terminal size={15} /></button>{/if}
+            {#if c.distrobox}<button class="p-1.5 rounded hover:bg-white/10" title="Otwórz terminal" onclick={() => enter(c)}><Terminal size={15} /></button>{/if}
             {#if c.state === 'running'}
-              <button class="p-1.5 rounded hover:bg-white/10" title="Zatrzymaj" on:click={() => act(c, 'stop')}><Square size={15} /></button>
-              <button class="p-1.5 rounded hover:bg-white/10" title="Restart" on:click={() => act(c, 'restart')}><RotateCw size={15} /></button>
+              <button class="p-1.5 rounded hover:bg-white/10" title="Zatrzymaj" onclick={() => act(c, 'stop')}><Square size={15} /></button>
+              <button class="p-1.5 rounded hover:bg-white/10" title="Restart" onclick={() => act(c, 'restart')}><RotateCw size={15} /></button>
             {:else}
-              <button class="p-1.5 rounded hover:bg-white/10" title="Uruchom" on:click={() => act(c, 'start')}><Play size={15} /></button>
+              <button class="p-1.5 rounded hover:bg-white/10" title="Uruchom" onclick={() => act(c, 'start')}><Play size={15} /></button>
             {/if}
-            <button class="p-1.5 rounded hover:bg-white/10" title="Logi" on:click={() => showLogs(c)}><FileText size={15} /></button>
-            <button class="p-1.5 rounded hover:bg-red-500/20 text-red-400" title="Usuń" on:click={() => confirm(`Usunąć ${c.name}?`) && act(c, 'remove')}><Trash2 size={15} /></button>
+            <button class="p-1.5 rounded hover:bg-white/10" title="Logi" onclick={() => showLogs(c)}><FileText size={15} /></button>
+            <button class="p-1.5 rounded hover:bg-red-500/20 text-red-400" title="Usuń" onclick={() => confirm(`Usunąć ${c.name}?`) && act(c, 'remove')}><Trash2 size={15} /></button>
           </div>
         </div>
       {:else}
@@ -120,7 +124,7 @@
       {/each}
       {#if logsFor}
         <div class="bg-black/40 rounded-xl p-3 border border-white/5">
-          <div class="flex justify-between text-xs text-slate-400 mb-1"><span>Logi: {logsFor}</span><button on:click={() => (logsFor = '')}>Zamknij</button></div>
+          <div class="flex justify-between text-xs text-slate-400 mb-1"><span>Logi: {logsFor}</span><button onclick={() => (logsFor = '')}>Zamknij</button></div>
           <pre class="text-[11px] text-slate-300 max-h-60 overflow-auto whitespace-pre-wrap">{logs || '(puste)'}</pre>
         </div>
       {/if}
@@ -129,13 +133,13 @@
     <div class="flex-1 overflow-y-auto p-3 space-y-2">
       <div class="flex gap-2">
         <input class="flex-1 bg-slate-800 rounded-lg px-3 py-1.5 outline-none" list="suggested-images" placeholder="docker.io/library/ubuntu:24.04" bind:value={pullImage} />
-        <datalist id="suggested-images">{#each SUGGESTED as s}<option value={s} />{/each}</datalist>
-        <button class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={!pullImage.trim() || !!busy} on:click={pull}><Download size={14} /> Pobierz</button>
+        <datalist id="suggested-images">{#each SUGGESTED as s}<option value={s}></option>{/each}</datalist>
+        <button class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={!pullImage.trim() || !!busy} onclick={pull}><Download size={14} /> Pobierz</button>
       </div>
       {#each images as i (i.id)}
         <div class="bg-slate-800 rounded-xl p-3 border border-white/5 flex items-center gap-3">
           <div class="flex-1 min-w-0"><div class="text-white truncate">{i.tags[0] ?? i.id.slice(7, 19)}</div><div class="text-xs text-slate-500">{fmtSize(i.size)}</div></div>
-          <button class="p-1.5 rounded hover:bg-red-500/20 text-red-400" on:click={() => confirm('Usunąć obraz?') && rmImage(i)}><Trash2 size={15} /></button>
+          <button class="p-1.5 rounded hover:bg-red-500/20 text-red-400" onclick={() => confirm('Usunąć obraz?') && rmImage(i)}><Trash2 size={15} /></button>
         </div>
       {/each}
     </div>
@@ -150,8 +154,8 @@
         <label class="flex items-center gap-2"><input type="checkbox" bind:checked={nvidia} /> Integracja NVIDIA</label>
         <label class="flex items-center gap-2"><input type="checkbox" bind:checked={init} /> Z systemd (init)</label>
         <div class="flex justify-end gap-2">
-          <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" on:click={() => (showCreate = false)}>Anuluj</button>
-          <button class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={!newName.trim() || !!busy} on:click={createBox}>Utwórz</button>
+          <button class="px-3 py-1.5 rounded-lg hover:bg-white/10" onclick={() => (showCreate = false)}>Anuluj</button>
+          <button class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40" disabled={!newName.trim() || !!busy} onclick={createBox}>Utwórz</button>
         </div>
       </div>
     </div>
