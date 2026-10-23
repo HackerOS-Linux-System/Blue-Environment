@@ -5,13 +5,17 @@
   import { classifySwipe } from '../lib/altShell/gestures';
   import { formatClock } from '../lib/altShell/shellUtils';
 
-  export let now: Date;
-  export let use24h = true;
-  export let unread = 0;
+  interface Props {
+    now: Date;
+    use24h?: boolean;
+    unread?: number;
+  }
+
+  let { now, use24h = true, unread = 0 }: Props = $props();
 
   const dispatch = createEventDispatcher<{ pull: void }>();
 
-  let battery: BatteryStatus | null = null;
+  let battery = $state<BatteryStatus | null>(null);
   let timer: ReturnType<typeof setInterval>;
   async function refresh() { try { battery = await SystemBridge.getBatteryStatus(); } catch { /* keep last */ } }
   onMount(() => { refresh(); timer = setInterval(refresh, 30000); });
@@ -26,13 +30,13 @@
     if (swipe === 'down' || (Math.abs(dx) < 10 && Math.abs(dy) < 10)) dispatch('pull');
   }
 
-  $: lowBattery = battery?.present && battery.percentage <= 15 && !battery.charging;
+  let lowBattery = $derived(battery?.present && battery.percentage <= 15 && !battery.charging);
 </script>
 
 <div role="button" tabindex="0" aria-label="Status bar"
   class="phone-safe-top relative z-30 shrink-0 bg-black/30 backdrop-blur-md text-white"
-  on:pointerdown={down} on:pointerup={up}
-  on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && dispatch('pull')}>
+  onpointerdown={down} onpointerup={up}
+  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && dispatch('pull')}>
   <div class="h-8 px-4 flex items-center justify-between text-xs font-medium tabular-nums">
     <span>{formatClock(now, use24h)}</span>
     <span class="flex items-center gap-2">
