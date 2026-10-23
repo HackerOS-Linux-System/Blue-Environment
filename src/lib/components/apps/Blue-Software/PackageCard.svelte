@@ -5,9 +5,13 @@
   import AppIconGlyph from '../../AppIconGlyph.svelte';
   import { createEventDispatcher } from 'svelte';
 
-  export let pkg: PackageInfo;
-  export let tab: SoftwareTab;
-  export let busy: boolean;
+  interface Props {
+    pkg: PackageInfo;
+    tab: SoftwareTab;
+    busy: boolean;
+  }
+
+  let { pkg, tab, busy }: Props = $props();
 
   const dispatch = createEventDispatcher<{ action: 'install' | 'remove' | 'update' }>();
 </script>
@@ -39,15 +43,15 @@
     {#if pkg.size}<span class="text-[10px] text-slate-600">{pkg.size}</span>{/if}
     <div class="ml-auto">
       {#if tab === 'available'}
-        <button on:click={() => dispatch('action', 'install')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50 transition-colors">
+        <button onclick={() => dispatch('action', 'install')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs disabled:opacity-50 transition-colors">
           {#if busy}<Loader2 size={12} class="animate-spin" />{:else}<Download size={12} />{/if} Install
         </button>
       {:else if tab === 'installed'}
-        <button on:click={() => dispatch('action', 'remove')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs disabled:opacity-50 transition-colors">
+        <button onclick={() => dispatch('action', 'remove')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs disabled:opacity-50 transition-colors">
           {#if busy}<Loader2 size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if} Remove
         </button>
       {:else if tab === 'updates'}
-        <button on:click={() => dispatch('action', 'update')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50 transition-colors">
+        <button onclick={() => dispatch('action', 'update')} disabled={busy} class="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-xs disabled:opacity-50 transition-colors">
           {#if busy}<Loader2 size={12} class="animate-spin" />{:else}<RefreshCw size={12} />{/if} Update
         </button>
       {/if}
