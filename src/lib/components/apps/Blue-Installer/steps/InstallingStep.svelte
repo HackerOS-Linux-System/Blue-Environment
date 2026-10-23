@@ -4,7 +4,11 @@
   import type { InstallState } from '../installState';
   import { tauriListen } from '../../Terminal-App/tauriBridge';
 
-  export let state: InstallState;
+  interface Props {
+    state: InstallState;
+  }
+
+  let { state }: Props = $props();
   const { progressPct, progressLabel, installLog } = state;
 
   let unlisten: (() => void) | undefined;
@@ -27,7 +31,7 @@
     <p class="text-slate-500 text-sm">{$progressLabel || 'Preparing…'}</p>
   </div>
   <div class="w-full max-w-md h-2 bg-slate-800 rounded-full overflow-hidden">
-    <div class="h-full bg-blue-500 transition-all duration-300" style="width:{$progressPct}%;" />
+    <div class="h-full bg-blue-500 transition-all duration-300" style="width:{$progressPct}%;"></div>
   </div>
   <span class="text-xs text-slate-600 font-mono">{$progressPct}%</span>
 
