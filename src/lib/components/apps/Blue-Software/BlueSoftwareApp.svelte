@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { isCompactWidth } from '../../../utils/compact';
   import { onMount } from 'svelte';
   import { Package, RefreshCw, Search, LayoutGrid, List, AlertCircle, Loader2, X } from 'lucide-svelte';
@@ -16,30 +18,32 @@
   // Top-level sections: the system package manager (apt/dnf/pacman/flatpak/…)
   // plus the three community stores fed by the JSON indexes.
   type Section = 'system' | PackageKind | 'icons';
-  let section: Section = 'system';
+  let section = $state<Section>('system');
   // `labelKey` → translated; the older sections keep their plain labels.
   const sections: { id: Section; label?: string; labelKey?: string }[] = [
     { id: 'system', label: 'System' }, { id: 'app', label: 'Community Apps' },
     { id: 'plugin', label: 'Plugins' }, { id: 'theme', label: 'Themes' },
     { id: 'icons', labelKey: 'software.section.icons' },
   ];
-  /** Window id handed in by the host. (The icon store used to need it to hide an embedded native page; it is now drawn natively.) */
-  export let windowId: string = '';
-  $: void windowId; // accepted for the host's sake; nothing here needs it any more
+  
+  interface Props {
+    /** Window id handed in by the host. (The icon store used to need it to hide an embedded native page; it is now drawn natively.) */
+    windowId?: string;
+  }
+
+  let { windowId = '' }: Props = $props();
   // The store page is created lazily on first visit, then kept alive (just hidden) when switching sections.
-  let iconsOpened = false;
-  $: if (section === 'icons') iconsOpened = true;
+  let iconsOpened = $state(false);
 
   const { packages, loading, refreshing, error, activeAction, installLog, loadPackages, performAction, closeLog } = createPackages();
 
-  let activeTab: SoftwareTab = 'installed';
+  let activeTab = $state<SoftwareTab>('installed');
   // Rendering thousands of cards at once (a normal Installed list) freezes
   // the webview; show a page at a time instead.
   const PAGE = 120;
-  let shown = PAGE;
-  $: if (searchQuery !== undefined || activeTab) shown = PAGE;
-  let searchQuery = '';
-  let viewMode: ViewMode = 'grid';
+  let shown = $state(PAGE);
+  let searchQuery = $state('');
+  let viewMode = $state<ViewMode>('grid');
 
   onMount(loadPackages);
 
@@ -58,27 +62,36 @@
     ]);
   }
 
-  $: filtered = $packages.filter((p) => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
-    if (activeTab === 'available') return matchSearch && !p.installed;
-    if (activeTab === 'installed') return matchSearch && p.installed;
-    if (activeTab === 'updates') return matchSearch && p.installed && p.update_available;
-    return matchSearch;
-  });
 
   // Compact layout (phone shell / narrow window): one card per row, scrollable tab rows.
-  let rootW = 0;
-  $: compact = isCompactWidth(rootW);
+  let rootW = $state(0);
 
-  $: installed = $packages.filter((p) => p.installed).length;
-  $: updates = $packages.filter((p) => p.installed && p.update_available).length;
 
   const tabs: { id: SoftwareTab; label: (pkgs: PackageInfo[]) => string }[] = [
     { id: 'available', label: (pkgs) => `Available (${pkgs.filter((p) => !p.installed).length})` },
     { id: 'installed', label: () => `Installed (${installed})` },
     { id: 'updates', label: () => `Updates (${updates})` },
   ];
+  run(() => {
+    void windowId;
+  }); // accepted for the host's sake; nothing here needs it any more
+  run(() => {
+    if (section === 'icons') iconsOpened = true;
+  });
+  run(() => {
+    if (searchQuery !== undefined || activeTab) shown = PAGE;
+  });
+  let filtered = $derived($packages.filter((p) => {
+    const q = searchQuery.toLowerCase();
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
+    if (activeTab === 'available') return matchSearch && !p.installed;
+    if (activeTab === 'installed') return matchSearch && p.installed;
+    if (activeTab === 'updates') return matchSearch && p.installed && p.update_available;
+    return matchSearch;
+  }));
+  let compact = $derived(isCompactWidth(rootW));
+  let installed = $derived($packages.filter((p) => p.installed).length);
+  let updates = $derived($packages.filter((p) => p.installed && p.update_available).length);
 </script>
 
 <div bind:clientWidth={rootW} class="flex flex-col h-full bg-slate-900 text-white">
@@ -88,21 +101,21 @@
         <Package size={26} class="text-blue-400" />
         <h1 class="text-xl font-bold">Blue Software</h1>
       </div>
-      <button on:click={loadPackages} disabled={$refreshing} class="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50">
+      <button onclick={loadPackages} disabled={$refreshing} class="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50">
         <RefreshCw size={16} class={$refreshing ? 'animate-spin' : ''} />
       </button>
     </div>
 
     <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit max-w-full overflow-x-auto">
       {#each sections as sec (sec.id)}
-        <button on:click={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
+        <button onclick={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
       {/each}
     </div>
 
     {#if section === 'system'}
     <div class="flex gap-0 border-b border-white/10 mb-3 overflow-x-auto whitespace-nowrap">
       {#each tabs as t (t.id)}
-        <button on:click={() => (activeTab = t.id)}
+        <button onclick={() => (activeTab = t.id)}
           class="px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px {activeTab === t.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}">
           {t.label($packages)}
           {#if t.id === 'updates' && updates > 0}
@@ -119,8 +132,8 @@
           class="w-full bg-slate-800 border border-white/10 rounded-lg py-2 pl-9 pr-4 text-sm text-white focus:outline-none focus:border-blue-500/50" />
       </div>
       <div class="flex gap-1 bg-slate-800 rounded-lg p-1">
-        <button on:click={() => (viewMode = 'grid')} class="p-1.5 rounded {viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/10'}"><LayoutGrid size={15} /></button>
-        <button on:click={() => (viewMode = 'list')} class="p-1.5 rounded {viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/10'}"><List size={15} /></button>
+        <button onclick={() => (viewMode = 'grid')} class="p-1.5 rounded {viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/10'}"><LayoutGrid size={15} /></button>
+        <button onclick={() => (viewMode = 'list')} class="p-1.5 rounded {viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-white/10'}"><List size={15} /></button>
       </div>
     </div>
     {/if}
@@ -138,7 +151,7 @@
     {#if $error}
       <div class="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4 flex items-center gap-2 text-red-400 text-sm">
         <AlertCircle size={15} /> {$error}
-        <button on:click={() => error.set(null)} class="ml-auto"><X size={14} /></button>
+        <button onclick={() => error.set(null)} class="ml-auto"><X size={14} /></button>
       </div>
     {/if}
 
@@ -156,19 +169,19 @@
     {:else if viewMode === 'grid'}
       <div class="grid gap-3 {compact ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}">
         {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
-          <div on:contextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
+          <div oncontextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageCard {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
         {/each}
       </div>
     {:else}
       <div class="space-y-1">
         {#each filtered.slice(0, shown) as pkg (`${pkg.source}-${pkg.id}`)}
-          <div on:contextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageRow {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
+          <div oncontextmenu={(e) => pkgMenu(e, pkg)} role="presentation"><PackageRow {pkg} tab={activeTab} busy={$activeAction === pkg.id} on:action={(e) => performAction(pkg, e.detail)} /></div>
         {/each}
       </div>
     {/if}
     {#if filtered.length > shown}
       <div class="text-center py-4">
-        <button on:click={() => (shown += PAGE)} class="px-4 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm">
+        <button onclick={() => (shown += PAGE)} class="px-4 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm">
           Show more ({filtered.length - shown} left)
         </button>
       </div>
