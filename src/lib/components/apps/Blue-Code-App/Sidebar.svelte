@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { RefreshCw, FolderOpen, FolderPlus, FilePlus, AlertCircle, AlertTriangle } from 'lucide-svelte';
   import { onDestroy } from 'svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
@@ -20,9 +22,13 @@
   import FileTreeView from './FileTreeView.svelte';
   import DevServerPanel from './DevServerPanel.svelte';
 
-  export let tree: FileTreeState;
-  export let editor: EditorFilesState;
-  export let sidebarTab: SidebarTab;
+  interface Props {
+    tree: FileTreeState;
+    editor: EditorFilesState;
+    sidebarTab: SidebarTab;
+  }
+
+  let { tree, editor, sidebarTab = $bindable() }: Props = $props();
 
   const { rootPath, fileTree, isLoading, selectedDir } = tree;
   const { openFiles, diagnostics, totalErrors, totalWarnings } = editor;
@@ -33,7 +39,7 @@
   // (BlueCodeApp/git.rs) rather than GitPanel's own shell-based
   // `git status --porcelain` parsing, since this needs to run on every
   // tree refresh/file save, not just when the Git sidebar tab is open.
-  let gitStatusMap: Record<string, string> = {};
+  let gitStatusMap = $state<Record<string, string>>({});
   async function refreshGitStatus(root: string) {
     if (!root) { gitStatusMap = {}; return; }
     try {
@@ -45,7 +51,9 @@
       gitStatusMap = map;
     } catch { gitStatusMap = {}; }
   }
-  $: refreshGitStatus($rootPath);
+  run(() => {
+    refreshGitStatus($rootPath);
+  });
   // Re-check after every save, not just on tree refresh — a save is the
   // single most common moment a file's git status actually changes.
   const unsubOpenFilesForGit = openFiles.subscribe(() => refreshGitStatus($rootPath));
@@ -53,12 +61,12 @@
 
   const TABS: SidebarTab[] = ['files', 'search', 'git', 'problems', 'dev'];
 
-  let searchTerm = '';
-  let searchResults: { file: string; line: number; content: string }[] = [];
-  let replaceTerm = '';
-  let replaceStatus: string | null = null;
-  let replacing = false;
-  let activeSearch: ReturnType<typeof import('./search').createSearch> | null = null;
+  let searchTerm = $state('');
+  let searchResults = $state<{ file: string; line: number; content: string }[]>([]);
+  let replaceTerm = $state('');
+  let replaceStatus = $state<string | null>(null);
+  let replacing = $state(false);
+  let activeSearch = $state<ReturnType<typeof import('./search').createSearch> | null>(null);
 
   async function runSearch() {
     // Local mini-search kept separate to avoid a circular import with
@@ -105,16 +113,16 @@
   // Grouped for the Problems tab — computed here rather than inline in
   // the template so TypeScript can infer the reduce's accumulator type
   // properly instead of defaulting to `{}`/`any`.
-  $: problemsByFile = $diagnostics.reduce<Record<string, typeof $diagnostics>>((acc, d) => {
+  let problemsByFile = $derived($diagnostics.reduce<Record<string, typeof $diagnostics>>((acc, d) => {
     (acc[d.file] ??= []).push(d);
     return acc;
-  }, {});
+  }, {}));
 </script>
 
 <div class="w-56 bg-slate-800/50 border-r border-white/5 flex flex-col overflow-hidden">
   <div class="flex border-b border-white/5 shrink-0">
     {#each TABS as tab (tab)}
-      <button on:click={() => (sidebarTab = tab)} class="flex-1 py-1.5 text-xs capitalize transition-colors relative {sidebarTab === tab ? 'bg-slate-900 text-white border-b-2 border-blue-500' : 'text-slate-500 hover:text-white'}">
+      <button onclick={() => (sidebarTab = tab)} class="flex-1 py-1.5 text-xs capitalize transition-colors relative {sidebarTab === tab ? 'bg-slate-900 text-white border-b-2 border-blue-500' : 'text-slate-500 hover:text-white'}">
         {tab}
         {#if tab === 'problems' && ($totalErrors + $totalWarnings) > 0}
           <span class="absolute top-0.5 right-1 min-w-[14px] h-[14px] px-0.5 rounded-full text-[9px] leading-[14px] {$totalErrors > 0 ? 'bg-red-500' : 'bg-yellow-500'} text-white">{$totalErrors + $totalWarnings}</span>
@@ -124,14 +132,14 @@
   </div>
 
   {#if sidebarTab === 'files'}
-    <div class="flex-1 overflow-y-auto p-1" on:contextmenu={treeBackgroundMenu} role="presentation">
+    <div class="flex-1 overflow-y-auto p-1" oncontextmenu={treeBackgroundMenu} role="presentation">
       <div class="flex items-center justify-between px-2 py-1 mb-1">
         <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate" title={$rootPath}>{$rootPath.split('/').pop() || $rootPath || 'Explorer'}</span>
         <div class="flex gap-0.5 shrink-0">
-          <button on:click={() => tree.createFile()} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="New File"><FilePlus size={12} /></button>
-          <button on:click={() => tree.createFolder()} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="New Folder"><FolderPlus size={12} /></button>
-          <button on:click={tree.openWorkspace} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Open Folder"><FolderOpen size={12} /></button>
-          <button on:click={() => tree.loadTree($rootPath)} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Refresh"><RefreshCw size={11} /></button>
+          <button onclick={() => tree.createFile()} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="New File"><FilePlus size={12} /></button>
+          <button onclick={() => tree.createFolder()} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="New Folder"><FolderPlus size={12} /></button>
+          <button onclick={tree.openWorkspace} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Open Folder"><FolderOpen size={12} /></button>
+          <button onclick={() => tree.loadTree($rootPath)} class="p-0.5 hover:bg-white/10 rounded text-slate-500" title="Refresh"><RefreshCw size={11} /></button>
         </div>
       </div>
       {#if $isLoading}
@@ -154,14 +162,14 @@
   {#if sidebarTab === 'search'}
     <div class="flex-1 overflow-y-auto p-2">
       <div class="flex gap-1 mb-1.5">
-        <input type="text" bind:value={searchTerm} on:keydown={(e) => e.key === 'Enter' && runSearch()} placeholder="Search…"
+        <input type="text" bind:value={searchTerm} onkeydown={(e) => e.key === 'Enter' && runSearch()} placeholder="Search…"
           class="flex-1 bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500/50" />
-        <button on:click={runSearch} class="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Go</button>
+        <button onclick={runSearch} class="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs">Go</button>
       </div>
       <div class="flex gap-1 mb-2">
-        <input type="text" bind:value={replaceTerm} on:keydown={(e) => e.key === 'Enter' && runReplace()} placeholder="Replace with…"
+        <input type="text" bind:value={replaceTerm} onkeydown={(e) => e.key === 'Enter' && runReplace()} placeholder="Replace with…"
           class="flex-1 bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500/50" />
-        <button on:click={runReplace} disabled={!activeSearch || !searchTerm || searchResults.length === 0 || replacing}
+        <button onclick={runReplace} disabled={!activeSearch || !searchTerm || searchResults.length === 0 || replacing}
           class="px-2 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded text-xs whitespace-nowrap">
           {replacing ? '…' : 'Replace All'}
         </button>
@@ -169,7 +177,7 @@
       {#if replaceStatus}<div class="text-[10px] text-green-400 mb-2">{replaceStatus}</div>{/if}
       <div class="space-y-1">
         {#each searchResults as r, i (i)}
-          <div role="button" tabindex="0" on:click={() => editor.openFile(r.file)} on:keydown={(e) => e.key === 'Enter' && editor.openFile(r.file)} class="cursor-pointer hover:bg-white/5 rounded p-1">
+          <div role="button" tabindex="0" onclick={() => editor.openFile(r.file)} onkeydown={(e) => e.key === 'Enter' && editor.openFile(r.file)} class="cursor-pointer hover:bg-white/5 rounded p-1">
             <div class="text-[10px] text-blue-400 truncate">{r.file.split('/').pop()}:{r.line}</div>
             <div class="text-[10px] text-slate-400 truncate">{r.content}</div>
           </div>
@@ -192,7 +200,7 @@
           <div class="mb-1">
             <div class="px-2 py-1 text-[10px] font-semibold text-slate-500 truncate" title={file}>{file.split('/').pop()}</div>
             {#each diags as d, i (i)}
-              <div role="button" tabindex="0" on:click={() => editor.openFileAtLine(file, d.line)} on:keydown={(e) => e.key === 'Enter' && editor.openFileAtLine(file, d.line)}
+              <div role="button" tabindex="0" onclick={() => editor.openFileAtLine(file, d.line)} onkeydown={(e) => e.key === 'Enter' && editor.openFileAtLine(file, d.line)}
                 class="flex items-start gap-1.5 px-3 py-1 hover:bg-white/5 cursor-pointer rounded">
                 {#if d.severity === 'error'}
                   <AlertCircle size={11} class="text-red-400 shrink-0 mt-0.5" />
