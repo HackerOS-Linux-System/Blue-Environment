@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { run, createBubbler, stopPropagation } from 'svelte/legacy';
+
+  const bubble = createBubbler();
   import { onMount, onDestroy } from 'svelte';
   import { ChevronLeft, ChevronRight, Plus, Trash2, CalendarDays, Clock, Repeat, Bell, MoreHorizontal, Globe, Upload, Download, Lock } from 'lucide-svelte';
   import { createCalendarStore } from './calendarStore';
@@ -12,9 +15,15 @@
   import { userDirPath, ensureUserDirsLoaded } from '../../../utils/userDirs';
   import { pickPaths } from '../../../stores/filePicker';
 
-  export let windowId: string;
+  interface Props {
+    windowId: string;
+  }
+
+  let { windowId }: Props = $props();
   // Every app is handed its window id; this one doesn't need it.
-  $: windowId;
+  run(() => {
+    windowId;
+  });
 
   const store = createCalendarStore();
   const { loading, error, subscriptions, allEvents } = store;
@@ -27,12 +36,12 @@
   const isoDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const today = isoDate(new Date());
 
-  let view: CalendarView = 'month';
-  let cursor = today;            // the day the current view is anchored to
-  let selectedDate = today;
-  let menuOpen = false;
-  let showSubs = false;
-  let status = '';
+  let view = $state<CalendarView>('month');
+  let cursor = $state(today);            // the day the current view is anchored to
+  let selectedDate = $state(today);
+  let menuOpen = $state(false);
+  let showSubs = $state(false);
+  let status = $state('');
   let statusTimer: ReturnType<typeof setTimeout>;
   let syncTimer: ReturnType<typeof setInterval>;
 
@@ -46,26 +55,26 @@
   onDestroy(() => { clearInterval(syncTimer); clearTimeout(statusTimer); });
 
   // ── Visible range ────────────────────────────────────────────────────
-  $: cur = parseIso(cursor);
-  $: monthFirst = `${cur.y}-${pad(cur.m)}-01`;
-  $: monthLast = `${cur.y}-${pad(cur.m)}-${pad(daysInMonth(cur.y, cur.m))}`;
-  $: gridStart = mondayOf(monthFirst);
-  $: gridEnd = addDays(mondayOf(monthLast), 6);
-  $: weekStart = mondayOf(cursor);
-  $: days = view === 'month'
+  let cur = $derived(parseIso(cursor));
+  let monthFirst = $derived(`${cur.y}-${pad(cur.m)}-01`);
+  let monthLast = $derived(`${cur.y}-${pad(cur.m)}-${pad(daysInMonth(cur.y, cur.m))}`);
+  let gridStart = $derived(mondayOf(monthFirst));
+  let gridEnd = $derived(addDays(mondayOf(monthLast), 6));
+  let weekStart = $derived(mondayOf(cursor));
+  let days = $derived(view === 'month'
     ? Array.from({ length: dayNum(gridEnd) - dayNum(gridStart) + 1 }, (_, i) => fromDayNum(dayNum(gridStart) + i))
-    : view === 'week' ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)) : [cursor];
-  $: occs = occurrencesInRange($allEvents, days[0], days[days.length - 1]);
-  $: byDate = groupByDate(occs);
-  $: selectedOccs = byDate[selectedDate] ?? [];
+    : view === 'week' ? Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)) : [cursor]);
+  let occs = $derived(occurrencesInRange($allEvents, days[0], days[days.length - 1]));
+  let byDate = $derived(groupByDate(occs));
+  let selectedOccs = $derived(byDate[selectedDate] ?? []);
 
-  $: title = (() => {
+  let title = $derived((() => {
     if (view === 'month') return `${$t(MONTH_KEYS[cur.m - 1])} ${cur.y}`;
     if (view === 'day') return new Date(cursor + 'T00:00:00').toLocaleDateString($language, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const a = parseIso(days[0]), b = parseIso(days[6]);
     const ma = $t(MONTH_KEYS[a.m - 1]), mb = $t(MONTH_KEYS[b.m - 1]);
     return a.m === b.m ? `${a.d}–${b.d} ${ma} ${b.y}` : a.y === b.y ? `${a.d} ${ma} – ${b.d} ${mb} ${b.y}` : `${a.d} ${ma} ${a.y} – ${b.d} ${mb} ${b.y}`;
-  })();
+  })());
 
   function shift(dir: -1 | 1) {
     if (view === 'month') {
@@ -77,7 +86,7 @@
   function setView(v: CalendarView) { view = v; if (v !== 'month') cursor = selectedDate; }
 
   // ── Editor ───────────────────────────────────────────────────────────
-  let editing: { event: CalendarEvent; occurrenceDate: string; source: string | null } | null = null;
+  let editing = $state<{ event: CalendarEvent; occurrenceDate: string; source: string | null } | null>(null);
 
   function openNew(date: string, minutes?: number) {
     selectedDate = date;
@@ -127,7 +136,7 @@
   const dayLabel = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString($language, { weekday: 'long', day: 'numeric', month: 'long' });
 </script>
 
-<svelte:window on:mousedown={() => (menuOpen = false)} />
+<svelte:window onmousedown={() => (menuOpen = false)} />
 
 <div class="flex flex-col h-full bg-slate-900 text-white text-sm">
   <!-- Header -->
@@ -139,20 +148,20 @@
     <div class="flex items-center gap-1 shrink-0">
       <div class="flex rounded-lg bg-slate-800 p-0.5 mr-1">
         {#each VIEWS as v (v)}
-          <button on:click={() => setView(v)} class="px-2.5 py-1 text-xs rounded-md transition-colors {view === v ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">{$t(`cal.view.${v}`)}</button>
+          <button onclick={() => setView(v)} class="px-2.5 py-1 text-xs rounded-md transition-colors {view === v ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">{$t(`cal.view.${v}`)}</button>
         {/each}
       </div>
-      <button on:click={goToday} class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">{$t('cal.today')}</button>
-      <button on:click={() => shift(-1)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"><ChevronLeft size={16} /></button>
-      <button on:click={() => shift(1)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"><ChevronRight size={16} /></button>
-      <button on:click={() => openNew(selectedDate)} class="ml-1 flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs transition-colors"><Plus size={13} /> {$t('cal.new_event')}</button>
-      <div class="relative" on:mousedown|stopPropagation role="presentation">
-        <button on:click={() => (menuOpen = !menuOpen)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" aria-haspopup="menu" aria-expanded={menuOpen}><MoreHorizontal size={16} /></button>
+      <button onclick={goToday} class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">{$t('cal.today')}</button>
+      <button onclick={() => shift(-1)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"><ChevronLeft size={16} /></button>
+      <button onclick={() => shift(1)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"><ChevronRight size={16} /></button>
+      <button onclick={() => openNew(selectedDate)} class="ml-1 flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs transition-colors"><Plus size={13} /> {$t('cal.new_event')}</button>
+      <div class="relative" onmousedown={stopPropagation(bubble('mousedown'))} role="presentation">
+        <button onclick={() => (menuOpen = !menuOpen)} class="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white" aria-haspopup="menu" aria-expanded={menuOpen}><MoreHorizontal size={16} /></button>
         {#if menuOpen}
           <div class="absolute right-0 top-full mt-1 w-56 bg-slate-800 border border-white/10 rounded-xl shadow-2xl p-1 z-30" role="menu">
-            <button on:click={() => { menuOpen = false; showSubs = true; }} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Globe size={13} /> {$t('cal.menu.subscriptions')}</button>
-            <button on:click={doImport} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Upload size={13} /> {$t('cal.menu.import')}</button>
-            <button on:click={doExport} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Download size={13} /> {$t('cal.menu.export')}</button>
+            <button onclick={() => { menuOpen = false; showSubs = true; }} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Globe size={13} /> {$t('cal.menu.subscriptions')}</button>
+            <button onclick={doImport} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Upload size={13} /> {$t('cal.menu.import')}</button>
+            <button onclick={doExport} class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left hover:bg-white/10" role="menuitem"><Download size={13} /> {$t('cal.menu.export')}</button>
           </div>
         {/if}
       </div>
@@ -171,13 +180,13 @@
         <div class="grid grid-cols-7 gap-1 flex-1 overflow-y-auto auto-rows-fr">
           {#each days as iso (iso)}
             {@const dayOccs = byDate[iso] ?? []}
-            <div on:click={() => (selectedDate = iso)} on:dblclick={() => openNew(iso)} role="button" tabindex="0"
-              on:keydown={(e) => { if (e.key === 'Enter') openNew(iso); }}
+            <div onclick={() => (selectedDate = iso)} ondblclick={() => openNew(iso)} role="button" tabindex="0"
+              onkeydown={(e) => { if (e.key === 'Enter') openNew(iso); }}
               class="flex flex-col items-stretch p-1 rounded-lg text-left min-h-[72px] border cursor-pointer transition-colors overflow-hidden
                 {selectedDate === iso ? 'border-blue-500 bg-blue-500/10' : 'border-transparent hover:bg-white/5'} {inMonth(iso) ? '' : 'opacity-40'}">
               <span class="self-start text-xs font-medium mb-0.5 {isToday(iso) ? 'w-5 h-5 flex items-center justify-center rounded-full bg-blue-500 text-white' : 'text-slate-300 px-1'}">{Number(iso.slice(8))}</span>
               {#each dayOccs.slice(0, MAX_CHIPS) as o (o.key)}
-                <button on:click|stopPropagation={() => openOccurrence(o)} on:dblclick|stopPropagation
+                <button onclick={stopPropagation(() => openOccurrence(o))} ondblclick={stopPropagation(bubble('dblclick'))}
                   class="flex items-center gap-1 w-full truncate rounded px-1 py-px mb-px text-[10px] text-left text-white hover:brightness-125"
                   style="background:{o.event.color}55; border-left:2px solid {o.event.color}" title={o.event.title}>
                   {#if o.event.time}<span class="text-slate-300 shrink-0">{o.event.time}</span>{/if}<span class="truncate">{o.event.title}</span>
@@ -199,9 +208,9 @@
             <div class="text-center text-slate-600 text-xs py-6">{$t('cal.no_events')}</div>
           {:else}
             {#each selectedOccs as o (o.key)}
-              <div on:click={() => openOccurrence(o)} role="button" tabindex="0" on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openOccurrence(o); } }}
+              <div onclick={() => openOccurrence(o)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openOccurrence(o); } }}
                 class="group flex items-start gap-2 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors">
-                <span class="w-1 self-stretch rounded-full shrink-0" style="background:{o.event.color}" />
+                <span class="w-1 self-stretch rounded-full shrink-0" style="background:{o.event.color}"></span>
                 <div class="min-w-0 flex-1">
                   <div class="text-xs font-medium text-white truncate">{o.event.title}</div>
                   <div class="text-[10px] text-slate-500 flex items-center gap-1.5">
@@ -212,13 +221,13 @@
                   </div>
                 </div>
                 {#if !o.event.recurrence && !o.event.subscriptionId}
-                  <button on:click|stopPropagation={() => store.remove(o.event.id)} class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 text-slate-600 shrink-0"><Trash2 size={11} /></button>
+                  <button onclick={stopPropagation(() => store.remove(o.event.id))} class="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 text-slate-600 shrink-0"><Trash2 size={11} /></button>
                 {/if}
               </div>
             {/each}
           {/if}
         </div>
-        <button on:click={() => openNew(selectedDate)} class="m-2 flex items-center justify-center gap-1.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors"><Plus size={12} /> {$t('cal.add_for_day')}</button>
+        <button onclick={() => openNew(selectedDate)} class="m-2 flex items-center justify-center gap-1.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors"><Plus size={12} /> {$t('cal.add_for_day')}</button>
       </div>
     </div>
   {:else}
