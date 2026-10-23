@@ -7,16 +7,16 @@
   const GRID_SIZE = 9; // 3x3
   const ROUND_MS = 30000;
 
-  let activeCell: number | null = null;
-  let score = 0;
-  let timeLeft = ROUND_MS;
-  let running = false;
-  let over = false;
+  let activeCell = $state<number | null>(null);
+  let score = $state(0);
+  let timeLeft = $state(ROUND_MS);
+  let running = $state(false);
+  let over = $state(false);
   let spawnTimer: ReturnType<typeof setTimeout> | undefined;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let moleSpawnedAt = 0;
-  let reactionTimes: number[] = [];
-  let missCount = 0;
+  let reactionTimes = $state<number[]>([]);
+  let missCount = $state(0);
 
   function scheduleNextMole() {
     const delay = 400 + Math.random() * 700;
@@ -69,7 +69,7 @@
 
   onDestroy(() => { clearTimeout(spawnTimer); clearInterval(tickTimer); });
 
-  $: avgReaction = reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) : 0;
+  let avgReaction = $derived(reactionTimes.length > 0 ? Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) : 0);
 </script>
 
 <div class="flex flex-col items-center gap-3">
@@ -77,12 +77,12 @@
     <span>Score: <strong class="text-white">{score}</strong></span>
     {#if running}<span>Time: {(timeLeft / 1000).toFixed(1)}s</span>{/if}
     {#if !running}
-      <button on:click={start} class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium">{over ? 'Play again' : 'Start'}</button>
+      <button onclick={start} class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium">{over ? 'Play again' : 'Start'}</button>
     {/if}
   </div>
   <div class="grid grid-cols-3 gap-2 bg-slate-800 p-3 rounded-2xl border border-white/10">
     {#each Array(GRID_SIZE) as _, i (i)}
-      <button on:click={() => whack(i)}
+      <button onclick={() => whack(i)}
         class="w-20 h-20 rounded-xl flex items-center justify-center transition-colors {activeCell === i ? 'bg-amber-500' : 'bg-slate-900'}">
         {#if activeCell === i}<Target size={28} class="text-slate-950" />{/if}
       </button>
