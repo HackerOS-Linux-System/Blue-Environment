@@ -11,36 +11,41 @@
   import { SystemBridge } from '../../../utils/systemBridge';
   import { t } from '../../../stores/language';
 
-  export let windowId: string;
   // Optional launch args — Blue Web's "Save to Blue Tasks" action opens
   // this app (if not already open) with a pre-filled title/sourceUrl via
   // the same `launchArgs` mechanism every app receives as extra props
-  // (see App.svelte: `props={{ windowId: win.id, ...win.launchArgs }}`).
-  export let prefillTitle: string | undefined = undefined;
-  export let prefillUrl: string | undefined = undefined;
+  
+  interface Props {
+    windowId: string;
+    // (see App.svelte: `props={{ windowId: win.id, ...win.launchArgs }}`).
+    prefillTitle?: string | undefined;
+    prefillUrl?: string | undefined;
+  }
+
+  let { windowId, prefillTitle = undefined, prefillUrl = undefined }: Props = $props();
 
   const store = createTasksStore();
   const { lists, tasks, loading, error } = store;
 
-  let selectedListId: string | null = null;
-  let showDone = true;
-  let editing: Task | null = null;
-  let newTaskTitle = '';
-  let addingList = false;
-  let newListName = '';
-  let newListColor: (typeof LIST_COLORS)[number] = LIST_COLORS[0];
+  let selectedListId = $state<string | null>(null);
+  let showDone = $state(true);
+  let editing = $state<Task | null>(null);
+  let newTaskTitle = $state('');
+  let addingList = $state(false);
+  let newListName = $state('');
+  let newListColor = $state<(typeof LIST_COLORS)[number]>(LIST_COLORS[0]);
 
-  $: visibleLists = $lists;
-  $: currentListId = selectedListId ?? visibleLists[0]?.id ?? null;
-  $: currentTasks = ($tasks || [])
+  let visibleLists = $derived($lists);
+  let currentListId = $derived(selectedListId ?? visibleLists[0]?.id ?? null);
+  let currentTasks = $derived(($tasks || [])
     .filter((t) => t.listId === currentListId)
     .filter((t) => showDone || !t.done)
     .sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
       if (a.priority !== b.priority) return b.priority - a.priority;
       return (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999');
-    });
-  $: doneCountForList = (id: string) => ($tasks || []).filter((t) => t.listId === id && !t.done).length;
+    }));
+  let doneCountForList = $derived((id: string) => ($tasks || []).filter((t) => t.listId === id && !t.done).length);
 
   onMount(async () => {
     await store.load();
@@ -146,13 +151,13 @@
     </div>
     <div class="flex-1 overflow-y-auto py-1">
       {#each visibleLists as list (list.id)}
-        <button on:click={() => (selectedListId = list.id)}
+        <button onclick={() => (selectedListId = list.id)}
           class="group w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 {currentListId === list.id ? 'bg-white/10' : ''}">
-          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:{list.color}" />
+          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:{list.color}"></span>
           <span class="flex-1 truncate">{list.name}</span>
           {#if doneCountForList(list.id) > 0}<span class="text-[10px] text-slate-500">{doneCountForList(list.id)}</span>{/if}
           {#if visibleLists.length > 1}
-            <button on:click={(e) => { e.stopPropagation(); removeList(list.id); }} class="opacity-0 group-hover:opacity-100 hover:text-red-400"><X size={12} /></button>
+            <button onclick={(e) => { e.stopPropagation(); removeList(list.id); }} class="opacity-0 group-hover:opacity-100 hover:text-red-400"><X size={12} /></button>
           {/if}
         </button>
       {/each}
@@ -160,16 +165,16 @@
     <div class="p-2 border-t border-white/5 shrink-0">
       {#if addingList}
         <div class="flex items-center gap-1.5">
-          <input bind:value={newListName} on:keydown={(e) => e.key === 'Enter' && addList()} autofocus
+          <input bind:value={newListName} onkeydown={(e) => e.key === 'Enter' && addList()} autofocus
             placeholder={$t('tasks.new_list_placeholder')} class="flex-1 bg-slate-800 rounded-md px-2 py-1 text-xs focus:outline-none" />
           <div class="flex gap-1">
             {#each LIST_COLORS as c}
-              <button on:click={() => (newListColor = c)} class="w-3.5 h-3.5 rounded-full {newListColor === c ? 'ring-2 ring-white' : ''}" style="background:{c}" />
+              <button onclick={() => (newListColor = c)} class="w-3.5 h-3.5 rounded-full {newListColor === c ? 'ring-2 ring-white' : ''}" style="background:{c}"></button>
             {/each}
           </div>
         </div>
       {:else}
-        <button on:click={() => (addingList = true)} class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-slate-400 hover:bg-white/5 hover:text-white text-xs">
+        <button onclick={() => (addingList = true)} class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-slate-400 hover:bg-white/5 hover:text-white text-xs">
           <Plus size={13} /> {$t('tasks.new_list')}
         </button>
       {/if}
@@ -180,7 +185,7 @@
   <div class="flex-1 flex flex-col min-w-0">
     <div class="flex items-center justify-between px-4 h-11 border-b border-white/5 shrink-0">
       <span class="font-medium truncate">{visibleLists.find((l) => l.id === currentListId)?.name ?? ''}</span>
-      <button on:click={() => (showDone = !showDone)} class="text-xs text-slate-400 hover:text-white flex items-center gap-1">
+      <button onclick={() => (showDone = !showDone)} class="text-xs text-slate-400 hover:text-white flex items-center gap-1">
         {showDone ? $t('tasks.hide_done') : $t('tasks.show_done')} <ChevronDown size={12} />
       </button>
     </div>
@@ -188,7 +193,7 @@
     <div class="px-4 py-2 border-b border-white/5 shrink-0">
       <div class="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
         <Plus size={14} class="text-slate-500 shrink-0" />
-        <input bind:value={newTaskTitle} on:keydown={(e) => e.key === 'Enter' && quickAdd()}
+        <input bind:value={newTaskTitle} onkeydown={(e) => e.key === 'Enter' && quickAdd()}
           placeholder={$t('tasks.add_placeholder')} class="flex-1 bg-transparent focus:outline-none placeholder:text-slate-500" />
       </div>
     </div>
@@ -204,11 +209,11 @@
       {:else}
         {#each currentTasks as task (task.id)}
           <div class="group flex items-start gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/[0.03]">
-            <button on:click={() => toggleDone(task)}
+            <button onclick={() => toggleDone(task)}
               class="mt-0.5 w-4 h-4 rounded-full border shrink-0 flex items-center justify-center transition-colors {task.done ? 'bg-blue-500 border-blue-500' : 'border-slate-600 hover:border-blue-400'}">
               {#if task.done}<Check size={11} class="text-white" />{/if}
             </button>
-            <button on:click={() => openEditor(task)} class="flex-1 min-w-0 text-left">
+            <button onclick={() => openEditor(task)} class="flex-1 min-w-0 text-left">
               <div class="truncate {task.done ? 'line-through text-slate-500' : 'text-white'}">{task.title}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 {#if task.dueDate}
@@ -220,7 +225,7 @@
                 {#if task.sourceUrl}<ExternalLink size={10} class="text-slate-600" />{/if}
               </div>
             </button>
-            <button on:click={() => store.remove(task.id)} class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 shrink-0"><Trash2 size={13} /></button>
+            <button onclick={() => store.remove(task.id)} class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 shrink-0"><Trash2 size={13} /></button>
           </div>
         {/each}
       {/if}
@@ -232,7 +237,7 @@
     <div class="w-80 shrink-0 border-l border-white/5 flex flex-col bg-slate-950/40">
       <div class="flex items-center justify-between px-4 h-11 border-b border-white/5 shrink-0">
         <span class="font-medium text-xs text-slate-400">{$t('tasks.details')}</span>
-        <button on:click={() => (editing = null)}><X size={14} /></button>
+        <button onclick={() => (editing = null)}><X size={14} /></button>
       </div>
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         <input bind:value={editing.title} placeholder={$t('tasks.title_placeholder')} class="bg-slate-800 rounded-lg px-3 py-2 font-medium focus:outline-none" />
@@ -262,7 +267,7 @@
         </div>
 
         {#if editing.dueDate}
-          <button on:click={addToCalendar} class="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 self-start">
+          <button onclick={addToCalendar} class="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 self-start">
             <CalendarIcon size={12} class={editing.linkedEventId ? 'text-green-400' : 'text-slate-400'} />
             {editing.linkedEventId ? $t('tasks.calendar_linked') : $t('tasks.add_to_calendar')}
           </button>
@@ -272,7 +277,7 @@
           <span class="text-[10px] text-slate-500 uppercase tracking-wide">{$t('tasks.priority')}</span>
           <div class="flex gap-1.5 mt-1">
             {#each [0, 1, 2, 3] as p}
-              <button on:click={() => { if (editing) editing.priority = p; }}
+              <button onclick={() => { if (editing) editing.priority = p; }}
                 class="flex-1 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1 {editing.priority === p ? 'bg-blue-500/20 ring-1 ring-blue-500/50' : 'bg-slate-800 hover:bg-slate-700'}">
                 <Flag size={11} class={priorityColor(p)} /> {$t(PRIORITY_LABELS[p])}
               </button>
@@ -283,12 +288,12 @@
         <div class="flex-1 flex flex-col">
           <span class="text-[10px] text-slate-500 uppercase tracking-wide">{$t('tasks.notes')}</span>
           <textarea bind:value={editing.notes} rows="6" placeholder={$t('tasks.notes_placeholder')}
-            class="mt-1 flex-1 bg-slate-800 rounded-lg px-3 py-2 resize-none focus:outline-none text-slate-200" />
+            class="mt-1 flex-1 bg-slate-800 rounded-lg px-3 py-2 resize-none focus:outline-none text-slate-200"></textarea>
         </div>
       </div>
       <div class="flex items-center justify-between p-3 border-t border-white/5 shrink-0">
-        <button on:click={deleteEditing} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('tasks.delete')}</button>
-        <button on:click={saveEditor} class="text-xs px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium">{$t('tasks.save')}</button>
+        <button onclick={deleteEditing} class="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"><Trash2 size={12} /> {$t('tasks.delete')}</button>
+        <button onclick={saveEditor} class="text-xs px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium">{$t('tasks.save')}</button>
       </div>
     </div>
   {/if}
