@@ -10,52 +10,56 @@
     formatBytes, formatSpeed, formatEta, percent, driveTitle, validateImageUrl, isSha256, canStartWrite,
   } from '../../../utils/mediaWriter';
 
-  export let openPath: string | undefined = undefined;
+  interface Props {
+    openPath?: string | undefined;
+  }
+
+  let { openPath = undefined }: Props = $props();
 
   type Tab = 'write' | 'restore';
   type Step = 'source' | 'drive' | 'writing' | 'done';
   type SourceKind = 'catalog' | 'file' | 'url';
 
-  let tab: Tab = 'write';
-  let step: Step = 'source';
-  let sourceKind: SourceKind = 'catalog';
+  let tab = $state<Tab>('write');
+  let step = $state<Step>('source');
+  let sourceKind = $state<SourceKind>('catalog');
   const SOURCES: { id: SourceKind; label: string; icon: typeof Globe }[] = [
     { id: 'catalog', label: 'mw.source.catalog', icon: Globe },
     { id: 'file', label: 'mw.source.file', icon: FolderOpen },
     { id: 'url', label: 'mw.source.url', icon: Link2 },
   ];
 
-  let catalog: CatalogEntry[] = [];
+  let catalog = $state<CatalogEntry[]>([]);
   let selectedEntry: CatalogEntry | null = null;
-  let customUrl = '';
-  let expectedSha = '';
+  let customUrl = $state('');
+  let expectedSha = $state('');
 
-  let image: ImageInfo | null = null;
-  let drives: DriveInfo[] = [];
-  let drive: DriveInfo | null = null;
-  let drivesLoading = false;
-  let verify = true;
-  let confirmed = false;
+  let image = $state<ImageInfo | null>(null);
+  let drives = $state<DriveInfo[]>([]);
+  let drive = $state<DriveInfo | null>(null);
+  let drivesLoading = $state(false);
+  let verify = $state(true);
+  let confirmed = $state(false);
 
-  let busy = false;
-  let phaseLabel = '';
-  let progress: MwProgress | null = null;
-  let error = '';
-  let doneSha = '';
-  let restoredOk = false;
+  let busy = $state(false);
+  let phaseLabel = $state('');
+  let progress = $state<MwProgress | null>(null);
+  let error = $state('');
+  let doneSha = $state('');
+  let restoredOk = $state(false);
 
   let unlisten: UnlistenFn | undefined;
   let drivePoll: ReturnType<typeof setInterval> | undefined;
 
-  $: pct = progress ? percent(progress) : null;
-  $: eta = progress ? formatEta(progress) : '';
-  $: urlState = validateImageUrl(customUrl);
-  $: gate = canStartWrite({
+  let pct = $derived(progress ? percent(progress) : null);
+  let eta = $derived(progress ? formatEta(progress) : '');
+  let urlState = $derived(validateImageUrl(customUrl));
+  let gate = $derived(canStartWrite({
     image: image?.path ?? null,
     drive,
     imageBytes: image ? (image.uncompressedBytes ?? (image.compression === 'none' ? image.sizeBytes : null)) : null,
     confirmed,
-  });
+  }));
 
   const phaseKey: Record<string, string> = {
     download: 'mw.phase.download', hash: 'mw.phase.hash', write: 'mw.phase.write',
@@ -203,9 +207,9 @@
     <span class="font-semibold text-sm">{$t('mw.title')}</span>
     <div class="flex-1"></div>
     <div class="flex bg-slate-800 rounded-lg p-0.5 text-xs" role="tablist">
-      <button role="tab" aria-selected={tab === 'write'} on:click={() => switchTab('write')} disabled={busy}
+      <button role="tab" aria-selected={tab === 'write'} onclick={() => switchTab('write')} disabled={busy}
         class="px-3 py-1 rounded-md transition-colors {tab === 'write' ? 'bg-blue-600' : 'text-slate-400 hover:text-white'}">{$t('mw.tab.write')}</button>
-      <button role="tab" aria-selected={tab === 'restore'} on:click={() => switchTab('restore')} disabled={busy}
+      <button role="tab" aria-selected={tab === 'restore'} onclick={() => switchTab('restore')} disabled={busy}
         class="px-3 py-1 rounded-md transition-colors {tab === 'restore' ? 'bg-blue-600' : 'text-slate-400 hover:text-white'}">{$t('mw.tab.restore')}</button>
     </div>
   </div>
@@ -221,9 +225,9 @@
       {#if step === 'source'}
         <div class="flex gap-2 mb-4 text-xs">
           {#each SOURCES as src (src.id)}
-            <button on:click={() => (sourceKind = src.id)}
+            <button onclick={() => (sourceKind = src.id)}
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border {sourceKind === src.id ? 'border-blue-500 bg-blue-500/15' : 'border-white/10 hover:bg-white/5'}">
-              <svelte:component this={src.icon} size={13} /> {$t(src.label)}
+              <src.icon size={13} /> {$t(src.label)}
             </button>
           {/each}
         </div>
@@ -232,7 +236,7 @@
           <p class="text-xs text-slate-400 mb-3">{$t('mw.catalog.hint')}</p>
           <div class="grid gap-2">
             {#each catalog as e (e.id)}
-              <button on:click={() => chooseEntry(e)} class="text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors flex items-center gap-3">
+              <button onclick={() => chooseEntry(e)} class="text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors flex items-center gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="font-medium text-sm">{e.name} <span class="text-[10px] text-slate-500 ml-1">{e.arch}</span></div>
                   <div class="text-xs text-slate-400 truncate">{e.description}</div>
@@ -250,7 +254,7 @@
           <p class="text-[11px] text-slate-500 mt-3">{$t('mw.catalog.page_note')}</p>
         {:else if sourceKind === 'file'}
           <p class="text-xs text-slate-400 mb-3">{$t('mw.file.hint')}</p>
-          <button on:click={pickLocal} class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm"><FolderOpen size={15} /> {$t('mw.file.choose')}</button>
+          <button onclick={pickLocal} class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm"><FolderOpen size={15} /> {$t('mw.file.choose')}</button>
         {:else}
           <label class="block text-xs text-slate-400 mb-1" for="mw-url">{$t('mw.url.label')}</label>
           <input id="mw-url" bind:value={customUrl} placeholder="https://…/image.iso" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
@@ -260,7 +264,7 @@
           <label class="block text-xs text-slate-400 mt-3 mb-1" for="mw-sha">{$t('mw.url.sha_label')}</label>
           <input id="mw-sha" bind:value={expectedSha} placeholder="SHA-256" class="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono outline-none focus:border-blue-500" />
           {#if expectedSha && !isSha256(expectedSha)}<div class="text-xs text-amber-300 mt-1">{$t('mw.url.sha_invalid')}</div>{/if}
-          <button on:click={startCustomUrl} disabled={urlState !== 'ok'} class="mt-4 flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm disabled:opacity-40">{$t('mw.catalog.download')}</button>
+          <button onclick={startCustomUrl} disabled={urlState !== 'ok'} class="mt-4 flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm disabled:opacity-40">{$t('mw.catalog.download')}</button>
         {/if}
 
       {:else if step === 'drive'}
@@ -270,19 +274,19 @@
             <div class="truncate">{image?.name}</div>
             <div class="text-xs text-slate-400">{image ? formatBytes(image.uncompressedBytes ?? image.sizeBytes) : ''}{image && image.compression !== 'none' ? ` · ${image.compression}` : ''}</div>
           </div>
-          <button on:click={again} class="text-xs text-slate-400 hover:text-white">{$t('mw.change')}</button>
+          <button onclick={again} class="text-xs text-slate-400 hover:text-white">{$t('mw.change')}</button>
         </div>
 
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-sm font-semibold">{$t('mw.drive.title')}</h3>
-          <button on:click={() => refreshDrives()} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw size={12} class={drivesLoading ? 'animate-spin' : ''} /> {$t('mw.drive.refresh')}</button>
+          <button onclick={() => refreshDrives()} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw size={12} class={drivesLoading ? 'animate-spin' : ''} /> {$t('mw.drive.refresh')}</button>
         </div>
         {#if drives.length === 0}
           <div class="p-4 rounded-xl border border-dashed border-white/10 text-sm text-slate-400 flex items-center gap-2"><Usb size={16} /> {$t('mw.drive.none')}</div>
         {:else}
           <div class="grid gap-2" role="radiogroup" aria-label={$t('mw.drive.title')}>
             {#each drives as d (d.path)}
-              <button role="radio" aria-checked={drive?.path === d.path} on:click={() => { drive = d; confirmed = false; }}
+              <button role="radio" aria-checked={drive?.path === d.path} onclick={() => { drive = d; confirmed = false; }}
                 class="text-left p-3 rounded-xl flex items-center gap-3 border {drive?.path === d.path ? 'border-blue-500 bg-blue-500/10' : 'border-transparent bg-slate-800 hover:bg-slate-700'}">
                 <Usb size={18} class="text-slate-300 shrink-0" />
                 <div class="min-w-0 flex-1">
@@ -303,7 +307,7 @@
             {$t('mw.warn.erase').replace('{drive}', drive.path)}
             <label class="mt-2 flex items-center gap-2"><input type="checkbox" bind:checked={confirmed} /> {$t('mw.warn.understand')}</label>
           </div>
-          <button on:click={write} disabled={!gate.ok} class="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm disabled:opacity-40">
+          <button onclick={write} disabled={!gate.ok} class="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm disabled:opacity-40">
             <HardDriveDownload size={15} /> {$t('mw.write')}
           </button>
           {#if gate.reason === 'too_big'}<div class="text-xs text-red-300 mt-2">{$t('mw.drive.too_small')}</div>{/if}
@@ -322,7 +326,7 @@
             {#if progress?.speed}<span>{formatSpeed(progress.speed)}</span>{/if}
             {#if eta}<span>{$t('mw.eta').replace('{t}', eta)}</span>{/if}
           </div>
-          <button on:click={cancel} class="mt-5 flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs"><X size={12} /> {$t('common.cancel')}</button>
+          <button onclick={cancel} class="mt-5 flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs"><X size={12} /> {$t('common.cancel')}</button>
           {#if progress?.phase === 'write' || progress?.phase === 'flush'}<p class="text-[11px] text-slate-500 mt-3">{$t('mw.dont_unplug')}</p>{/if}
         </div>
 
@@ -332,7 +336,7 @@
           <div class="text-lg font-semibold">{$t('mw.done.title')}</div>
           <p class="text-sm text-slate-400 mt-1">{$t('mw.done.body')}</p>
           {#if doneSha}<div class="mt-3 text-[10px] font-mono text-slate-500 break-all">SHA-256 {doneSha}</div>{/if}
-          <button on:click={again} class="mt-5 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm">{$t('mw.done.another')}</button>
+          <button onclick={again} class="mt-5 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm">{$t('mw.done.another')}</button>
         </div>
       {/if}
 
@@ -340,14 +344,14 @@
       <p class="text-xs text-slate-400 mb-3">{$t('mw.restore.hint')}</p>
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-sm font-semibold">{$t('mw.drive.title')}</h3>
-        <button on:click={() => refreshDrives()} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw size={12} class={drivesLoading ? 'animate-spin' : ''} /> {$t('mw.drive.refresh')}</button>
+        <button onclick={() => refreshDrives()} class="text-xs text-slate-400 hover:text-white flex items-center gap-1"><RefreshCw size={12} class={drivesLoading ? 'animate-spin' : ''} /> {$t('mw.drive.refresh')}</button>
       </div>
       {#if drives.length === 0}
         <div class="p-4 rounded-xl border border-dashed border-white/10 text-sm text-slate-400 flex items-center gap-2"><Usb size={16} /> {$t('mw.drive.none')}</div>
       {:else}
         <div class="grid gap-2" role="radiogroup" aria-label={$t('mw.drive.title')}>
           {#each drives as d (d.path)}
-            <button role="radio" aria-checked={drive?.path === d.path} on:click={() => (drive = d)}
+            <button role="radio" aria-checked={drive?.path === d.path} onclick={() => (drive = d)}
               class="text-left p-3 rounded-xl flex items-center gap-3 border {drive?.path === d.path ? 'border-blue-500 bg-blue-500/10' : 'border-transparent bg-slate-800 hover:bg-slate-700'}">
               <Usb size={18} class="text-slate-300 shrink-0" />
               <div class="min-w-0 flex-1">
@@ -364,7 +368,7 @@
       {#if restoredOk}
         <div class="mt-4 flex items-center gap-2 text-sm text-green-300"><CheckCircle2 size={16} /> {$t('mw.restore.done')}</div>
       {/if}
-      <button on:click={restore} disabled={!drive || busy} class="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm disabled:opacity-40"><Eraser size={15} /> {$t('mw.restore.button')}</button>
+      <button onclick={restore} disabled={!drive || busy} class="mt-4 flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm disabled:opacity-40"><Eraser size={15} /> {$t('mw.restore.button')}</button>
     {/if}
   </div>
 </div>
