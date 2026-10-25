@@ -1,1 +1,83 @@
-
+{
+  "$schema": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/schemas/widgets-store.schema.json",
+  "description": "Widget Store for Blue Environment (Blue Software → Widgets). Every entry is a preset of a widget engine that ships with the shell — no code is downloaded.",
+  "widgets": [
+    {
+      "id": "todo",
+      "name": "To-do list",
+      "description": "Quick checklist that lives on the desktop; items are saved automatically.",
+      "author": "Blue Environment",
+      "icon": "✅",
+      "category": "Productivity",
+      "version": "1.0.0",
+      "type": "todo",
+      "accent": "#22c55e",
+      "tags": [
+        "tasks",
+        "checklist"
+      ]
+    },
+    {
+      "id": "quick-links",
+      "name": "Quick links",
+      "description": "One-click shortcuts to your favourite websites. Edit the list in edit mode.",
+      "author": "Blue Environment",
+      "icon": "🔗",
+      "category": "Productivity",
+      "version": "1.0.0",
+      "type": "links",
+      "config": {
+        "links": "Blue Environment|https://github.com/HackerOS-Linux-System/Blue-Environment\nHackerOS|https://github.com/HackerOS-Linux-System"
+      },
+      "accent": "#a855f7",
+      "tags": [
+        "bookmarks",
+        "web"
+      ]
+    },
+    {
+      "id": "quote-of-the-day",
+      "name": "Quote of the day",
+      "description": "A new line of wisdom every day. Add your own quotes in edit mode.",
+      "author": "Blue Environment",
+      "icon": "💬",
+      "category": "Inspiration",
+      "version": "1.0.0",
+      "type": "quote",
+      "size": {
+        "w": 300,
+        "h": 160
+      },
+      "config": {
+        "mode": "daily"
+      },
+      "accent": "#ec4899",
+      "tags": [
+        "quotes"
+      ]
+    },
+    {
+      "id": "dev-quotes",
+      "name": "Developer wisdom",
+      "description": "Rotating quotes about programming; click to see the next one.",
+      "author": "Blue Environment",
+      "icon": "👨‍💻",
+      "category": "Inspiration",
+      "version": "1.0.0",
+      "type": "quote",
+      "size": {
+        "w": 300,
+        "h": 160
+      },
+      "config": {
+        "mode": "random",
+        "quotes": "Programs must be written for people to read. — Harold Abelson\nTalk is cheap. Show me the code. — Linus Torvalds\nMake it work, make it right, make it fast. — Kent Beck\nPremature optimization is the root of all evil. — Donald Knuth\nDebugging is twice as hard as writing the code in the first place. — Brian Kernighan"
+      },
+      "accent": "#6366f1",
+      "tags": [
+        "quotes",
+        "code"
+      ]
+    }
+  ]
+}
