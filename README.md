@@ -1,5 +1,5 @@
-# ![Blue Enviroment - Graphical environment for HackerOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/default.png)
-# Blue Environment v0.9
+# ![Blue Environment - Graphical environment for HackerOS.](https://github.com/HackerOS-Linux-System/Blue-Environment/blob/main/images/default.png)
+# Blue Environment v0.9.0
 
 Production-grade Wayland desktop environment for HackerOS, built on
 [Tauri](https://tauri.app) + Svelte (desktop shell).
@@ -447,7 +447,23 @@ sudo usermod -aG seat $USER
   (TypeScript/JavaScript now go through `typescript-language-server`).
 * **Blue Docs**: speaker notes and native tables in `.pptx` import/export, comments with replies, tracked changes
   (accept/reject), switchable author profiles.
-* **Desktop widgets** (clock, weather, notes, system monitor, calendar) – right-click the desktop → *Desktop widgets…*
+* **Blue Docs presentations**: seven slide layouts (title, title + content, section, two columns, content + picture,
+  title only, blank), free **text boxes** and **pictures** that are dragged / resized on the slide, per-block font,
+  size, colour, alignment, bullets and fill, any slide background colour, and **transitions** (fade, push, wipe, zoom,
+  split, cover — with direction, duration and auto-advance) played in the full-screen presentation. Everything
+  round-trips through `.pptx` (layouts, geometry, styles, `<p:transition>`). Still out of scope: shapes/drawing, charts,
+  per-object animations, slide masters/themes, non-16:9 page sizes (opened stretched).
+* **Blue Messages SMS through a paired phone** — SMS conversations can relay through an Android phone running Blue
+  Connect (`kdeconnect.sms.*` over the pinned mutual-TLS link) as well as through a local modem (ModemManager). Only the
+  messages of the conversation's number are imported (each exactly once, inbox and sent), and a new conversation can be
+  started from the phone's own history.
+* **Widget Store** (Blue Software → *Widgets*) and **desktop widgets**. The five built-in widgets (clock, weather, notes,
+  system monitor, calendar) stay; the store adds installable presets and new widget engines — world clock, countdown,
+  quote, quick links, to-do list, pomodoro / stopwatch. The catalogue is `config/stores/widgets-store.json`
+  (schema: `config/schemas/widgets-store.schema.json`); entries only configure engines that ship with the shell, so
+  nothing is downloaded or executed. Installed widgets appear in the desktop's widget palette (right-click the desktop →
+  *Desktop widgets…*); *Add to desktop* is also available from the store card. Blue Software got a new look: icon
+  section tabs, gradient header and live previews.
 * **App permissions** panel (Settings → Account) for Flatpak apps: camera, microphone, location, network, files … via
   the XDG portal permission store and Flatpak overrides.
 * **Clipboard history** with images (PNG/JPEG/…) and copied files (`text/uri-list`).
