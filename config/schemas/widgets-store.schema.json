@@ -1,1 +1,132 @@
-
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/HackerOS-Linux-System/Blue-Environment/main/config/schemas/widgets-store.schema.json",
+  "title": "Blue Store widgets index",
+  "description": "Widget Store index consumed by Blue Software (Widgets). An entry is a preset of one of the widget engines built into the shell (it never carries code): a name, an icon, a default size and a default config.",
+  "type": "object",
+  "required": [
+    "widgets"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "widgets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+            "description": "Unique, stable identifier."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "author": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 16,
+            "description": "An emoji."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "Time",
+              "Productivity",
+              "Information",
+              "Inspiration",
+              "System"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "clock",
+              "weather",
+              "notes",
+              "system",
+              "calendar",
+              "worldclock",
+              "countdown",
+              "quote",
+              "links",
+              "todo",
+              "timer"
+            ],
+            "description": "The widget engine this preset configures."
+          },
+          "size": {
+            "type": "object",
+            "required": [
+              "w",
+              "h"
+            ],
+            "properties": {
+              "w": {
+                "type": "integer",
+                "minimum": 140,
+                "maximum": 800
+              },
+              "h": {
+                "type": "integer",
+                "minimum": 90,
+                "maximum": 800
+              }
+            }
+          },
+          "config": {
+            "type": "object",
+            "maxProperties": 12,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            },
+            "description": "Default settings of the widget (e.g. zones, label, date, quotes, links, mode, minutes)."
+          },
+          "accent": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "string",
+              "maxLength": 24
+            }
+          },
+          "builtin": {
+            "type": "boolean",
+            "description": "Ships with the shell; always installed."
+          }
+        }
+      }
+    }
+  }
+}
