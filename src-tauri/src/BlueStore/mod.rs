@@ -2,6 +2,7 @@ pub mod error;
 pub mod install;
 pub mod manifest;
 pub mod net;
+pub mod widgets;
 
 use error::{StoreError, StoreResult};
 use install::Receipt;
@@ -265,6 +266,12 @@ pub async fn check_updates(kind: PackageKind) -> Vec<UpdateInfo> {
 }
 
 // ── Tauri commands ─────────────────────────────────────────────────────────
+
+/// Widget Store catalogue (Blue Software → Widgets).
+#[tauri::command]
+pub async fn store_fetch_widgets() -> Result<widgets::WidgetIndexResult, StoreError> {
+    net::fetch_widget_index().await
+}
 
 #[tauri::command]
 pub async fn store_fetch_index(kind: String) -> Result<net::IndexResult, StoreError> {
