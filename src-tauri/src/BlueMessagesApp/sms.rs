@@ -120,34 +120,216 @@ pub fn sms_list_paired_phones() -> Vec<crate::blue_connect::PairedDeviceHandlePu
         .collect()
 }
 
-/// Sends an SMS through a paired phone using a KDE-Connect-style
-/// `kdeconnect.sms.request` packet over the mutual-TLS transport
-/// `BlueConnect::open_authenticated_connection` already provides.
-///
-/// ## Protocol scope and real-world interop
-/// The packet type and field names (`sendSms`, `phoneNumber`,
-/// `messageBody`) intentionally match real KDE Connect's own SMS
-/// plugin as closely as this project's simpler identity/pairing
-/// handshake allows, since matching the wire format is what gives this
-/// *any* chance of working against a real KDE Connect/GSConnect Android
-/// app rather than only another instance of this project. That said,
-/// real interop isn't guaranteed and hasn't been tested against an
-/// actual phone in this change — real KDE Connect negotiates plugin
-/// capabilities via `incomingCapabilities`/`outgoingCapabilities` lists
-/// in its identity packet before either side will act on a plugin
-/// packet at all, and this project's identity packet (see `mod.rs`)
-/// doesn't include those lists. A real KDE Connect app may therefore
-/// simply ignore this packet. Talking to Blue Connect running on
-/// another device (once/if a mobile counterpart exists) would not have
-/// this gap, since both sides would be this same implementation.
+// ───────────────────────── phone relay (Blue Connect) ─────────────────────────
+//
+// Wire format (both directions, one JSON object + `\n` per packet, same
+// framing as `BlueConnect/plugin_proto.rs`):
+//
+//   desktop → phone  `kdeconnect.sms.request`  {sendSms:true, phoneNumber, messageBody}
+//   desktop → phone  `kdeconnect.sms.request`  {requestAllConversations:true}
+//   phone → desktop  `kdeconnect.sms.messages` {messages:[{address, body, date, type}]}
+//
+// `type` is Android's `Telephony.Sms.TYPE` (1 = inbox, 2 = sent). The packet
+// names match KDE Connect's SMS plugin; the phone side that implements them
+// is `SmsPlugin.kt` in Blue Connect for Android (it also advertises the
+// capability in its identity packet). A stock KDE Connect app may ignore the
+// packets — that is a KDE Connect limitation, not a gap of this transport.
+
+/// Longest message body accepted for a phone relay (the phone splits it into
+/// multipart SMS itself).
+pub const MAX_PHONE_SMS_CHARS: usize = 4000;
+/// Upper bound for one framed reply line from the phone.
+const MAX_REPLY_BYTES: usize = 1024 * 1024;
+
+const SMS_TYPE_INBOX: i32 = 1;
+const SMS_TYPE_SENT: i32 = 2;
+
+/// One row of the phone's SMS store as reported by `kdeconnect.sms.messages`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhoneSms {
+    pub address: String,
+    pub body: String,
+    /// Milliseconds since the Unix epoch (0 when the phone did not send one).
+    pub date_ms: i64,
+    /// Android `Telephony.Sms.TYPE`.
+    pub kind: i32,
+}
+
+/// A conversation the phone already has, summarised for the "start from the
+/// phone's history" picker in Blue Messages.
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneThread {
+    pub address: String,
+    pub last_body: String,
+    pub last_date_ms: i64,
+    pub count: u32,
+}
+
+/// Same sanity rule as the Android plugin: digits plus the usual separators.
+pub fn is_plausible_number(n: &str) -> bool {
+    let n = n.trim();
+    (3..=32).contains(&n.len())
+        && n.chars().all(|c| c.is_ascii_digit() || "+-() *#".contains(c))
+        && n.chars().filter(|c| c.is_ascii_digit()).count() >= 3
+}
+
+/// Digits only (a leading `+` is dropped too — `+48 600 100 200` and
+/// `600100200` must compare equal).
+pub fn normalize_number(n: &str) -> String {
+    n.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+/// Whether two phone numbers denote the same subscriber. Country prefixes and
+/// trunk zeros differ between how a person types a number and how the phone
+/// stores it, so numbers with at least 7 digits are compared by their last 9
+/// digits; shorter ones (service numbers such as `1234`) must match exactly.
+pub fn numbers_match(a: &str, b: &str) -> bool {
+    let (a, b) = (normalize_number(a), normalize_number(b));
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if a.len() < 7 || b.len() < 7 {
+        return a == b;
+    }
+    let tail = |s: &str| s[s.len().saturating_sub(9)..].to_string();
+    tail(&a) == tail(&b)
+}
+
+/// Deterministic message id, so the same phone message is never imported
+/// twice no matter how often the thread is refreshed.
+pub fn stable_message_id(device_id: &str, m: &PhoneSms) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(device_id.as_bytes());
+    h.update([0]);
+    h.update(normalize_number(&m.address).as_bytes());
+    h.update([0]);
+    h.update(m.date_ms.to_le_bytes());
+    h.update([0]);
+    h.update(m.kind.to_le_bytes());
+    h.update([0]);
+    h.update(m.body.as_bytes());
+    let digest = h.finalize();
+    let hex: String = digest.iter().take(10).map(|b| format!("{b:02x}")).collect();
+    format!("sms-phone-{hex}")
+}
+
+/// Parses the body of a `kdeconnect.sms.messages` packet. Rows without a body
+/// are dropped; the result is sorted oldest → newest (the phone sends newest
+/// first).
+pub fn parse_phone_messages(packet: &serde_json::Value) -> Vec<PhoneSms> {
+    let rows = packet
+        .get("body")
+        .and_then(|b| b.get("messages"))
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut out: Vec<PhoneSms> = rows
+        .into_iter()
+        .filter_map(|m| {
+            let body = m.get("body").and_then(|v| v.as_str())?.to_string();
+            if body.is_empty() {
+                return None;
+            }
+            Some(PhoneSms {
+                address: m.get("address").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                body,
+                date_ms: m.get("date").and_then(|v| v.as_i64()).unwrap_or(0),
+                kind: m.get("type").and_then(|v| v.as_i64()).unwrap_or(SMS_TYPE_INBOX as i64) as i32,
+            })
+        })
+        .collect();
+    out.sort_by_key(|m| m.date_ms);
+    out
+}
+
+/// Groups messages by subscriber, newest thread first.
+pub fn group_threads(messages: &[PhoneSms]) -> Vec<PhoneThread> {
+    let mut threads: Vec<PhoneThread> = Vec::new();
+    for m in messages {
+        if m.address.trim().is_empty() {
+            continue;
+        }
+        match threads.iter_mut().find(|t| numbers_match(&t.address, &m.address)) {
+            Some(t) => {
+                t.count += 1;
+                if m.date_ms >= t.last_date_ms {
+                    t.last_date_ms = m.date_ms;
+                    t.last_body = m.body.clone();
+                }
+            }
+            None => threads.push(PhoneThread {
+                address: m.address.clone(),
+                last_body: m.body.clone(),
+                last_date_ms: m.date_ms,
+                count: 1,
+            }),
+        }
+    }
+    threads.sort_by(|a, b| b.last_date_ms.cmp(&a.last_date_ms));
+    threads
+}
+
+/// Reads `\n`-framed JSON packets from `stream` until one of type `want`
+/// arrives. Other packets (pings, battery, …) that happen to be in flight are
+/// skipped instead of being mistaken for the reply, and a reply that arrives
+/// in several TLS records is reassembled.
+async fn read_packet_of_type<S>(stream: &mut S, want: &str, timeout_secs: u64) -> Result<serde_json::Value, String>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let fut = async {
+        let mut pending: Vec<u8> = Vec::new();
+        let mut chunk = vec![0u8; 16 * 1024];
+        loop {
+            while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
+                let line: Vec<u8> = pending.drain(..=pos).collect();
+                let line = &line[..line.len() - 1];
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(line) {
+                    if v.get("type").and_then(|t| t.as_str()) == Some(want) {
+                        return Ok(v);
+                    }
+                }
+            }
+            if pending.len() > MAX_REPLY_BYTES {
+                return Err("the phone's reply is too large".to_string());
+            }
+            match stream.read(&mut chunk).await {
+                Ok(0) => return Err("the phone closed the connection without replying".to_string()),
+                Ok(n) => pending.extend_from_slice(&chunk[..n]),
+                Err(e) => return Err(format!("connection error while waiting for the reply: {e}")),
+            }
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs.max(1)), fut).await {
+        Ok(r) => r,
+        Err(_) => Err("the phone did not reply in time".to_string()),
+    }
+}
+
+/// Sends an SMS through a paired phone (`kdeconnect.sms.request`) over the
+/// mutual-TLS transport `BlueConnect::open_authenticated_connection` provides.
 pub async fn send_sms_via_phone(device_id: &str, phone_number: &str, body: &str) -> Result<(), String> {
+    if !is_plausible_number(phone_number) {
+        return Err(format!("\"{phone_number}\" is not a valid phone number"));
+    }
+    if body.trim().is_empty() {
+        return Err("The message is empty".to_string());
+    }
+    if body.chars().count() > MAX_PHONE_SMS_CHARS {
+        return Err(format!("The message is longer than {MAX_PHONE_SMS_CHARS} characters"));
+    }
     let handle = crate::blue_connect::get_paired_device(device_id)
         .ok_or("That device is no longer paired — re-pair it in Blue Connect and try again")?;
     let mut stream = crate::blue_connect::open_authenticated_connection(&handle).await?;
 
     let packet = serde_json::json!({
         "type": "kdeconnect.sms.request",
-        "body": { "sendSms": true, "phoneNumber": phone_number, "messageBody": body },
+        "body": { "sendSms": true, "phoneNumber": phone_number.trim(), "messageBody": body },
     });
     let mut payload = serde_json::to_vec(&packet).map_err(|e| e.to_string())?;
     payload.push(b'\n');
@@ -155,18 +337,8 @@ pub async fn send_sms_via_phone(device_id: &str, phone_number: &str, body: &str)
     stream.flush().await.map_err(|e| e.to_string())
 }
 
-/// Requests the phone's SMS history/inbox and returns whatever it
-/// replies with as `(address, body)` pairs — same shape
-/// [`poll_incoming`] (the ModemManager path) already returns, so
-/// `sms_refresh_thread` in `mod.rs` can treat both sources identically.
-///
-/// Sends `kdeconnect.sms.request` with `requestAllConversations: true`
-/// and waits (bounded by `timeout_secs`) for a `kdeconnect.sms.messages`
-/// response — again matching real KDE Connect's actual packet types/
-/// field names for the same interop-attempt reasons described in
-/// [`send_sms_via_phone`]'s doc, with the same caveat about capability
-/// negotiation not being implemented here.
-pub async fn poll_incoming_via_phone(device_id: &str, timeout_secs: u64) -> Result<Vec<(String, String)>, String> {
+/// Asks the phone for its SMS history and returns every row it sent.
+pub async fn fetch_phone_messages(device_id: &str, timeout_secs: u64) -> Result<Vec<PhoneSms>, String> {
     let handle = crate::blue_connect::get_paired_device(device_id)
         .ok_or("That device is no longer paired — re-pair it in Blue Connect and try again")?;
     let mut stream = crate::blue_connect::open_authenticated_connection(&handle).await?;
@@ -180,28 +352,29 @@ pub async fn poll_incoming_via_phone(device_id: &str, timeout_secs: u64) -> Resu
     stream.write_all(&payload).await.map_err(|e| e.to_string())?;
     stream.flush().await.map_err(|e| e.to_string())?;
 
-    let mut buf = vec![0u8; 65536]; // a full SMS history reply can be sizeable
-    let n = match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs.max(1)), stream.read(&mut buf)).await {
-        Ok(Ok(0)) => return Err(format!("{} closed the connection without replying", handle.device_name)),
-        Ok(Ok(n)) => n,
-        Ok(Err(e)) => return Err(format!("connection error while waiting for SMS history: {e}")),
-        Err(_) => return Err(format!("{} did not reply with SMS history in time", handle.device_name)),
-    };
+    let reply = read_packet_of_type(&mut stream, "kdeconnect.sms.messages", timeout_secs)
+        .await
+        .map_err(|e| format!("{}: {e}", handle.device_name))?;
+    Ok(parse_phone_messages(&reply))
+}
 
-    let json: serde_json::Value = serde_json::from_slice(&buf[..n]).map_err(|e| format!("malformed response: {e}"))?;
-    let messages = json.get("body").and_then(|b| b.get("messages")).and_then(|m| m.as_array()).cloned().unwrap_or_default();
-
-    Ok(messages
+/// Kept for callers that only want `(address, body)` pairs (the shape
+/// [`poll_incoming`] returns for the ModemManager path).
+pub async fn poll_incoming_via_phone(device_id: &str, timeout_secs: u64) -> Result<Vec<(String, String)>, String> {
+    Ok(fetch_phone_messages(device_id, timeout_secs)
+        .await?
         .into_iter()
-        .filter_map(|m| {
-            let body = m.get("body").and_then(|v| v.as_str())?.to_string();
-            let address = m.get("address").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-            Some((address, body))
-        })
+        .map(|m| (m.address, m.body))
         .collect())
 }
 
-
+/// Lists the conversations the paired phone already has, so a new Blue
+/// Messages SMS conversation can be started from the phone's own history.
+#[tauri::command]
+pub async fn sms_list_phone_threads(device_id: String) -> Result<Vec<PhoneThread>, String> {
+    let messages = fetch_phone_messages(&device_id, 10).await?;
+    Ok(group_threads(&messages))
+}
 
 /// Whether ModemManager currently reports at least one modem — used by
 /// the frontend to decide whether to offer "New SMS conversation" at
@@ -256,35 +429,178 @@ pub async fn sms_refresh_thread(conversation_id: String) -> Result<Vec<super::Me
     Ok(super::storage::thread(&conversation_id))
 }
 
-/// The phone-relayed half of [`sms_refresh_thread`] — see
-/// [`send_sms_via_phone`]/[`poll_incoming_via_phone`] for the protocol
-/// this uses.
+/// The phone-relayed half of [`sms_refresh_thread`]: imports only the rows
+/// that belong to this conversation's number (inbox → incoming, sent items
+/// typed on the phone → outgoing), each exactly once.
 async fn refresh_thread_via_phone(conversation_id: &str, device_id: &str) -> Result<Vec<super::Message>, String> {
-    let existing = super::storage::thread(conversation_id).into_iter().map(|m| m.body).collect::<Vec<_>>();
-    let incoming = poll_incoming_via_phone(device_id, 10).await?;
+    let conversations = super::read_conversations();
+    let participant = conversations
+        .iter()
+        .find(|c| c.id == conversation_id)
+        .map(|c| c.participant.clone())
+        .ok_or("Conversation not found")?;
 
-    let mut new_messages = Vec::new();
-    for (i, (_address, text)) in incoming.into_iter().enumerate() {
-        if existing.contains(&text) {
-            continue; // same crude dedup-by-exact-text as the ModemManager path — see poll_incoming's doc
-        }
-        new_messages.push(super::Message {
-            id: format!("sms-phone-{}-{i}", chrono::Utc::now().timestamp_millis()),
-            conversation_id: conversation_id.to_string(),
-            body: text,
-            direction: super::MessageDirection::Incoming,
-            sent_at: chrono::Utc::now().to_rfc3339(),
-            read: false,
-        });
-    }
+    let existing = super::storage::thread(conversation_id);
+    let known_ids: std::collections::HashSet<String> = existing.iter().map(|m| m.id.clone()).collect();
+    let known_outgoing: std::collections::HashSet<String> = existing
+        .iter()
+        .filter(|m| m.direction == super::MessageDirection::Outgoing)
+        .map(|m| m.body.clone())
+        .collect();
+
+    let rows = fetch_phone_messages(device_id, 10).await?;
+    let new_messages = select_new_messages(conversation_id, device_id, &participant, &rows, &known_ids, &known_outgoing);
+
     if !new_messages.is_empty() {
         super::storage::add_many(&new_messages)?;
-        let mut conversations = super::read_conversations();
+        let incoming = new_messages.iter().filter(|m| m.direction == super::MessageDirection::Incoming).count() as u32;
+        let mut conversations = conversations;
         if let (Some(newest), Some(c)) = (new_messages.last(), conversations.iter_mut().find(|c| c.id == conversation_id)) {
             c.last_message_preview = newest.body.clone();
             c.last_message_at = newest.sent_at.clone();
+            c.unread_count = c.unread_count.saturating_add(incoming);
             let _ = super::write_conversations(&conversations);
         }
     }
     Ok(super::storage::thread(conversation_id))
+}
+
+/// Pure selection step of [`refresh_thread_via_phone`] (unit-tested below).
+fn select_new_messages(
+    conversation_id: &str,
+    device_id: &str,
+    participant: &str,
+    rows: &[PhoneSms],
+    known_ids: &std::collections::HashSet<String>,
+    known_outgoing_bodies: &std::collections::HashSet<String>,
+) -> Vec<super::Message> {
+    let mut out = Vec::new();
+    for m in rows {
+        if !numbers_match(&m.address, participant) {
+            continue; // another conversation's message
+        }
+        let direction = match m.kind {
+            SMS_TYPE_INBOX => super::MessageDirection::Incoming,
+            // Sent from this computer: already stored when it was sent.
+            SMS_TYPE_SENT if known_outgoing_bodies.contains(&m.body) => continue,
+            SMS_TYPE_SENT => super::MessageDirection::Outgoing,
+            _ => continue, // drafts, outbox, failed …
+        };
+        let id = stable_message_id(device_id, m);
+        if known_ids.contains(&id) || out.iter().any(|x: &super::Message| x.id == id) {
+            continue;
+        }
+        let sent_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(m.date_ms)
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339();
+        out.push(super::Message {
+            id,
+            conversation_id: conversation_id.to_string(),
+            body: m.body.clone(),
+            read: direction == super::MessageDirection::Outgoing,
+            direction,
+            sent_at,
+        });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn row(address: &str, body: &str, date_ms: i64, kind: i32) -> PhoneSms {
+        PhoneSms { address: address.into(), body: body.into(), date_ms, kind }
+    }
+
+    #[test]
+    fn numbers_match_ignores_country_prefix_and_formatting() {
+        assert!(numbers_match("+48 600-100-200", "600100200"));
+        assert!(numbers_match("0048600100200", "600 100 200"));
+        assert!(!numbers_match("600100200", "600100201"));
+        assert!(!numbers_match("", "600100200"));
+    }
+
+    #[test]
+    fn short_service_numbers_must_match_exactly() {
+        assert!(numbers_match("1234", "1234"));
+        assert!(!numbers_match("1234", "01234"));
+    }
+
+    #[test]
+    fn plausible_number_rules() {
+        assert!(is_plausible_number("+48 600 100 200"));
+        assert!(!is_plausible_number("ab"));
+        assert!(!is_plausible_number("600; rm -rf"));
+    }
+
+    #[test]
+    fn parse_sorts_oldest_first_and_drops_empty_bodies() {
+        let v = serde_json::json!({"type":"kdeconnect.sms.messages","body":{"messages":[
+            {"address":"600100200","body":"b","date":2000,"type":1},
+            {"address":"600100200","body":"a","date":1000,"type":2},
+            {"address":"600100200","body":"","date":3000,"type":1},
+        ]}});
+        let rows = parse_phone_messages(&v);
+        assert_eq!(rows.iter().map(|r| r.body.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn threads_are_grouped_by_subscriber() {
+        let rows = vec![
+            row("+48600100200", "hi", 1, SMS_TYPE_INBOX),
+            row("600100200", "hello", 5, SMS_TYPE_SENT),
+            row("700111222", "yo", 3, SMS_TYPE_INBOX),
+        ];
+        let t = group_threads(&rows);
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0].count, 2);
+        assert_eq!(t[0].last_body, "hello");
+    }
+
+    #[test]
+    fn selection_filters_by_number_direction_and_duplicates() {
+        let rows = vec![
+            row("+48600100200", "from her", 10, SMS_TYPE_INBOX),
+            row("700111222", "someone else", 11, SMS_TYPE_INBOX),
+            row("600100200", "typed on phone", 12, SMS_TYPE_SENT),
+            row("600100200", "sent from desktop", 13, SMS_TYPE_SENT),
+            row("600100200", "draft", 14, 3),
+        ];
+        let known_ids = HashSet::new();
+        let known_out: HashSet<String> = ["sent from desktop".to_string()].into_iter().collect();
+        let got = select_new_messages("c1", "dev", "600 100 200", &rows, &known_ids, &known_out);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].body, "from her");
+        assert_eq!(got[0].direction, super::super::MessageDirection::Incoming);
+        assert_eq!(got[1].body, "typed on phone");
+        assert_eq!(got[1].direction, super::super::MessageDirection::Outgoing);
+
+        // Second refresh with the ids now known imports nothing.
+        let ids: HashSet<String> = got.iter().map(|m| m.id.clone()).collect();
+        assert!(select_new_messages("c1", "dev", "600100200", &rows, &ids, &known_out).is_empty());
+    }
+
+    #[tokio::test]
+    async fn reader_skips_other_packets_and_reassembles_split_replies() {
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let writer = tokio::spawn(async move {
+            server.write_all(b"{\"type\":\"kdeconnect.ping\",\"body\":{}}\n{\"type\":\"kdeconnect.sms.mess").await.unwrap();
+            server.flush().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            server.write_all(b"ages\",\"body\":{\"messages\":[]}}\n").await.unwrap();
+            server.flush().await.unwrap();
+        });
+        let v = read_packet_of_type(&mut client, "kdeconnect.sms.messages", 5).await.unwrap();
+        assert_eq!(v["type"], "kdeconnect.sms.messages");
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reader_reports_a_closed_connection() {
+        let (mut client, server) = tokio::io::duplex(64);
+        drop(server);
+        assert!(read_packet_of_type(&mut client, "x", 2).await.is_err());
+    }
 }
