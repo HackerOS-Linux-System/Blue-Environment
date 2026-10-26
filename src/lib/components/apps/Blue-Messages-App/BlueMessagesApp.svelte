@@ -30,6 +30,27 @@
    * Blue Connect (see sms.rs's two conversation-creation commands).
    * `null` means "use the modem". */
   let smsViaDeviceId = $state<string | null>(null);
+  /** Threads the selected phone already has (loaded on demand). */
+  let phoneThreads = $state<{ address: string; lastBody: string; lastDateMs: number; count: number }[]>([]);
+  let phoneThreadsBusy = $state(false);
+  let phoneThreadsError = $state('');
+
+  async function loadPhoneThreads() {
+    if (!smsViaDeviceId) return;
+    phoneThreadsBusy = true;
+    phoneThreadsError = '';
+    const res = await store.smsListPhoneThreads(smsViaDeviceId);
+    phoneThreads = res.threads;
+    if (!res.ok) phoneThreadsError = res.error ?? 'Could not read the phone\'s messages';
+    else if (res.threads.length === 0) phoneThreadsError = 'The phone returned no messages (is SMS permission granted in Blue Connect for Android?)';
+    phoneThreadsBusy = false;
+  }
+
+  function pickPhoneThread(t: { address: string }) {
+    newParticipant = t.address;
+    if (!newTitle.trim()) newTitle = t.address;
+    phoneThreads = [];
+  }
   let newChannel = $state<Channel>('local');
   let threadEl = $state<HTMLDivElement | null>(null);
 
@@ -112,6 +133,8 @@
     newParticipant = '';
     newChannel = 'local';
     smsViaDeviceId = null;
+    phoneThreads = [];
+    phoneThreadsError = '';
     showNewConversation = false;
   }
 
@@ -344,8 +367,29 @@
               </select>
               {#if smsViaDeviceId}
                 <p class="text-[11px] text-slate-500">
-                  Relayed through the paired phone over Blue Connect — see sms.rs's send_sms_via_phone doc for what's and isn't guaranteed to work.
+                  Relayed through the paired phone over Blue Connect (needs Blue Connect for Android with the SMS permission granted).
                 </p>
+                <button
+                  type="button"
+                  onclick={loadPhoneThreads}
+                  disabled={phoneThreadsBusy}
+                  class="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 rounded px-2 py-1.5 text-xs transition-colors"
+                >
+                  {phoneThreadsBusy ? 'Reading the phone…' : 'Pick from the phone\'s conversations'}
+                </button>
+                {#if phoneThreadsError}
+                  <p class="text-[11px] text-amber-400/80">{phoneThreadsError}</p>
+                {/if}
+                {#if phoneThreads.length > 0}
+                  <div class="max-h-40 overflow-y-auto rounded border border-white/10 divide-y divide-white/5">
+                    {#each phoneThreads as t (t.address)}
+                      <button type="button" onclick={() => pickPhoneThread(t)} class="w-full text-left px-2 py-1.5 hover:bg-white/5">
+                        <div class="text-xs text-slate-200 flex justify-between gap-2"><span class="truncate">{t.address}</span><span class="text-slate-500 shrink-0">{t.count}</span></div>
+                        <div class="text-[11px] text-slate-500 truncate">{t.lastBody}</div>
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
               {/if}
             {/if}
           {:else if newChannel === 'xmpp'}
