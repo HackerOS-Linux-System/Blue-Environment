@@ -1,4 +1,5 @@
 import { SystemBridge } from './systemBridge';
+import { bundledCatalog, sanitizeCatalog, type CatalogResult } from '../widgets/widgetCatalog';
 
 export type PackageKind = 'app' | 'plugin' | 'theme';
 
@@ -182,4 +183,24 @@ export async function onStoreChanged(cb: () => void): Promise<() => void> {
     const { listen } = await import('@tauri-apps/api/event');
     const un = await listen('store-changed', () => cb());
     return un;
+}
+
+
+/** Widget Store catalogue: the online index when it can be read, otherwise the
+ * catalogue bundled with this build (`offline` tells the UI which one it got). */
+export async function fetchWidgetCatalog(): Promise<CatalogResult & { offline: boolean; error?: string }> {
+    try {
+        const idx = await SystemBridge.invoke<{ entries: unknown[]; warnings: string[] }>('store_fetch_widgets', {});
+        const online = sanitizeCatalog(idx.entries);
+        // the built-in widgets are always part of the catalogue, even if the online index forgot them
+        const bundled = bundledCatalog();
+        const have = new Set(online.entries.map((e) => e.id));
+        const builtin = bundled.entries.filter((e) => e.builtin && !have.has(e.id));
+        if (online.entries.length > 0) {
+            return { entries: [...builtin, ...online.entries], warnings: [...(idx.warnings ?? []), ...online.warnings], offline: false };
+        }
+        return { ...bundled, offline: true, error: 'The online widget index is empty' };
+    } catch (e) {
+        return { ...bundledCatalog(), offline: true, error: storeErrorMessage(e) };
+    }
 }
