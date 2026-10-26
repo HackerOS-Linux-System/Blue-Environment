@@ -10,8 +10,8 @@ name: Build (release)
 # every job, and separately expected a `compositor/` directory to exist
 # and be built alongside the Tauri shell. Neither `build.rb` nor
 # `compositor/` exists anywhere in this repository — the Wayland
-# compositor described in README.md hasn't landed in the tree yet, and
-# no such Ruby script was ever added either, so every single job in that
+# compositor is a separate project (HackerOS-Comp) and not part of this
+# tree, and no such Ruby script was ever added either, so every job in that
 # version of this file was unrunnable from a fresh checkout.
 #
 # This version depends on neither. `src-tauri/tauri.conf.json` already
