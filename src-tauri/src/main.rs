@@ -45,8 +45,8 @@ mod blue_calendar_app;
 #[path = "TerminalApp/mod.rs"]
 mod terminal_app;
 use terminal_app::{spawn_terminal, write_to_terminal, pty_create, pty_write, pty_resize, pty_close};
-#[path = "ExplolerApp/mod.rs"]
-mod exploler_app;
+#[path = "ExplorerApp/mod.rs"]
+mod explorer_app;
 #[path = "BluePartitionManager/mod.rs"]
 mod blue_partition_manager;
 #[path = "BluePlayApp/mod.rs"]
@@ -293,8 +293,8 @@ fn main() {
         app_permissions::flatpak_exec,
         app_isolation::launch_clone_process, app_isolation::clone_isolation_status, app_isolation::clone_profile_delete,
         get_external_windows, focus_external_window, minimize_external_window, close_external_window, embed_external_window,
-        exploler_app::list_files, exploler_app::read_text_file, exploler_app::write_text_file, exploler_app::git_status,
-        BlueStore::store_fetch_index, BlueStore::store_fetch_image, BlueStore::store_resolve, BlueStore::store_install, BlueStore::store_uninstall,
+        explorer_app::list_files, explorer_app::read_text_file, explorer_app::write_text_file, explorer_app::git_status,
+        BlueStore::store_fetch_index, BlueStore::store_fetch_widgets, BlueStore::store_fetch_image, BlueStore::store_resolve, BlueStore::store_install, BlueStore::store_uninstall,
         BlueStore::store_list_installed, BlueStore::store_check_updates, BlueStore::store_read_file, BlueStore::store_read_icon,
         get_system_stats, system_monitor_app::get_processes,
         system_monitor_app::get_cpu_metrics,
@@ -315,7 +315,7 @@ fn main() {
         blue_messages_app::matrix::matrix_list_rooms, blue_messages_app::matrix::matrix_import_room, blue_messages_app::matrix::matrix_refresh_thread,
         blue_messages_app::xmpp::xmpp_has_session, blue_messages_app::xmpp::xmpp_login, blue_messages_app::xmpp::xmpp_logout,
         blue_messages_app::xmpp::xmpp_add_contact, blue_messages_app::xmpp::xmpp_refresh_thread,
-        blue_messages_app::sms::sms_add_contact, blue_messages_app::sms::sms_add_phone_contact, blue_messages_app::sms::sms_list_paired_phones,
+        blue_messages_app::sms::sms_add_contact, blue_messages_app::sms::sms_add_phone_contact, blue_messages_app::sms::sms_list_paired_phones, blue_messages_app::sms::sms_list_phone_threads,
         blue_messages_app::sms::sms_modem_available, blue_messages_app::sms::sms_refresh_thread,
         blue_messages_app::storage::messages_get_retention_settings, blue_messages_app::storage::messages_set_retention_settings,
         blue_connect::bc_start_discovery, blue_connect::bc_get_devices, blue_connect::bc_forget_device,
@@ -369,10 +369,10 @@ fn main() {
         osd_get_state, osd_adjust_volume, osd_toggle_mute, osd_adjust_brightness,
         web_view_snapshot,
         save_config, load_config, save_window_state, load_window_state,
-        exploler_app::read_file_as_data_url, exploler_app::trash::move_to_trash, exploler_app::trash::list_trash, exploler_app::trash::restore_from_trash, exploler_app::trash::delete_from_trash, exploler_app::trash::empty_trash, exploler_app::trash::trash_item_count, exploler_app::trash::get_trash_path, exploler_app::compress_files, exploler_app::extract_archive_here, exploler_app::get_open_with_apps, exploler_app::open_with_app, exploler_app::get_file_details, exploler_app::create_folder, exploler_app::delete_file, exploler_app::copy_file, exploler_app::move_file,
-        exploler_app::transfer::fm_check_conflicts, exploler_app::transfer::fm_transfer, exploler_app::transfer::fm_job_control, exploler_app::transfer::fm_exists, exploler_app::transfer::fm_create, exploler_app::transfer::fm_rename,
+        explorer_app::read_file_as_data_url, explorer_app::trash::move_to_trash, explorer_app::trash::list_trash, explorer_app::trash::restore_from_trash, explorer_app::trash::delete_from_trash, explorer_app::trash::empty_trash, explorer_app::trash::trash_item_count, explorer_app::trash::get_trash_path, explorer_app::compress_files, explorer_app::extract_archive_here, explorer_app::get_open_with_apps, explorer_app::open_with_app, explorer_app::get_file_details, explorer_app::create_folder, explorer_app::delete_file, explorer_app::copy_file, explorer_app::move_file,
+        explorer_app::transfer::fm_check_conflicts, explorer_app::transfer::fm_transfer, explorer_app::transfer::fm_job_control, explorer_app::transfer::fm_exists, explorer_app::transfer::fm_create, explorer_app::transfer::fm_rename,
         execute_command, pty_create, pty_write, pty_resize, pty_close, spawn_terminal, write_to_terminal,
-        exploler_app::get_default_desktop_path, exploler_app::create_text_file, exploler_app::get_username, exploler_app::get_hostname, exploler_app::get_home_path,
+        explorer_app::get_default_desktop_path, explorer_app::create_text_file, explorer_app::get_username, explorer_app::get_hostname, explorer_app::get_home_path,
         get_clipboard_history, add_to_clipboard_history, clear_clipboard_history,
         set_night_light_enabled, set_night_light_temperature,
         get_notification_history, save_notification_history,
