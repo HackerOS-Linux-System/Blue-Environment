@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 
-/** Zdarzenie `fm:progress` z backendu (src-tauri/src/ExplolerApp/transfer.rs). */
+/** Zdarzenie `fm:progress` z backendu (src-tauri/src/ExplorerApp/transfer.rs). */
 export interface ProgressEvent {
   jobId: string; mode: 'copy' | 'move';
   doneBytes: number; totalBytes: number; doneFiles: number; totalFiles: number;
