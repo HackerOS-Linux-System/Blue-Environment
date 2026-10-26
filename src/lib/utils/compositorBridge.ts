@@ -144,21 +144,17 @@ export default CompositorBridge;
 
 // ── Unified screenshot path ──────────────────────────────────────────────
 //
-// Previously there were two independent, inconsistent screenshot paths:
-//   1. `CompositorBridge.takeScreenshot()` here — sends IPC to the
-//      compositor, which (in `compositor/src/ipc/handler.rs`) shells out
-//      to `grim`/`import` itself. Nothing in the UI actually called this.
-//   2. `SystemBridge.takeScreenshot()` (systemBridge.ts) — a Tauri
-//      command (`BlueScreenshot::take_screenshot`) that *also* shells out
-//      to `grim`/`import`/etc, independently, and is what
-//      `BlueScreenshot.svelte` actually calls.
-// Both ultimately depend on `grim` working, and `grim` itself needs the
-// compositor to implement `wlr-screencopy-v1` — which the compositor now
-// does (see `compositor/src/protocols/screencopy.rs`), so route through
-// the compositor path first since it's the one that can be IPC-driven
-// without a `sh -c` round trip, and only fall back to the Tauri
-// CLI-fallback command for sessions where HackerOS-Comp plainly isn't
-// running the show (X11, or a different Wayland compositor).
+// There are two screenshot paths, tried in this order:
+//   1. `CompositorBridge.takeScreenshot()` here — IPC to the active
+//      compositor backend (HackerOS-Comp), which captures the output or the
+//      focused window itself via `wlr-screencopy-v1`. It needs no `sh -c`
+//      round trip and can be driven purely over IPC.
+//   2. `SystemBridge.takeScreenshot()` (systemBridge.ts) — a Tauri command
+//      (`BlueScreenshot::take_screenshot`) that shells out to
+//      `grim`/`import`/etc. Used for sessions where HackerOS-Comp plainly
+//      isn't running the show (X11, or a different Wayland compositor).
+// (This repository ships only the shell; the compositor is a separate
+// project, see README → "Compositor backends".)
 export async function takeScreenshotUnified(mode: 'full' | 'focused' = 'full'): Promise<string | null> {
     const path: string = await invoke('default_screenshot_path').catch(() => '');
     if (!path) {
