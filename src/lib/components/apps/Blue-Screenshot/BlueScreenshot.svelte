@@ -54,13 +54,10 @@
           dataUrl = await SystemBridge.readFileAsDataURL(outPath);
           savedPath = outPath;
         } else if (mode === 'window') {
-          // Previously built a shell one-liner that tried `swaymsg -t
-          // get_tree` (piped through an inline python3 script!) to find
-          // the focused window's rectangle - sway's own IPC, which Blue
-          // Compositor doesn't implement. takeScreenshotUnified('focused')
-          // asks the compositor for the focused window's geometry
-          // natively instead (see compositor/src/ipc/handler.rs's
-          // TakeScreenshot handler).
+          // takeScreenshotUnified('focused') asks the running compositor
+          // backend (HackerOS-Comp / labwc / sway / wayfire) for the focused
+          // window's geometry and falls back to the Tauri CLI command
+          // (grim / scrot / spectacle) when no backend can answer.
           savedPath = (await takeScreenshotUnified('focused')) || '';
           if (!savedPath) throw new Error('Screenshot failed - no window focused, or compositor unavailable');
           dataUrl = await SystemBridge.readFileAsDataURL(savedPath);
