@@ -49,7 +49,7 @@ pub(crate) fn expand_path(path: &str) -> String {
     if path.starts_with("~/") {
         // Goes through the shared resolver so `~/Documents/x.docx` lands in
         // `~/Dokumenty/x.docx` on a localized system (see user_dirs.rs).
-        crate::exploler_app::resolve_path(path).to_string_lossy().into_owned()
+        crate::explorer_app::resolve_path(path).to_string_lossy().into_owned()
     } else {
         path.to_string()
     }
