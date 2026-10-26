@@ -3,7 +3,7 @@
 
   import { isCompactWidth } from '../../../utils/compact';
   import { onMount } from 'svelte';
-  import { Package, RefreshCw, Search, LayoutGrid, List, AlertCircle, Loader2, X } from 'lucide-svelte';
+  import { Package, RefreshCw, Search, LayoutGrid, List, AlertCircle, Loader2, X, HardDrive, Boxes, Puzzle, Palette, Shapes, Gauge } from 'lucide-svelte';
   import type { SoftwareTab, ViewMode, PackageInfo } from './types';
   import { createPackages } from './usePackages';
   import PackageCard from './PackageCard.svelte';
@@ -11,21 +11,22 @@
   import InstallLogTerminal from './InstallLogTerminal.svelte';
   import CommunityStore from './CommunityStore.svelte';
   import IconStore from './IconStore.svelte';
+  import WidgetStore from './WidgetStore.svelte';
   import { t } from '../../../stores/language';
   import { showContextMenu } from '../../../stores/contextMenu';
   import type { PackageKind } from '../../../utils/blueStore';
 
   // Top-level sections: the system package manager (apt/dnf/pacman/flatpak/…)
   // plus the three community stores fed by the JSON indexes.
-  type Section = 'system' | PackageKind | 'icons';
+  type Section = 'system' | PackageKind | 'icons' | 'widgets';
   let section = $state<Section>('system');
   // `labelKey` → translated; the older sections keep their plain labels.
-  const sections: { id: Section; label?: string; labelKey?: string }[] = [
-    { id: 'system', label: 'System' }, { id: 'app', label: 'Community Apps' },
-    { id: 'plugin', label: 'Plugins' }, { id: 'theme', label: 'Themes' },
-    { id: 'icons', labelKey: 'software.section.icons' },
+  const sections: { id: Section; label?: string; labelKey?: string; icon: typeof Package }[] = [
+    { id: 'system', label: 'System', icon: HardDrive }, { id: 'app', label: 'Community Apps', icon: Boxes },
+    { id: 'plugin', label: 'Plugins', icon: Puzzle }, { id: 'theme', label: 'Themes', icon: Palette },
+    { id: 'icons', labelKey: 'software.section.icons', icon: Shapes }, { id: 'widgets', label: 'Widgets', icon: Gauge },
   ];
-  
+
   interface Props {
     /** Window id handed in by the host. (The icon store used to need it to hide an embedded native page; it is now drawn natively.) */
     windowId?: string;
@@ -95,10 +96,10 @@
 </script>
 
 <div bind:clientWidth={rootW} class="flex flex-col h-full bg-slate-900 text-white">
-  <div class="{compact ? 'p-3' : 'p-4'} border-b border-white/5 shrink-0">
+  <div class="{compact ? 'p-3' : 'p-4'} border-b border-white/5 shrink-0 bg-gradient-to-b from-blue-950/40 to-transparent">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
-        <Package size={26} class="text-blue-400" />
+        <span class="p-1.5 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-900/40"><Package size={20} class="text-white" /></span>
         <h1 class="text-xl font-bold">Blue Software</h1>
       </div>
       <button onclick={loadPackages} disabled={$refreshing} class="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50">
@@ -108,7 +109,7 @@
 
     <div class="flex gap-1 mb-3 p-1 bg-slate-800/60 rounded-xl w-fit max-w-full overflow-x-auto">
       {#each sections as sec (sec.id)}
-        <button onclick={() => (section = sec.id)} class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {section === sec.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'}">{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
+        <button onclick={() => (section = sec.id)} class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all {section === sec.id ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'}"><sec.icon size={14} />{sec.labelKey ? $t(sec.labelKey) : sec.label}</button>
       {/each}
     </div>
 
@@ -144,6 +145,8 @@
   {/if}
   {#if section === 'icons'}
     <!-- rendered by IconStore above -->
+  {:else if section === 'widgets'}
+    <div class="flex-1 min-h-0"><WidgetStore /></div>
   {:else if section !== 'system'}
     <div class="flex-1 min-h-0"><CommunityStore kind={section} /></div>
   {:else}
