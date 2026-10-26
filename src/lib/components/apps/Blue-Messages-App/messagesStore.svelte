@@ -179,6 +179,11 @@ export function createMessagesStore() {
     return res.conversation;
   }
 
+  /// Threads the paired phone already has (for the "from phone history" picker).
+  async function smsListPhoneThreads(deviceId: string) {
+    return SystemBridge.smsListPhoneThreads(deviceId);
+  }
+
   /// Same shape again for the ModemManager-backed SMS channel — see
   /// `sms_refresh_thread`'s doc in sms.rs.
   async function refreshIfSms(id: string) {
@@ -310,7 +315,7 @@ export function createMessagesStore() {
     matrixLoggedIn, matrixBusy, matrixRooms,
     matrixLogin, matrixLogout, matrixLoadRooms, matrixImportRoom,
     xmppLoggedIn, xmppBusy, xmppLogin, xmppLogout, xmppAddContact,
-    smsAvailable, smsAddContact, pairedPhones, smsAddPhoneContact,
+    smsAvailable, smsAddContact, pairedPhones, smsAddPhoneContact, smsListPhoneThreads,
   };
 }
 </script>
