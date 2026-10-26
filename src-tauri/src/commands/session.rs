@@ -1,6 +1,6 @@
 use crate::{apps, cache, window_tracker};
 use crate::session;
-use crate::exploler_app;
+use crate::explorer_app;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -133,5 +133,5 @@ pub fn embed_external_window(win_id: String, _parent_id: String) -> bool {
 }
 
 pub fn resolve_path(path: &str) -> PathBuf {
-    exploler_app::resolve_path(path)
+    explorer_app::resolve_path(path)
 }
