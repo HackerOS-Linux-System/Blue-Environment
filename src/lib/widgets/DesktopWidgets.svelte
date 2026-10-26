@@ -1,16 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { X, Plus, Check, GripHorizontal } from 'lucide-svelte';
-  import { widgets, widgetEditMode, loadWidgets, addWidget, patchWidget, removeWidget, raiseWidget, savePositions } from './widgetStore';
-  import { clampToViewport, snap, MIN_SIZE, WIDGET_TYPES, type WidgetType, type WidgetInstance } from './widgetModel';
+  import { widgets, widgetEditMode, loadWidgets, addWidget, addCatalogWidget, installedWidgets, loadInstalledWidgets, patchWidget, removeWidget, raiseWidget, savePositions } from './widgetStore';
+  import { clampToViewport, snap, MIN_SIZE, BUILTIN_WIDGET_TYPES, WIDGET_LABEL, type WidgetType, type StoreWidgetType, type WidgetInstance } from './widgetModel';
   import { t } from '../stores/language';
   import ClockWidget from './ClockWidget.svelte';
   import WeatherWidget from './WeatherWidget.svelte';
   import NotesWidget from './NotesWidget.svelte';
   import SystemWidget from './SystemWidget.svelte';
   import CalendarWidget from './CalendarWidget.svelte';
+  import WorldClockWidget from './WorldClockWidget.svelte';
+  import CountdownWidget from './CountdownWidget.svelte';
+  import QuoteWidget from './QuoteWidget.svelte';
+  import LinksWidget from './LinksWidget.svelte';
+  import TodoWidget from './TodoWidget.svelte';
+  import TimerWidget from './TimerWidget.svelte';
 
-  const COMPONENTS = { clock: ClockWidget, weather: WeatherWidget, notes: NotesWidget, system: SystemWidget, calendar: CalendarWidget } as const;
+  const COMPONENTS = { clock: ClockWidget, weather: WeatherWidget, notes: NotesWidget, system: SystemWidget, calendar: CalendarWidget,
+    worldclock: WorldClockWidget, countdown: CountdownWidget, quote: QuoteWidget, links: LinksWidget, todo: TodoWidget, timer: TimerWidget } as const;
+
+  const label = (w: WidgetInstance) => ($installedWidgets.find((e) => e.id === w.storeId)?.name) ?? (w.type in WIDGET_LABEL ? WIDGET_LABEL[w.type as StoreWidgetType] : $t('widgets.' + w.type));
 
   let vw = $state(typeof window === 'undefined' ? 1920 : window.innerWidth);
   let vh = $state(typeof window === 'undefined' ? 1080 : window.innerHeight);
@@ -21,6 +30,7 @@
 
   onMount(() => {
     loadWidgets();
+    loadInstalledWidgets();
     const onResize = () => { vw = window.innerWidth; vh = window.innerHeight; };
     window.addEventListener('resize', onResize);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && $widgetEditMode) widgetEditMode.set(false); };
@@ -68,7 +78,7 @@
              {editing ? 'border-blue-400/60 ring-1 ring-blue-400/30' : 'border-white/10'}"
       style="left:{g.x}px; top:{g.y}px; width:{g.w}px; height:{g.h}px;"
       role="group"
-      aria-label={$t('widgets.' + w.type)}
+      aria-label={label(w)}
       onmousedown={(e) => e.stopPropagation()}
       onclick={(e) => e.stopPropagation()}
       oncontextmenu={(e) => e.stopPropagation()}
@@ -101,13 +111,18 @@
   {/each}
 
   {#if editing}
-    <div class="absolute bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900/90 border border-white/10 backdrop-blur-xl shadow-2xl text-white text-xs"
+    <div class="absolute bottom-20 left-1/2 -translate-x-1/2 max-w-[94vw] flex-wrap justify-center pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900/90 border border-white/10 backdrop-blur-xl shadow-2xl text-white text-xs"
          role="toolbar" tabindex="-1" aria-label={$t('widgets.palette')}
          onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
       <span class="text-slate-400 mr-1">{$t('widgets.add')}</span>
-      {#each WIDGET_TYPES as type (type)}
+      {#each BUILTIN_WIDGET_TYPES as type (type)}
         <button onclick={() => addWidget(type as WidgetType)} class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-blue-600 transition-colors">
           <Plus size={11} /> {$t('widgets.' + type)}
+        </button>
+      {/each}
+      {#each $installedWidgets as entry (entry.id)}
+        <button onclick={() => addCatalogWidget(entry)} title={entry.description} class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-blue-600 transition-colors">
+          <span>{entry.icon}</span> {entry.name}
         </button>
       {/each}
       <button onclick={() => widgetEditMode.set(false)} class="ml-2 flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium">
