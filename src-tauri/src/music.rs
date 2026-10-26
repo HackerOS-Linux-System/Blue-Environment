@@ -63,7 +63,7 @@ fn art_dir() -> PathBuf {
 fn expand(path: &str) -> PathBuf {
     // Same resolver as the file manager: also maps legacy `HOME/Music` onto a
     // localized folder (`~/Muzyka`) — see user_dirs.rs.
-    crate::exploler_app::resolve_path(path)
+    crate::explorer_app::resolve_path(path)
 }
 
 fn is_audio(path: &Path) -> bool {
