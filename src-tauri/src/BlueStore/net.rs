@@ -241,6 +241,20 @@ pub async fn fetch_index(kind: PackageKind) -> StoreResult<IndexResult> {
     parse_index(kind, &text, &url_str)
 }
 
+/// Downloads the Widget Store index (`widgets-store.json`) and validates it.
+pub async fn fetch_widget_index() -> StoreResult<super::widgets::WidgetIndexResult> {
+    let base = if !super::install::is_root() {
+        std::env::var("BLUE_STORE_BASE_URL").unwrap_or_else(|_| STORE_BASE_URL.to_string())
+    } else {
+        STORE_BASE_URL.to_string()
+    };
+    let url_str = format!("{}/widgets-store.json", base.trim_end_matches('/'));
+    let url = Url::parse(&url_str).map_err(|e| StoreError::new("bad_url", "Invalid store URL").detail(e.to_string()))?;
+    let text = fetch_text(&url, MAX_INDEX_BYTES).await?;
+    super::widgets::parse_widget_index(&text, &url_str, strip_trailing_commas)
+        .map_err(|e| StoreError::new("bad_index", "The widget index could not be read").detail(e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
