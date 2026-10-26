@@ -35,13 +35,13 @@ fn conversations_path() -> PathBuf { messages_dir().join("conversations.json") }
 ///   not just a pull-on-refresh design. Sending still opens its own
 ///   short-lived connection per message rather than sharing the
 ///   persistent one; see `xmpp.rs`'s doc for why.
-/// - `Sms`: real for the ModemManager path, **not implemented** for the
-///   phone-pairing path — see `sms.rs`'s module doc. Sending/receiving
-///   through a USB/serial AT-command modem via ModemManager's D-Bus API
-///   works when such a modem exists; there is still no code here that
-///   talks to a paired Android phone (that would need something like
-///   KDE Connect's own protocol — see `BlueConnect/mod.rs` — layered on
-///   top, which is a separate, larger addition).
+/// - `Sms`: real for both transports — a USB/serial AT-command modem via
+///   ModemManager's D-Bus API, and a paired Android phone through Blue
+///   Connect (`kdeconnect.sms.*` packets over the pinned mutual-TLS link,
+///   answered by `SmsPlugin.kt` in Blue Connect for Android). The phone
+///   path imports only the rows that belong to the conversation's number,
+///   each exactly once, and can start a conversation from the phone's own
+///   history (`sms_list_phone_threads`) — see `sms.rs`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
