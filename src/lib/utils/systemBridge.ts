@@ -1523,6 +1523,13 @@ export const SystemBridge = {
         if (isTauri) { try { return await invoke('sms_list_paired_phones'); } catch { return []; } }
         return [];
     },
+    /** Conversations the paired phone already has (newest first), so a new
+     * SMS conversation can be started from the phone's own history —
+     * see sms.rs's sms_list_phone_threads. */
+    async smsListPhoneThreads(deviceId: string): Promise<{ ok: boolean; threads: { address: string; lastBody: string; lastDateMs: number; count: number }[]; error?: string }> {
+        if (isTauri) { try { return { ok: true, threads: await invoke('sms_list_phone_threads', { deviceId }) }; } catch (e) { return { ok: false, threads: [], error: String(e) }; } }
+        return { ok: false, threads: [], error: 'Only in Tauri environment' };
+    },
     async smsAddPhoneContact(deviceId: string, phoneNumber: string, name: string): Promise<{ ok: boolean; conversation?: import('../components/apps/Blue-Messages-App/types').Conversation; error?: string }> {
         if (isTauri) { try { const conversation = await invoke('sms_add_phone_contact', { deviceId, phoneNumber, name }); return { ok: true, conversation: conversation as any }; } catch (e) { return { ok: false, error: String(e) }; } }
         return { ok: false, error: 'Only in Tauri environment' };
