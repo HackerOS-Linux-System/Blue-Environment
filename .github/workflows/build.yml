@@ -106,6 +106,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           IN_ARCH: ${{ inputs.arch }}
           IN_MODE: ${{ inputs.build_mode }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+          AARCH64_RUNNER: ${{ vars.AARCH64_RUNNER }}
         run: |
           set -e
           arch="x86_64"
@@ -116,6 +118,18 @@ jobs:
             armv7|riscv64)  native='[]';                     emulated="[\"$arch\"]" ;;
             *) echo "Unknown arch: $arch" >&2; exit 1 ;;
           esac
+
+          # `ubuntu-24.04-arm` exists only for PUBLIC repos (or paid larger
+          # runners). On a private repo without AARCH64_RUNNER the job would
+          # sit in "Queued" forever — so in that case aarch64 is moved to the
+          # QEMU (emulated, binary-only) path, which runs on ubuntu-latest.
+          if [ "$REPO_PRIVATE" = "true" ] && [ -z "$AARCH64_RUNNER" ] \
+             && echo "$native" | jq -e 'index("aarch64")' >/dev/null; then
+            echo "::warning::Private repo and no AARCH64_RUNNER variable: building aarch64 under QEMU (binary only) instead of waiting for a native ARM runner that does not exist."
+            native=$(echo "$native" | jq -c 'map(select(. != "aarch64"))')
+            emulated=$(echo "$emulated" | jq -c '. + ["aarch64"]')
+          fi
+
           echo "native_matrix=$native"     >> "$GITHUB_OUTPUT"
           echo "emulated_matrix=$emulated" >> "$GITHUB_OUTPUT"
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$IN_MODE" = "binary" ]; then
@@ -143,6 +157,7 @@ jobs:
     # Set the repository variable AARCH64_RUNNER (Settings → Secrets and variables → Actions → Variables)
     # to a runner you do have, or only build x86_64.
     runs-on: ${{ matrix.arch == 'aarch64' && (vars.AARCH64_RUNNER || 'ubuntu-24.04-arm') || 'ubuntu-latest' }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,6 +174,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # package-lock.json is gitignored (not in the repo), so point the
+          # cache key at package.json or setup-node fails on the lockfile.
+          cache-dependency-path: package.json
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -295,6 +313,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # package-lock.json is gitignored (not in the repo), so point the
+          # cache key at package.json or setup-node fails on the lockfile.
+          cache-dependency-path: package.json
 
       - name: Build frontend on the host (architecture-independent)
         run: |
@@ -361,6 +382,7 @@ jobs:
   package-source-zip:
     name: Package full source .zip
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
