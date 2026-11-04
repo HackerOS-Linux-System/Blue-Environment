@@ -51,6 +51,12 @@ Production-grade Wayland desktop environment for HackerOS, built on
 - **Blue Media Writer** — writes `.iso` / `.img` (also `.xz`/`.gz`/`.zst`/`.bz2`)
   to USB sticks and SD cards, with a download catalog, checksum check,
   verify-after-write and a "restore drive" mode (inspired by Fedora Media Writer).
+- **Picture-in-Picture in Blue Web** — a video keeps playing in a small floating
+  frame above every window (play/pause, ±10 s, mute, drag, snap to a corner,
+  resize, back to the tab). It starts from the button in the status strip,
+  **Ctrl+Shift+P**, or the window's PiP button, and automatically when you
+  switch tabs or minimise the browser while a video is playing (can be turned
+  off in Blue Web settings). See [docs/picture-in-picture.md](docs/picture-in-picture.md).
 - **Blue Backup** — incremental, browsable snapshots (rsync hard links) with
   retention, restore and a systemd user timer. **Blue PDF** — built-in PDF reader.
 - **Spotlight search** (apps, files, Settings, calendar, mail, calculator),
@@ -61,6 +67,17 @@ Production-grade Wayland desktop environment for HackerOS, built on
 - **Packaging** for Debian/Ubuntu, Fedora, LegendaryOS, Arch, Alpine,
   openSUSE, Gentoo, Void, Nix, Snap, and Flatpak (the latter two/Gentoo/
   Void as submission-ready templates — see `packaging/`).
+
+## What's new in this release
+
+* **Blue Code → Linguist** — GitHub-style language statistics (all 836 GitHub languages + H#, HackerScript, Hacker Lang, hk and your own) in the editor's bottom-right corner → [docs/linguist.md](docs/linguist.md)
+* **xdg-desktop-portal backend** — file pickers, screenshots and screen sharing for Flatpak apps and browsers → [docs/portals.md](docs/portals.md)
+* **Blue Vault as the system keyring** (Secret Service) + password-health audit + auto-lock → [docs/secret-service.md](docs/secret-service.md)
+* **Settings & theme sync** between your Blue computers over Blue Connect → [docs/settings-sync.md](docs/settings-sync.md)
+* **Focus mode** — Do Not Disturb + app blocking + calendar → [docs/focus-mode.md](docs/focus-mode.md)
+* **Diagnostics page & opt-in crash reporter** → [docs/diagnostics.md](docs/diagnostics.md)
+* **Hardened `bwrap` isolation by default**, **package permissions with consent**, **signed packages** → [docs/sandboxing.md](docs/sandboxing.md), [docs/sdk/permissions.md](docs/sdk/permissions.md), [docs/sdk/signing.md](docs/sdk/signing.md)
+* **Developer docs, SDK templates** → [docs/README.md](docs/README.md), [api/templates](api/templates)
 
 ## Build Instructions
 
