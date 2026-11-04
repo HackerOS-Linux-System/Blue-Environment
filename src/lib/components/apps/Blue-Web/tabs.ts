@@ -3,6 +3,7 @@ import { tick } from 'svelte';
 import type { Tab, SearchEngineId } from './types';
 import { normalizeUrl } from './types';
 import { SystemBridge } from '../../../utils/systemBridge';
+import { isPipTab, trackVideo, dropPip, type PendingAdopt } from './pip';
 
 function makeTab(url = '', isPrivate = false): Tab {
   const id = `t${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -43,6 +44,9 @@ const liveWebviews = new Set<string>();
 // initiated). Keyed by tab id so `closeTab` can clean up exactly the
 // right listeners.
 const tabUnlisten = new Map<string, (() => void)[]>();
+
+/** Forgets a webview that was closed behind this module's back (an orphaned Picture-in-Picture). */
+export function forgetLiveWebview(id: string) { liveWebviews.delete(id); }
 
 export interface WebRect { x: number; y: number; width: number; height: number }
 
@@ -212,6 +216,7 @@ export function createTabs(
           return;
         }
         liveWebviews.add(id);
+        trackVideo(id);
         await attachTabListeners(id);
         fetchFaviconFor(id, url);
 
@@ -264,6 +269,7 @@ export function createTabs(
     });
     tabUnlisten.get(id)?.forEach((fn) => fn());
     tabUnlisten.delete(id);
+    dropPip(id); // a tab that is closed takes its Picture-in-Picture with it
     if (liveWebviews.has(id)) {
       liveWebviews.delete(id);
       if (SystemBridge.isTauri()) {
@@ -287,9 +293,10 @@ export function createTabs(
     if (!SystemBridge.isTauri()) return;
     for (const otherId of liveWebviews) {
       if (otherId === id) continue;
+      if (isPipTab(otherId)) continue; // floats in its own Picture-in-Picture frame
       try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: otherId, visible: false }); } catch {}
     }
-    if (liveWebviews.has(id)) {
+    if (liveWebviews.has(id) && !isPipTab(id)) {
       const b = getBounds?.();
       if (b && b.width > 1 && b.height > 1) {
         try { await SystemBridge.invokeCommand('web_view_set_bounds', { tabId: id, ...b }); } catch {}
@@ -307,6 +314,7 @@ export function createTabs(
   async function setAllHidden() {
     if (!SystemBridge.isTauri()) return;
     for (const id of liveWebviews) {
+      if (isPipTab(id)) continue; // Picture-in-Picture is managed by WebPipOverlay
       try { await SystemBridge.invokeCommand('web_view_set_visible', { tabId: id, visible: false }); } catch {}
     }
   }
@@ -315,6 +323,7 @@ export function createTabs(
   async function setInteractive(interactive: boolean) {
     if (!SystemBridge.isTauri()) return;
     for (const id of liveWebviews) {
+      if (isPipTab(id)) continue;
       try { await SystemBridge.invokeCommand('web_view_set_interactive', { tabId: id, interactive }); } catch {}
     }
   }
@@ -357,6 +366,20 @@ export function createTabs(
     }
   }
 
+  /**
+   * Takes over a tab whose webview outlived the previous Blue Web window (a video
+   * kept playing in Picture-in-Picture while the window was minimised or switched
+   * away): the tab keeps its id, so the live webview is simply claimed again.
+   */
+  async function adoptTab(a: PendingAdopt) {
+    const t: Tab = { id: a.tabId, url: a.url, title: a.title, isNew: false, favicon: a.favicon, zoom: a.zoom ?? 1 };
+    liveWebviews.add(t.id);
+    tabs.set([t]);
+    activeId.set(t.id);
+    trackVideo(t.id);
+    await attachTabListeners(t.id);
+  }
+
   function cleanup() {
     for (const fns of tabUnlisten.values()) fns.forEach((fn) => fn());
     tabUnlisten.clear();
@@ -364,6 +387,6 @@ export function createTabs(
 
   return {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, adoptTab,
   };
 }
