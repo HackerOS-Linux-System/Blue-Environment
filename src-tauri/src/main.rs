@@ -6,6 +6,15 @@ mod types;
 mod commands;
 mod backend;
 mod logging;
+mod lock_ext;
+mod sandbox;
+mod settings_sync;
+mod diagnostics;
+mod diagnostics_cmds;
+#[path = "XdgPortal/mod.rs"]
+mod xdg_portal;
+#[path = "XdgPortal/shell.rs"]
+mod xdg_portal_shell;
 
 mod session;
 mod session_control;
@@ -120,6 +129,7 @@ use blue_web_app::{
     web_view_set_zoom, web_view_find, web_view_clear_find, web_view_set_clip,
     web_downloads_list, web_download_remove, web_download_reveal, DownloadRegistry,
     web_set_blocklist, BlockList, web_report_meta, web_view_snapshot,
+    web_pip_report, web_pip_enter, web_pip_exit, web_pip_control,
 };
 use blue_code_app::{start_language_server, stop_language_server, lsp_send_message, lsp_is_running};
 use blue_code_app::git::{
@@ -318,6 +328,19 @@ fn main() {
         blue_messages_app::sms::sms_add_contact, blue_messages_app::sms::sms_add_phone_contact, blue_messages_app::sms::sms_list_paired_phones, blue_messages_app::sms::sms_list_phone_threads,
         blue_messages_app::sms::sms_modem_available, blue_messages_app::sms::sms_refresh_thread,
         blue_messages_app::storage::messages_get_retention_settings, blue_messages_app::storage::messages_set_retention_settings,
+        // Blue Code: Linguist (language statistics)
+        blue_code_app::code_linguist_scan, blue_code_app::code_linguist_init_config,
+        // Blue Accounts: password health, auto-lock, Secret Service bridge
+        blue_accounts::accounts_audit, blue_accounts::accounts_get_settings, blue_accounts::accounts_set_settings,
+        blue_accounts::secrets_service_status, blue_accounts::secrets_prompt_reply, blue_accounts::secrets_access_log,
+        // Settings sync over Blue Connect
+        blue_connect::sync_transport::sync_status, blue_connect::sync_transport::sync_set_device_enabled,
+        blue_connect::sync_transport::sync_report_local, blue_connect::sync_transport::sync_now, blue_connect::sync_transport::sync_take_pending,
+        // XDG portal backend status + diagnostics / crash reporting
+        xdg_portal_shell::portal_status,
+        diagnostics_cmds::diagnostics_info, diagnostics_cmds::diagnostics_report, diagnostics_cmds::diagnostics_save_report,
+        diagnostics_cmds::crash_reporting_get, diagnostics_cmds::crash_reporting_set, diagnostics_cmds::crash_reports_list,
+        diagnostics_cmds::crash_report_delete, diagnostics_cmds::crash_report_send,
         blue_connect::bc_start_discovery, blue_connect::bc_get_devices, blue_connect::bc_forget_device,
         blue_connect::bc_request_pairing, blue_connect::bc_listen_for_pairing, blue_connect::bc_confirm_incoming_pairing,
         // Blue Connect → Phone (Android via adb): live screen, input, apps, files, calls
@@ -438,6 +461,7 @@ fn main() {
         web_view_set_zoom, web_view_find, web_view_clear_find,
         web_downloads_list, web_download_remove, web_download_reveal,
         web_set_blocklist, web_report_meta,
+        web_pip_report, web_pip_enter, web_pip_exit, web_pip_control,
         start_language_server, stop_language_server, lsp_send_message, lsp_is_running,
         git_repo_status, git_diff, git_stage, git_unstage, git_discard, git_commit, git_log,
         calendar_load_events, calendar_save_event, calendar_delete_event,
@@ -528,6 +552,28 @@ fn main() {
     ])
     .setup(|app| {
         use tauri::{Emitter, Manager};
+
+        // Crash reporter (opt-in; records nothing unless enabled in Settings → Diagnostics).
+        diagnostics_cmds::init();
+
+        // Secret Service (org.freedesktop.secrets) backed by the Blue Accounts vault + idle auto-lock.
+        {
+            let h = app.handle().clone();
+            blue_accounts::start_background(std::sync::Arc::new(move |name: &str, payload: serde_json::Value| {
+                let _ = h.emit(name, payload);
+            }));
+        }
+
+        // xdg-desktop-portal backend: file chooser + screenshots for Flatpak apps and browsers.
+        xdg_portal_shell::start(app.handle().clone());
+
+        // Settings sync: only listens when at least one paired device has it enabled.
+        {
+            let h = app.handle().clone();
+            blue_connect::sync_transport::start_if_enabled(std::sync::Arc::new(move |name: &str, payload: serde_json::Value| {
+                let _ = h.emit(name, payload);
+            }));
+        }
 
         // Blue Connect remote receiver: restart it when the person had enabled it
         // (phone / TV remote control — see BlueConnect/remote.rs).
