@@ -1,0 +1,12 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-web-pip-report"
+description = """
+Allows an embedded Blue Web content webview to report the state of its own
+page's <video> (has video / playing / muted / aspect ratio) back to the shell
+via web_pip_report, for the Picture-in-Picture feature. The command itself
+verifies that the caller is the webview of the tab named in the report.
+Grants nothing else.
+"""
+commands.allow = ["web_pip_report"]
