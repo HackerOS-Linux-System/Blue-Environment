@@ -1,13 +1,17 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewBuilder, WebviewUrl};
 use tauri::webview::{DownloadEvent, NewWindowResponse};
+use crate::lock_ext::LockExt;
 
 mod content_blocking;
 mod snapshot;
 mod clip;
+mod pip;
 pub mod capability_selftest;
 // Linux-only: poprawne osadzanie webview-dzieci (GtkOverlay) — patrz
 // `linux_embed.rs` (bez tego strona renderuje się POD powłoką, a nie w oknie).
@@ -90,7 +94,7 @@ pub fn web_set_blocklist(
     registry: tauri::State<WebViewRegistry>,
     domains: Vec<String>,
 ) -> Result<(), String> {
-    *blocklist.0.lock().unwrap() = domains.into_iter().collect();
+    *blocklist.0.lock_safe() = domains.into_iter().collect();
 
     // Live-update subresource blocking on every currently-open tab —
     // previously (Linux specifically) a filter was only ever compiled
@@ -105,7 +109,7 @@ pub fn web_set_blocklist(
     // per-request and doesn't need this at all, but re-`install`ing is
     // harmless for it too (it just re-registers the same filter/handler
     // — see `install_windows`'s idempotency note).
-    let webviews: Vec<Webview> = registry.0.lock().unwrap().values().cloned().collect();
+    let webviews: Vec<Webview> = registry.0.lock_safe().values().cloned().collect();
     let shared_list = blocklist.0.clone();
     for webview in webviews {
         content_blocking::install(&webview, shared_list.clone());
@@ -250,7 +254,7 @@ pub fn web_view_create(
     };
 
     // Do not create a second webview for a tab id that already has one.
-    if registry.0.lock().unwrap().contains_key(&tab_id) {
+    if registry.0.lock_safe().contains_key(&tab_id) {
         return Ok(());
     }
 
@@ -267,8 +271,10 @@ pub fn web_view_create(
     let tab_id_for_download = tab_id.clone();
     let app_for_download = app.clone();
     let meta_script = META_REPORT_SCRIPT_TEMPLATE.replace("{TAB_ID}", &tab_id);
+    let pip_script = pip::script_for_tab(&tab_id);
     let builder = WebviewBuilder::new(label_for(&tab_id), WebviewUrl::External(parsed))
         .initialization_script(&meta_script)
+        .initialization_script(&pip_script)
         .on_navigation(move |navigated_url| {
             // Content blocking — checked against whatever `BlockList`
             // currently holds (see `web_set_blocklist`, driven by
@@ -286,7 +292,7 @@ pub fn web_view_create(
             // case (see `BUILTIN_BLOCKLIST`), just not a full
             // subresource-level adblocker.
             let blocked = navigated_url.host_str()
-                .map(|h| host_is_blocked(h, &app_for_nav.state::<BlockList>().0.lock().unwrap()))
+                .map(|h| host_is_blocked(h, &app_for_nav.state::<BlockList>().0.lock_safe()))
                 .unwrap_or(false);
             if blocked {
                 return false;
@@ -353,7 +359,7 @@ pub fn web_view_create(
                     *destination = target.clone();
 
                     let id = format!("dl{}", chrono::Local::now().timestamp_millis());
-                    downloads.0.lock().unwrap().insert(id.clone(), DownloadRecord {
+                    downloads.0.lock_safe().insert(id.clone(), DownloadRecord {
                         id: id.clone(),
                         tab_id: tab_id_for_download.clone(),
                         url: url.to_string(),
@@ -361,7 +367,7 @@ pub fn web_view_create(
                         path: target.to_string_lossy().to_string(),
                         state: "downloading".to_string(),
                     });
-                    let _ = app_for_download.emit("web-download-started", downloads.0.lock().unwrap().get(&id).cloned());
+                    let _ = app_for_download.emit("web-download-started", downloads.0.lock_safe().get(&id).cloned());
                 }
                 DownloadEvent::Finished { url, path, success } => {
                     // No `id` comes back with `Finished` — this hook only
@@ -372,7 +378,7 @@ pub fn web_view_create(
                     // pair at a time is the only case that could
                     // collide, and even then both records just get the
                     // same, correct final state).
-                    let mut reg = downloads.0.lock().unwrap();
+                    let mut reg = downloads.0.lock_safe();
                     if let Some(rec) = reg.values_mut().find(|r| {
                         r.url == url.to_string() && r.state == "downloading"
                             && path.as_ref().map(|p| r.path == p.to_string_lossy()).unwrap_or(true)
@@ -418,21 +424,21 @@ pub fn web_view_create(
     // still-allowed page embeds).
     content_blocking::install(&webview, app.state::<BlockList>().0.clone());
 
-    registry.0.lock().unwrap().insert(tab_id, webview);
+    registry.0.lock_safe().insert(tab_id, webview);
     Ok(())
 }
 
 #[tauri::command(async)]
 pub fn web_view_navigate(registry: tauri::State<WebViewRegistry>, tab_id: String, url: String) -> Result<(), String> {
     let parsed = tauri::Url::parse(&url).map_err(|e| format!("invalid URL: {e}"))?;
-    let reg = registry.0.lock().unwrap();
+    let reg = registry.0.lock_safe();
     let webview = reg.get(&tab_id).ok_or_else(|| format!("no webview for tab {tab_id}"))?;
     webview.navigate(parsed).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 pub fn web_view_reload(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
-    let reg = registry.0.lock().unwrap();
+    let reg = registry.0.lock_safe();
     let webview = reg.get(&tab_id).ok_or_else(|| format!("no webview for tab {tab_id}"))?;
     webview.reload().map_err(|e| e.to_string())
 }
@@ -445,7 +451,7 @@ pub fn web_view_reload(registry: tauri::State<WebViewRegistry>, tab_id: String) 
 /// value, so this command can stay a thin, stateless wrapper.
 #[tauri::command(async)]
 pub fn web_view_set_zoom(registry: tauri::State<WebViewRegistry>, tab_id: String, factor: f64) -> Result<(), String> {
-    let reg = registry.0.lock().unwrap();
+    let reg = registry.0.lock_safe();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
     webview.set_zoom(factor.clamp(0.25, 5.0)).map_err(|e| e.to_string())
 }
@@ -468,7 +474,7 @@ pub fn web_view_set_zoom(registry: tauri::State<WebViewRegistry>, tab_id: String
 /// nicety this can't cheaply replicate without a bridge).
 #[tauri::command(async)]
 pub fn web_view_find(registry: tauri::State<WebViewRegistry>, tab_id: String, query: String, backwards: bool) -> Result<(), String> {
-    let reg = registry.0.lock().unwrap();
+    let reg = registry.0.lock_safe();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
     let q = serde_json::to_string(&query).map_err(|e| e.to_string())?;
     let dir = if backwards { "-1" } else { "1" };
@@ -541,7 +547,7 @@ pub fn web_view_set_bounds(
     height: f64,
 ) -> Result<(), String> {
     let webview = {
-        let reg = registry.0.lock().unwrap();
+        let reg = registry.0.lock_safe();
         // tab may have just closed; not an error
         let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
         webview.clone()
@@ -575,7 +581,7 @@ pub fn web_view_set_bounds(
 #[tauri::command(async)]
 pub fn web_view_set_interactive(registry: tauri::State<WebViewRegistry>, tab_id: String, interactive: bool) -> Result<(), String> {
     let webview = {
-        let reg = registry.0.lock().unwrap();
+        let reg = registry.0.lock_safe();
         let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
         webview.clone()
     };
@@ -598,7 +604,7 @@ pub fn web_view_set_interactive(registry: tauri::State<WebViewRegistry>, tab_id:
 /// matching how every real browser's tabs behave.
 #[tauri::command(async)]
 pub fn web_view_set_visible(registry: tauri::State<WebViewRegistry>, tab_id: String, visible: bool) -> Result<(), String> {
-    let reg = registry.0.lock().unwrap();
+    let reg = registry.0.lock_safe();
     let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
     if visible { webview.show().map_err(|e| e.to_string())?; } else { webview.hide().map_err(|e| e.to_string())?; }
     // Linux: the page sits in a clipping holder, which must follow.
@@ -624,7 +630,7 @@ pub fn web_view_set_clip(
     height: Option<f64>,
 ) -> Result<(), String> {
     let webview = {
-        let reg = registry.0.lock().unwrap();
+        let reg = registry.0.lock_safe();
         let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
         webview.clone()
     };
@@ -650,6 +656,77 @@ pub fn web_view_set_clip(
     }
 }
 
+// ── Picture-in-Picture (patrz pip.rs) ────────────────────────────────
+
+/// Stan wideo na stronie karty — to, co strona sama zgłasza przez
+/// `web_pip_report`. Frontend (`pip.ts`) słucha `web-pip-{tab_id}`.
+#[derive(Serialize, Clone)]
+struct PipVideoState {
+    tab_id: String,
+    has_video: bool,
+    playing: bool,
+    muted: bool,
+    aspect: f64,
+}
+
+/// Jedyne polecenie, które może wywołać strona w sprawie PiP: zgłoszenie
+/// stanu jej własnego wideo. Odrzuca wywołania z innego webview niż karta,
+/// której dotyczy zgłoszenie, i ogranicza wartości liczbowe.
+#[tauri::command(async)]
+pub fn web_pip_report(
+    webview: tauri::Webview,
+    app: AppHandle,
+    tab_id: String,
+    has_video: bool,
+    playing: bool,
+    muted: bool,
+    aspect: f64,
+) -> Result<(), String> {
+    if webview.label() != label_for(&tab_id) {
+        return Err("web_pip_report: caller does not own this tab".to_string());
+    }
+    let state = PipVideoState {
+        tab_id: tab_id.clone(),
+        has_video,
+        playing: has_video && playing,
+        muted,
+        aspect: pip::clamp_aspect(aspect),
+    };
+    let _ = app.emit(&format!("web-pip-{tab_id}"), state);
+    Ok(())
+}
+
+/// Włącza tryb PiP w stronie karty (wideo na cały widok, reszta ukryta).
+#[tauri::command(async)]
+pub fn web_pip_enter(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
+    let reg = registry.0.lock_safe();
+    let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+    webview.eval("window.__bluePip && window.__bluePip.enter();").map_err(|e| e.to_string())
+}
+
+/// Wyłącza tryb PiP w stronie karty i przywraca jej normalny wygląd.
+#[tauri::command(async)]
+pub fn web_pip_exit(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
+    let reg = registry.0.lock_safe();
+    let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+    webview.eval("window.__bluePip && window.__bluePip.exit();").map_err(|e| e.to_string())
+}
+
+/// Sterowanie odtwarzaczem w PiP. Dozwolone: play, pause, toggle, mute,
+/// unmute, toggle_mute, seek (względnie, w sekundach).
+#[tauri::command(async)]
+pub fn web_pip_control(
+    registry: tauri::State<WebViewRegistry>,
+    tab_id: String,
+    action: String,
+    value: Option<f64>,
+) -> Result<(), String> {
+    let script = pip::control_script(&action, value).ok_or_else(|| format!("unknown pip action: {action}"))?;
+    let reg = registry.0.lock_safe();
+    let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
+    webview.eval(&script).map_err(|e| e.to_string())
+}
+
 /// Renders what a tab's webview currently shows into a compact JPEG `data:` URL.
 ///
 /// The frontend calls this right before it has to hide the (native, always
@@ -662,7 +739,7 @@ pub fn web_view_set_clip(
 #[tauri::command(async)]
 pub fn web_view_snapshot(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<String, String> {
     let webview = {
-        let reg = registry.0.lock().unwrap();
+        let reg = registry.0.lock_safe();
         let Some(webview) = reg.get(&tab_id) else { return Err("no such tab".to_string()) };
         webview.clone()
     };
@@ -698,7 +775,7 @@ pub fn web_view_snapshot(registry: tauri::State<WebViewRegistry>, tab_id: String
 #[tauri::command(async)]
 pub fn web_view_history_go(registry: tauri::State<WebViewRegistry>, tab_id: String, delta: i32) -> Result<(), String> {
     let webview = {
-        let reg = registry.0.lock().unwrap();
+        let reg = registry.0.lock_safe();
         let Some(webview) = reg.get(&tab_id) else { return Ok(()) };
         webview.clone()
     };
@@ -708,7 +785,7 @@ pub fn web_view_history_go(registry: tauri::State<WebViewRegistry>, tab_id: Stri
 
 #[tauri::command(async)]
 pub fn web_view_close(registry: tauri::State<WebViewRegistry>, tab_id: String) -> Result<(), String> {
-    if let Some(webview) = registry.0.lock().unwrap().remove(&tab_id) {
+    if let Some(webview) = registry.0.lock_safe().remove(&tab_id) {
         #[cfg(target_os = "linux")]
         let _ = webview.with_webview(|pw| linux_embed::detach(&pw.inner()));
         webview.close().map_err(|e| e.to_string())?;
@@ -808,7 +885,7 @@ fn extract_meta(html: &str, name: &str) -> Option<String> {
 /// here.
 #[tauri::command]
 pub fn web_downloads_list(registry: tauri::State<DownloadRegistry>) -> Vec<DownloadRecord> {
-    let mut v: Vec<DownloadRecord> = registry.0.lock().unwrap().values().cloned().collect();
+    let mut v: Vec<DownloadRecord> = registry.0.lock_safe().values().cloned().collect();
     v.sort_by(|a, b| b.id.cmp(&a.id)); // id embeds a millis timestamp, so this is newest-first
     v
 }
@@ -819,7 +896,7 @@ pub fn web_downloads_list(registry: tauri::State<DownloadRegistry>) -> Vec<Downl
 /// disk; this only clears the entry from the panel).
 #[tauri::command(async)]
 pub fn web_download_remove(registry: tauri::State<DownloadRegistry>, id: String) -> Result<(), String> {
-    registry.0.lock().unwrap().remove(&id);
+    registry.0.lock_safe().remove(&id);
     Ok(())
 }
 
@@ -836,7 +913,7 @@ pub fn web_download_remove(registry: tauri::State<DownloadRegistry>, id: String)
 #[tauri::command(async)]
 pub fn web_download_reveal(app: AppHandle, registry: tauri::State<DownloadRegistry>, id: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let path = registry.0.lock().unwrap().get(&id).map(|r| r.path.clone())
+    let path = registry.0.lock_safe().get(&id).map(|r| r.path.clone())
         .ok_or_else(|| format!("no download with id {id}"))?;
     let parent = std::path::Path::new(&path)
         .parent()
