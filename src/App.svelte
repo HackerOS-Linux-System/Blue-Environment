@@ -21,6 +21,7 @@
   import { hasCompletedWelcome } from './lib/components/apps/Blue-Welcome-App/welcome';
   import { createNotificationsStore } from './lib/components/apps/Blue-Notifications-App/notificationsStore';
   import OnscreenKeyboard from './lib/components/OnscreenKeyboard.svelte';
+  import WebPipOverlay from './lib/components/apps/Blue-Web/WebPipOverlay.svelte';
   import { APPS } from './lib/constants';
   import CommunityAppHost from './lib/components/apps/Community-App-Host/CommunityAppHost.svelte';
   import { Package as CommunityAppIcon } from 'lucide-svelte';
@@ -36,6 +37,10 @@
   import NotificationCenter from './lib/components/NotificationCenter.svelte';
   import ClipboardPanel from './lib/components/ClipboardPanel.svelte';
   import ToastContainer from './lib/components/ToastContainer.svelte';
+  import PermissionConsentDialog from './lib/components/PermissionConsentDialog.svelte';
+  import SecretsPrompt from './lib/components/SecretsPrompt.svelte';
+  import { startFocusEngine } from './lib/stores/focusMode';
+  import { startSettingsSync } from './lib/stores/settingsSync';
   import Spotlight from './lib/components/Spotlight.svelte';
   import MagnifierController from './lib/components/MagnifierController.svelte';
   import { initRemoteReceiver } from './lib/utils/remoteReceiver';
@@ -244,6 +249,9 @@
   // everywhere and replace it with shell menus — see globalContextMenu.ts.
   // Calendar reminders fire from the shell itself, so they work with the Calendar window closed.
   onMount(() => startCalendarReminders());
+  // Focus mode (calendar-driven DND + app blocking) and settings sync between this person's Blue computers
+  onMount(() => startFocusEngine(() => SystemBridge.calendarLoadEvents()));
+  onMount(() => startSettingsSync());
 
   // Restore the saved multi-monitor layout (wlroots) and start the Blue Connect
   // remote receiver listener (phones / controllers paired in Blue Connect → Remote).
@@ -787,6 +795,9 @@
     </WindowComponent>
   {/each}
 
+  <!-- Blue Web Picture-in-Picture: floats above every window (see Blue-Web/pip.ts) -->
+  <WebPipOverlay {barHeight} panelPosition={effectivePanelPosition} />
+
   <WindowSwitcher windows={switcherItems} selectedIndex={switcherIndex} isVisible={switcherVisible} />
   <HotCorners config={hotCornersCfg} on:trigger={(e) => cornerHandler(e.detail)} />
   <WorkspaceSwitcher currentWorkspace={$currentWorkspace} workspaceCount={$workspaceCount} {windowCounts} />
@@ -806,6 +817,8 @@
   {/if}
 
   <ToastContainer />
+  <PermissionConsentDialog />
+  <SecretsPrompt />
   <Spotlight isOpen={isSpotlightOpen} zIndex={startMenuZIndex + 300} on:close={() => (isSpotlightOpen = false)} />
   <MagnifierController />
   <OsdOverlay zIndex={startMenuZIndex + 200} bottomInset={effectivePanelPosition === 'bottom' ? barHeight : 0} />
