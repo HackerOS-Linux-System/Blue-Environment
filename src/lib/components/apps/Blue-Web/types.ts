@@ -59,6 +59,8 @@ export interface BlueWebSettings {
      * `settings.ts`'s `BUILTIN_BLOCKLIST` for what's blocked by default. */
     customBlockedDomains: string[];
     openLinksFromOtherAppsInNewTab: boolean;
+    /** Keep a playing video going in a small floating window when its tab/window is left. */
+    autoPictureInPicture: boolean;
 }
 
 export const DEFAULT_WEB_SETTINGS: BlueWebSettings = {
@@ -69,6 +71,7 @@ export const DEFAULT_WEB_SETTINGS: BlueWebSettings = {
     contentBlockingEnabled: true,
     customBlockedDomains: [],
     openLinksFromOtherAppsInNewTab: true,
+    autoPictureInPicture: true,
 };
 
 export const ZOOM_LEVELS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
