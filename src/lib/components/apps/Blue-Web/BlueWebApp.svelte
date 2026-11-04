@@ -46,8 +46,8 @@
   // Platforms that cannot clip (`clip-unsupported`) fall back to hiding the page
   // whenever anything overlaps it, behind a neutral card with the page's title.
   // `reconcileVisibility()` below is the only place that shows/hides.
-  import { onMount, onDestroy, tick } from 'svelte';
-  import { Plus, X, Globe, ExternalLink, Search, ZoomIn, ZoomOut, ArrowUp, ArrowDown, EyeOff, Download } from 'lucide-svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
+  import { Plus, X, Globe, ExternalLink, Search, ZoomIn, ZoomOut, ArrowUp, ArrowDown, EyeOff, Download, PictureInPicture2 } from 'lucide-svelte';
   import { createTabs } from './tabs';
   import { createHistory } from './history';
   import { createWebSettings } from './webSettings';
@@ -64,6 +64,10 @@
   import SidePanel from './SidePanel.svelte';
   import NewTabPage from './NewTabPage.svelte';
   import WebSettingsPanel from './WebSettingsPanel.svelte';
+  import {
+    webPip, videoInfo, enterPip, exitPip, isPipTab, untrackVideo, dropPip,
+    registerPipHost, unregisterPipHost, takePendingAdopt, setPendingAdopt,
+  } from './pip';
 
   // Launch-arg entry point — other apps opening a link (see
   // AboutApp.svelte, and `utils/openInBlueWeb.ts`) call `openApp(AppId.
@@ -116,7 +120,7 @@
 
   const {
     tabs, activeId, openUrl, addTab, closeTab, reopenClosedTab, setActiveWebview, setAllHidden,
-    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive,
+    hasLiveWebview, reloadActive, setZoom, zoomOf, find, clearFind, cleanup, setInteractive, adoptTab,
   } = createTabs(
     handleNavigate, handleFavicon, () => $settings.searchEngine, () => $settings.defaultZoom,
     // getBounds / getShouldBeVisible — let tabs.ts measure the content area itself
@@ -153,7 +157,9 @@
   /** The page is (almost) completely covered right now, so it is hidden. */
   let occluded = $state(false);
   /** Whether the native page may be shown. The single input to `reconcileVisibility`. */
-  let wantVisible = $derived(!occluded && !settingsOpen);
+  /** This tab's video floats in the Picture-in-Picture frame (see pip.ts) — its native page is not ours to show. */
+  let activeIsPip = $derived($webPip?.tabId === $activeId);
+  let wantVisible = $derived(!occluded && !settingsOpen && !activeIsPip);
   // Kept for tabs.ts's `getShouldBeVisible` (a freshly created webview asks right away).
   let webviewShouldBeVisible = $derived(wantVisible);
 
@@ -346,7 +352,7 @@
   // window drag from flooding the main thread).
   let pushingBounds = false;
   function syncLoop() {
-    if (!activeTab.isNew && !settingsOpen) {
+    if (!activeTab.isNew && !settingsOpen && !activeIsPip) {
       const cov = computeCoverage();
       if (cov.hide !== occluded) occluded = cov.hide;
       desiredClip = cov.clip;
@@ -382,6 +388,7 @@
     if (e.key === 't' && !e.shiftKey) { e.preventDefault(); addTab(); }
     else if (e.key === 't' && e.shiftKey) { e.preventDefault(); reopenClosedTab(); }
     else if (e.key === 'n' && e.shiftKey) { e.preventDefault(); addTab(true); }
+    else if ((e.key === 'p' || e.key === 'P') && e.shiftKey) { e.preventDefault(); togglePipForActive(); }
     else if (e.key === 'w') { e.preventDefault(); closeTab($activeId); }
     else if (e.key === 'r') { e.preventDefault(); if (!activeTab.isNew) reloadActive(); }
     else if (e.key === 'f') { e.preventDefault(); openFindBar(); }
@@ -445,6 +452,17 @@
   }
 
   onMount(() => {
+    // A video kept playing in Picture-in-Picture after this app's previous window went
+    // away (minimised, other workspace): the person came back to it — claim the live tab.
+    const adopt = takePendingAdopt();
+    if (adopt) adoptTab(adopt).then(() => exitPip());
+    registerPipHost(windowId, {
+      requestPip: () => {
+        if (activeTab.isNew || !get(videoInfo)[activeTab.id]?.hasVideo || activeIsPip) return false;
+        return startPipForTab(activeTab.id);
+      },
+      activateTab: (id) => { if ($tabs.some((t) => t.id === id)) activeId.set(id); },
+    });
     rafId = requestAnimationFrame(syncLoop);
     attachDownloadListeners();
     refreshDownloads();
@@ -459,15 +477,41 @@
 
   onDestroy(() => {
     if (rafId !== null) cancelAnimationFrame(rafId);
+    unregisterPipHost(windowId);
+    // Closed for good, or only hidden (minimised / another workspace)? A hidden window
+    // is still in the window list; a closed one is gone.
+    const stillExists = get(windows).some((w) => w.id === windowId);
+    if (stillExists && !get(webPip) && $settings.autoPictureInPicture && SystemBridge.isTauri()) {
+      const t = $tabs.find((x) => x.id === $activeId);
+      if (t && !t.isNew && get(videoInfo)[t.id]?.playing && hasLiveWebview(t.id)) {
+        enterPip({ windowId, tabId: t.id, title: t.title, url: t.url, favicon: t.favicon });
+      }
+    }
+    // The PiP tab outlives this window while the window merely hides (the video keeps playing).
+    const livePip = get(webPip);
+    const keep = stillExists && livePip?.windowId === windowId ? livePip.tabId : undefined;
+    if (keep) {
+      const t = $tabs.find((x) => x.id === keep);
+      if (t) setPendingAdoptFrom(t);
+    }
     cleanup();
     unlistenDownloadEvents.forEach((fn) => fn());
     // Close every embedded webview this Blue Web window owns — they're
     // native OS surfaces, not DOM nodes, so they wouldn't be cleaned up
     // automatically just because this Svelte component unmounts.
     if (SystemBridge.isTauri()) {
-      $tabs.forEach((t) => { if (hasLiveWebview(t.id)) SystemBridge.invokeCommand('web_view_close', { tabId: t.id }).catch(() => {}); });
+      $tabs.forEach((t) => {
+        if (t.id === keep) return;
+        if (isPipTab(t.id)) dropPip(t.id);
+        else untrackVideo(t.id);
+        if (hasLiveWebview(t.id)) SystemBridge.invokeCommand('web_view_close', { tabId: t.id }).catch(() => {});
+      });
     }
   });
+
+  function setPendingAdoptFrom(t: { id: string; url: string; title: string; favicon?: string; zoom?: number }) {
+    setPendingAdopt({ tabId: t.id, url: t.url, title: t.title, favicon: t.favicon, zoom: t.zoom });
+  }
 
   async function navigate(url: string, tabId?: string) {
     // `openUrl` re-measures after the content area has rendered; this rect is
@@ -475,6 +519,40 @@
     const bounds = measureRect() ?? undefined;
     await openUrl(url, tabId, bounds);
   }
+
+  // ── Picture-in-Picture ────────────────────────────────────────────────
+  // The video of a tab keeps playing in a small floating frame above every other
+  // window (WebPipOverlay.svelte, mounted once in App.svelte). Same webview, same
+  // page, no reload. See pip.ts / src-tauri/src/BlueWebApp/pip.rs.
+  function startPipForTab(tabId: string): boolean {
+    const tab = $tabs.find((t) => t.id === tabId);
+    if (!tab || tab.isNew || !SystemBridge.isTauri() || !hasLiveWebview(tabId)) return false;
+    enterPip({ windowId, tabId, title: tab.title, url: tab.url, favicon: tab.favicon });
+    return true;
+  }
+
+  function togglePipForActive() {
+    if (activeTab.isNew) return;
+    if (activeIsPip) exitPip(); else startPipForTab(activeTab.id);
+  }
+
+  // Leaving a tab while its video plays: it carries on in Picture-in-Picture.
+  let prevTabId: string | null = null;
+  $effect(() => {
+    const id = $activeId;
+    untrack(() => {
+      const prev = prevTabId;
+      prevTabId = id;
+      if (!prev || prev === id || !$settings.autoPictureInPicture || get(webPip)) return;
+      if (get(videoInfo)[prev]?.playing && $tabs.some((t) => t.id === prev)) startPipForTab(prev);
+    });
+  });
+
+  // The page was cut for the window earlier; PiP clears that cut, so forget it.
+  $effect(() => {
+    const id = $activeId;
+    if (activeIsPip) untrack(() => { appliedClip = { ...appliedClip, [id]: null }; lastRect = null; });
+  });
 
   /**
    * "Save to Blue Tasks" — opens (or focuses) Blue Tasks with launch
@@ -569,7 +647,17 @@
           </div>
         {/if}
       </div>
-      {#if nativeHidden}
+      {#if activeIsPip}
+        <div class="absolute overflow-hidden bg-slate-900"
+          style="left:0; bottom:0; top:{findBarOpen ? 44 : 0}px; right:{panel === 'none' ? 0 : 288}px;">
+          <div class="flex flex-col items-center justify-center gap-3 h-full px-8 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-blue-600/15 border border-blue-500/30 flex items-center justify-center"><PictureInPicture2 size={22} class="text-blue-400" /></div>
+            <p class="text-sm text-slate-200 font-medium">{$tr('blueweb.pip_active_title')}</p>
+            <p class="text-xs text-slate-500 max-w-xs">{$tr('blueweb.pip_active_desc')}</p>
+            <button onclick={() => exitPip()} class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white">{$tr('blueweb.pip_return')}</button>
+          </div>
+        </div>
+      {:else if nativeHidden}
         <!-- The native page is hidden because it is (almost) completely covered, or because this
              platform cannot clip it (see the module doc). Nothing of the page is faked: a neutral
              card with its title stands in, aligned with the webview's bounds (side panel / find bar
@@ -601,6 +689,8 @@
 
   {#if !activeTab.isNew}
     <div class="flex items-center justify-end gap-1 px-2 h-6 bg-slate-950/70 border-t border-white/5 shrink-0 text-slate-400">
+      <button onclick={togglePipForActive} title="{$tr('blueweb.pip')} (Ctrl+Shift+P)"
+        class="p-0.5 mr-2 rounded hover:bg-white/10 {activeIsPip ? 'text-blue-400' : $videoInfo[activeTab.id]?.hasVideo ? 'text-blue-300 hover:text-white' : 'opacity-50 hover:opacity-100 hover:text-white'}"><PictureInPicture2 size={12} /></button>
       <button onclick={() => adjustZoom(-1)} title="{$tr('blueweb.zoom_out')} (Ctrl+-)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomOut size={12} /></button>
       <button onclick={() => setZoom(1)} title="{$tr('blueweb.zoom_reset')} (Ctrl+0)" class="text-[10px] w-9 text-center hover:text-white">{zoomPct}%</button>
       <button onclick={() => adjustZoom(1)} title="{$tr('blueweb.zoom_in')} (Ctrl+=)" class="p-0.5 rounded hover:bg-white/10 hover:text-white"><ZoomIn size={12} /></button>
