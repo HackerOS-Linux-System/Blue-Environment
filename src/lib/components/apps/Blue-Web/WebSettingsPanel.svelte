@@ -103,5 +103,16 @@
         <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.openLinksFromOtherAppsInNewTab ? 'translate-x-[19px]' : 'translate-x-0.5'}"></span>
       </button>
     </section>
+
+    <section class="flex items-center justify-between">
+      <div>
+        <div class="text-sm font-medium text-slate-300">{$t('blueweb.set.pip_title')}</div>
+        <p class="text-xs text-slate-500">{$t('blueweb.set.pip_desc')}</p>
+      </div>
+      <button onclick={() => onUpdate({ autoPictureInPicture: !settings.autoPictureInPicture })}
+        class="relative w-10 h-5.5 rounded-full transition-colors shrink-0 ml-4 {settings.autoPictureInPicture ? 'bg-blue-600' : 'bg-slate-700'}">
+        <span class="absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white transition-transform {settings.autoPictureInPicture ? 'translate-x-[19px]' : 'translate-x-0.5'}"></span>
+      </button>
+    </section>
   </div>
 </div>
