@@ -1,4 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
+import { checkFocusBlock } from './focusMode';
 import type { WindowState, ExternalWindow } from '../types';
 import { AppId } from '../types';
 import { APPS } from '../constants';
@@ -6,6 +7,7 @@ import { SystemBridge } from '../utils/systemBridge';
 import { CompositorBridge, isNativeBackend } from '../utils/compositorBridge';
 import { configStore } from '../utils/configStore';
 import { notificationManager } from '../utils/notificationManager';
+import { requestVideoPip } from '../components/apps/Blue-Web/pip';
 
 export const windows = writable<WindowState[]>([]);
 export const activeWindowId = writable<string | null>(null);
@@ -190,9 +192,18 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
     // Cloned *external* app: start it through the isolation wrapper so it gets its own
     // HOME / XDG_CONFIG_HOME / XDG_DATA_HOME (or a bubblewrap container) instead of sharing the real profile.
     if (entry.kind === 'external' && entry.exec) {
-      const mode = entry.isolation ?? 'env';
+      const mode = entry.isolation ?? 'bwrap';
       if (mode === 'none') { await SystemBridge.launchApp(entry.exec, entry.baseAppId); return; }
-      await SystemBridge.launchCloneApp(entry.exec, entry.id, mode, entry.baseAppId);
+      const used = await SystemBridge.launchCloneApp(entry.exec, entry.id, mode, entry.baseAppId);
+      if (mode === 'bwrap' && used !== 'bwrap') {
+        // bubblewrap is missing: the app still starts, but the person must know it is NOT sandboxed
+        notificationManager.add({
+          title: 'App is not sandboxed',
+          message: 'bubblewrap is not installed, so this app runs with only a separate HOME — no sandbox. Install "bubblewrap" (and "xdg-dbus-proxy") to isolate it properly.',
+          appId: 'settings',
+          icon: '',
+        });
+      }
       return;
     }
     return openApp(entry.baseAppId, false, undefined, { ...launchArgs, cloneProfileId: entry.id }, entry.label);
@@ -206,6 +217,12 @@ export async function openApp(appId: string, isExternal = false, exec?: string, 
       appId: 'settings',
       icon: '',
     });
+    return;
+  }
+
+  const focusReason = checkFocusBlock(appId);
+  if (focusReason) {
+    notificationManager.add({ title: 'Blocked by Focus mode', message: focusReason, appId: 'settings', icon: '' });
     return;
   }
 
@@ -395,8 +412,15 @@ export function maximizeWindow(id: string) {
  * maximize/minimize: a PiP window stays visible and interactive while every
  * other window behaves normally underneath it. Toggling it back off
  * restores the window's previous geometry.
+ *
+ * Blue Web is special: when its page has a playing/loaded video, the
+ * titlebar button floats only that video (see Blue-Web/pip.ts).
  */
 export function togglePiP(id: string) {
+  // Blue Web with a video on the page: float just the video (real Picture-in-Picture,
+  // the page keeps playing), instead of shrinking the whole browser window.
+  const target = get(windows).find((x) => x.id === id);
+  if (target && target.appId === AppId.BLUE_WEB && !target.isPiP && requestVideoPip(id)) return;
   windows.update((w) =>
     w.map((x) => {
       if (x.id !== id) return x;
