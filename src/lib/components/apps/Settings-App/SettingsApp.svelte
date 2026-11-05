@@ -6,7 +6,7 @@
     Image as ImageIcon, Wifi, Bluetooth, BatteryCharging, PanelTop,
     Globe, Moon, LayoutGrid, Monitor, Printer, Users, UserCircle, Info, Search, Shield, ShieldCheck,
     Sparkles, Puzzle, Layers, Clock, Keyboard, Copy, FileCog,
-    ChevronLeft, Accessibility, BellOff } from 'lucide-svelte';
+    ChevronLeft, Accessibility, BellOff, Target, RefreshCw, Stethoscope, HeartPulse } from 'lucide-svelte';
   import { isCompactWidth } from '../../../utils/compact';
   import { SystemBridge, type ThemeDefinition as SBThemeDefinition, type UserConfig } from '../../../utils/systemBridge';
   import { configStore } from '../../../utils/configStore';
@@ -45,6 +45,10 @@
   import UsersSection from '../../settings/UsersSection.svelte';
   import AccessibilitySection from './sections/AccessibilitySection.svelte';
   import DoNotDisturbSection from './sections/DoNotDisturbSection.svelte';
+  import FocusSection from './sections/FocusSection.svelte';
+  import EyeCareSection from './sections/EyeCareSection.svelte';
+  import SyncSection from './sections/SyncSection.svelte';
+  import DiagnosticsSection from './sections/DiagnosticsSection.svelte';
 
   interface TabEntry { id: SettingsTab; labelKey: string; label?: string; icon: any; group: 'Appearance' | 'Network' | 'System' | 'Hardware' | 'Account'; }
 
@@ -72,6 +76,10 @@
     { id: 'users', labelKey: 'settings.tab.users', icon: Users, group: 'System' },
     { id: 'accessibility', labelKey: 'settings.tab.accessibility', icon: Accessibility, group: 'System' },
     { id: 'dnd', labelKey: 'settings.tab.dnd', icon: BellOff, group: 'System' },
+    { id: 'focus', labelKey: 'settings.tab.focus', icon: Target, group: 'System' },
+    { id: 'eye_care', labelKey: 'settings.tab.eye_care', icon: HeartPulse, group: 'System' },
+    { id: 'sync', labelKey: 'settings.tab.sync', icon: RefreshCw, group: 'System' },
+    { id: 'diagnostics', labelKey: 'settings.tab.diagnostics', icon: Stethoscope, group: 'System' },
     { id: 'security', labelKey: 'settings.tab.security', icon: Shield, group: 'Account' },
     { id: 'parental_controls', labelKey: 'settings.tab.parental_controls', icon: ShieldCheck, group: 'Account' },
     { id: 'screen_time', labelKey: 'settings.tab.screen_time', icon: Clock, group: 'Account' },
@@ -213,7 +221,7 @@
         {/each}
         {#if filteredTabs.length === 0}<p class="text-xs text-slate-500 px-2.5 pt-2">{$t('settings.no_match').replace('{query}', query)}</p>{/if}
       </nav>
-      <div class="px-3 py-2 border-t border-white/5 text-[10px] text-slate-600">{customThemeCount} custom theme{customThemeCount === 1 ? '' : 's'} installed</div>
+      <div class="px-3 py-2 border-t border-white/5 text-[10px] text-slate-600">{$t(customThemeCount === 1 ? 'settings.custom_themes_one' : 'settings.custom_themes_many', { n: customThemeCount })}</div>
     </div>
 
     <div class="flex-1 overflow-y-auto {compact ? 'p-4' : 'p-6'} {compact && !showDetail ? 'hidden' : ''}">
@@ -241,6 +249,10 @@
       {:else if activeTab === 'printers'}<PrintersSection />
       {:else if activeTab === 'accessibility'}<AccessibilitySection />
       {:else if activeTab === 'dnd'}<DoNotDisturbSection />
+      {:else if activeTab === 'focus'}<FocusSection />
+      {:else if activeTab === 'eye_care'}<EyeCareSection />
+      {:else if activeTab === 'sync'}<SyncSection />
+      {:else if activeTab === 'diagnostics'}<DiagnosticsSection />
       {:else if activeTab === 'power'}<PowerSection />
       {:else if activeTab === 'apps'}<AppsSection {config} {onSave} />
       {:else if activeTab === 'default_apps'}<DefaultAppsSection />
