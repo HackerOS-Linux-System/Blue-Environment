@@ -40,6 +40,9 @@
   import PermissionConsentDialog from './lib/components/PermissionConsentDialog.svelte';
   import SecretsPrompt from './lib/components/SecretsPrompt.svelte';
   import { startFocusEngine } from './lib/stores/focusMode';
+  import { startEyeCareEngine } from './lib/stores/eyeCare';
+  import { dnd, isDndActive } from './lib/stores/doNotDisturb';
+  import EyeCareOverlay from './lib/components/EyeCareOverlay.svelte';
   import { startSettingsSync } from './lib/stores/settingsSync';
   import Spotlight from './lib/components/Spotlight.svelte';
   import MagnifierController from './lib/components/MagnifierController.svelte';
@@ -252,6 +255,8 @@
   // Focus mode (calendar-driven DND + app blocking) and settings sync between this person's Blue computers
   onMount(() => startFocusEngine(() => SystemBridge.calendarLoadEvents()));
   onMount(() => startSettingsSync());
+  // Eye & health care: 20-20-20 look-aways, long breaks, posture / blink reminders, daily screen-time limit
+  onMount(() => startEyeCareEngine(translate, () => isDndActive(get(dnd))));
 
   // Restore the saved multi-monitor layout (wlroots) and start the Blue Connect
   // remote receiver listener (phones / controllers paired in Blue Connect → Remote).
@@ -821,6 +826,7 @@
   <SecretsPrompt />
   <Spotlight isOpen={isSpotlightOpen} zIndex={startMenuZIndex + 300} on:close={() => (isSpotlightOpen = false)} />
   <MagnifierController />
+  <EyeCareOverlay zIndex={startMenuZIndex + 250} bottomInset={effectivePanelPosition === 'bottom' ? barHeight : 0} />
   <OsdOverlay zIndex={startMenuZIndex + 200} bottomInset={effectivePanelPosition === 'bottom' ? barHeight : 0} />
   <ContextMenu />
   <DialogHost />
