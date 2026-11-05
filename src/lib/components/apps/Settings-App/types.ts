@@ -5,4 +5,4 @@ export type SettingsTab =
   | 'accounts' | 'about' | 'security' | 'parental_controls'
   | 'screen_time' | 'cloned_apps' | 'app_permissions' | 'keyboard' | 'file_types'
   | 'bar' | 'hotCorners' | 'shellUpdates' | 'devices'
-  | 'accessibility' | 'dnd';
+  | 'accessibility' | 'dnd' | 'focus' | 'eye_care' | 'sync' | 'diagnostics';
