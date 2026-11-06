@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use hk_parser::{load_hk_file, resolve_interpolations};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -202,26 +204,26 @@ fn load_theme_package(path: &Path, id: &str) -> Result<SystemTheme, String> {
 // happens to reference an external resource, or a copy-pasted CSS
 // snippet nobody re-audited — not a nation-state adversary.
 fn sanitize_theme_css(css: &str) -> String {
-    static IMPORT_RE: OnceLock<Regex> = OnceLock::new();
-    static URL_RE: OnceLock<Regex> = OnceLock::new();
-    static EXPRESSION_RE: OnceLock<Regex> = OnceLock::new();
-    static MOZ_BINDING_RE: OnceLock<Regex> = OnceLock::new();
-    static BEHAVIOR_RE: OnceLock<Regex> = OnceLock::new();
+    // Compiled once. The patterns are literals covered by this file's tests; a
+    // pattern that somehow failed to compile is skipped rather than panicking
+    // the shell while it loads a theme.
+    static RULES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    let rules = RULES.get_or_init(|| {
+        const SPEC: &[(&str, &str)] = &[
+            (r"(?is)@import\s+[^;]*;", "/* [external stylesheet import removed by theme sanitizer] */"),
+            (r#"(?i)url\(\s*['"]?\s*(https?:)?//[^)]*\)"#, "url()"),
+            (r#"(?i)url\(\s*['"]?\s*javascript:[^)]*\)"#, "url()"),
+            (r"(?i)expression\s*\([^)]*\)", "none"),
+            (r"(?i)-moz-binding\s*:[^;]*;?", ""),
+            (r"(?i)\bbehavior\s*:[^;]*;?", ""),
+        ];
+        SPEC.iter().filter_map(|(pat, rep)| Regex::new(pat).ok().map(|re| (re, *rep))).collect()
+    });
 
-    let import_re = IMPORT_RE.get_or_init(|| Regex::new(r"(?is)@import\s+[^;]*;").unwrap());
-    let url_re = URL_RE.get_or_init(|| Regex::new(r#"(?i)url\(\s*['"]?\s*(https?:)?//[^)]*\)"#).unwrap());
-    let js_url_re_source = r#"(?i)url\(\s*['"]?\s*javascript:[^)]*\)"#;
-    let expression_re = EXPRESSION_RE.get_or_init(|| Regex::new(r"(?i)expression\s*\([^)]*\)").unwrap());
-    let moz_binding_re = MOZ_BINDING_RE.get_or_init(|| Regex::new(r"(?i)-moz-binding\s*:[^;]*;?").unwrap());
-    let behavior_re = BEHAVIOR_RE.get_or_init(|| Regex::new(r"(?i)\bbehavior\s*:[^;]*;?").unwrap());
-    let js_url_re = Regex::new(js_url_re_source).unwrap();
-
-    let mut out = import_re.replace_all(css, "/* [external stylesheet import removed by theme sanitizer] */").to_string();
-    out = url_re.replace_all(&out, "url()").to_string();
-    out = js_url_re.replace_all(&out, "url()").to_string();
-    out = expression_re.replace_all(&out, "none").to_string();
-    out = moz_binding_re.replace_all(&out, "").to_string();
-    out = behavior_re.replace_all(&out, "").to_string();
+    let mut out = css.to_string();
+    for (re, rep) in rules {
+        out = re.replace_all(&out, *rep).to_string();
+    }
     out
 }
 
