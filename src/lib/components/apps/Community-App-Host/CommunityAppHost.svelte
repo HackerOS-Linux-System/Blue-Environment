@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { createManagedStyle, type ManagedStyle } from '../../../utils/managedStyle';
+  let appStyle: ManagedStyle | null = null;
   /**
    * Renders one installed Blue Store app (or, for the plugin equivalent of
    * this concept — see `PluginRuntime.svelte` — a similarly-hosted plugin)
@@ -57,10 +59,8 @@
       if (receipt.style) {
         try {
           const cssText = await readInstalledFile(receipt.kind, receipt.id, receipt.style);
-          const styleEl = document.createElement('style');
-          styleEl.textContent = cssText;
-          styleEl.dataset.blueApp = receipt.id;
-          container.appendChild(styleEl);
+          appStyle = createManagedStyle(`blue-app-${receipt.id}`);
+          appStyle.set(cssText);
         } catch {
           // A missing/unreadable stylesheet shouldn't block the app itself.
         }
@@ -93,6 +93,7 @@
   onMount(load);
 
   onDestroy(() => {
+    appStyle?.remove();
     try {
       if (typeof cleanup === 'function') cleanup();
     } catch (e) {
