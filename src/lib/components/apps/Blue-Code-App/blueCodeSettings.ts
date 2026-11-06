@@ -15,6 +15,8 @@ export interface BlueCodeSettings {
     tabSize: number;
     /** Open files as "preview" tabs that are replaced by the next single-click. Off by default. */
     showTerminalOnStart: boolean;
+    /** Language statistics ("Linguist") card in the bottom-right corner of the editor. */
+    showLinguist: boolean;
 }
 
 export const DEFAULT_BLUE_CODE_SETTINGS: BlueCodeSettings = {
@@ -23,6 +25,7 @@ export const DEFAULT_BLUE_CODE_SETTINGS: BlueCodeSettings = {
     wordWrap: false,
     tabSize: 4,
     showTerminalOnStart: true,
+    showLinguist: true,
 };
 
 const KEY = 'blue-code-settings-v1';
