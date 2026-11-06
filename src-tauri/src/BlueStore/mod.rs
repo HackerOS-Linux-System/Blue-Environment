@@ -2,6 +2,8 @@ pub mod error;
 pub mod install;
 pub mod manifest;
 pub mod net;
+pub mod permissions;
+pub mod signature;
 pub mod widgets;
 
 use error::{StoreError, StoreResult};
@@ -161,6 +163,16 @@ fn run_job(job: PrivJob, progress: &dyn Fn(u8, &str)) -> StoreResult<serde_json:
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedPackage {
     pub manifest: Manifest,
+    /// What the package asks for, riskiest first — shown before install.
+    pub permissions: Vec<permissions::PermissionInfo>,
+    pub risk: permissions::Risk,
+    /// Declared permissions the installed version did not have (an update that widens access).
+    pub new_permissions: Vec<String>,
+    /// What the person granted earlier, if this is an update.
+    pub previous_granted: Option<Vec<String>>,
+    /// Verified against the manifest's published sha256 (re-verified against the real download at install).
+    pub signature: signature::SignatureStatus,
+    pub signature_policy: signature::Policy,
     pub manifest_url: String,
     pub installed_version: Option<String>,
     pub update_available: bool,
@@ -171,11 +183,38 @@ pub async fn resolve(url: &str) -> StoreResult<ResolvedPackage> {
     let installed = install::installed_receipt(manifest.kind, &manifest.id);
     let installed_version = installed.as_ref().map(|r| r.version.clone());
     let update_available = installed_version.as_deref().map(|v| compare_versions(&manifest.version, v).is_gt()).unwrap_or(false);
-    Ok(ResolvedPackage { manifest, manifest_url: manifest_url.to_string(), installed_version, update_available })
+    let record = permissions::record_for(manifest.kind, &manifest.id);
+    let new_permissions = match &record {
+        Some(r) => permissions::added_permissions(&r.declared, &manifest.permissions),
+        None if installed.is_some() => Vec::new(), // installed before consent existed
+        None => manifest.permissions.clone(),
+    };
+    let signature = manifest.sha256.as_deref().map(|h| signature::verify_configured(&manifest, h)).unwrap_or_else(|| {
+        if manifest.signature.is_some() {
+            signature::SignatureStatus::Invalid { reason: "a signed package must publish its `sha256` in blue.hk".into() }
+        } else {
+            signature::SignatureStatus::Unsigned
+        }
+    });
+    Ok(ResolvedPackage {
+        permissions: permissions::describe(&manifest.permissions),
+        risk: permissions::overall_risk(&manifest.permissions),
+        new_permissions,
+        previous_granted: record.map(|r| r.granted),
+        signature,
+        signature_policy: signature::load_policy(),
+        manifest,
+        manifest_url: manifest_url.to_string(),
+        installed_version,
+        update_available,
+    })
 }
 
 /// Download (cached) + privileged install of the package behind `url`.
-pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, progress: ProgressFn) -> StoreResult<Receipt> {
+///
+/// `granted` is the person's decision from the permission dialog; see
+/// `permissions::resolve_grant` for when `None` is acceptable.
+pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, progress: ProgressFn, granted: Option<Vec<String>>) -> StoreResult<Receipt> {
     progress(1, "Reading blue.hk…");
     let (manifest, manifest_url) = net::fetch_manifest(url).await?;
     if let Some(k) = expected_kind {
@@ -184,6 +223,8 @@ pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, prog
                 .hint("Install it from the matching section (Apps / Plugins / Themes)."));
         }
     }
+    // Fail fast, before downloading anything, if a decision is still owed.
+    let grant = permissions::resolve_grant(manifest.kind, &manifest.id, &manifest.permissions, granted)?;
     let archive_url = reqwest::Url::parse(manifest.archive.as_deref().unwrap_or("")).map_err(|_| StoreError::new("manifest_bad_archive", "blue.hk has no usable `archive`"))?;
 
     let cache = install::cache_dir().join(install::cache_file_name(manifest.kind, &manifest.id, &manifest.version));
@@ -212,6 +253,40 @@ pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, prog
         }
     }
 
+    progress(47, "Checking signature…");
+    let status = signature::verify_configured(&manifest, &sha);
+    if let Err(e) = signature::enforce(&status, signature::load_policy()) {
+        let _ = std::fs::remove_file(&cache);
+        return Err(e);
+    }
+    if let signature::SignatureStatus::Trusted { name, .. } = &status {
+        progress(48, &format!("Signed by {name}"));
+    }
+
+    // Record the decision first; restore the previous one if the install then fails,
+    // so a failed update never leaves widened (or narrowed) permissions behind.
+    let previous = permissions::record_for(manifest.kind, &manifest.id);
+    permissions::store_consent(
+        manifest.kind,
+        &manifest.id,
+        permissions::ConsentRecord {
+            version: manifest.version.clone(),
+            declared: manifest.permissions.clone(),
+            granted: grant,
+            granted_at: chrono::Utc::now().to_rfc3339(),
+            signer: match &status {
+                signature::SignatureStatus::Trusted { signer, .. } => Some(signer.clone()),
+                _ => None,
+            },
+        },
+    )?;
+    let restore = |kind: PackageKind, id: &str, prev: &Option<permissions::ConsentRecord>| match prev {
+        Some(r) => {
+            let _ = permissions::store_consent(kind, id, r.clone());
+        }
+        None => permissions::forget(kind, id),
+    };
+
     progress(50, "Installing…");
     let job = PrivJob::Install { manifest: manifest.clone(), archive: cache.to_string_lossy().to_string(), source_url: manifest_url.to_string() };
     let p = progress.clone();
@@ -220,7 +295,14 @@ pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, prog
         run_job(job, &scaled)
     })
     .await
-    .map_err(|e| StoreError::new("internal", "Install task crashed").detail(e.to_string()))??;
+    .map_err(|e| StoreError::new("internal", "Install task crashed").detail(e.to_string()));
+    let value = match value {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) | Err(e) => {
+            restore(manifest.kind, &manifest.id, &previous);
+            return Err(e);
+        }
+    };
     let receipt: Receipt = serde_json::from_value(value).map_err(|e| StoreError::new("internal", "Unexpected install result").detail(e.to_string()))?;
     progress(100, "Installed");
     Ok(receipt)
@@ -228,9 +310,14 @@ pub async fn install_package(url: &str, expected_kind: Option<PackageKind>, prog
 
 pub async fn uninstall_package(kind: PackageKind, id: String) -> StoreResult<()> {
     manifest::validate_id(&id)?;
-    tokio::task::spawn_blocking(move || run_job(PrivJob::Uninstall { kind, id }, &|_, _| {}).map(|_| ()))
+    let forget_id = id.clone();
+    let result = tokio::task::spawn_blocking(move || run_job(PrivJob::Uninstall { kind, id }, &|_, _| {}).map(|_| ()))
         .await
-        .map_err(|e| StoreError::new("internal", "Uninstall task crashed").detail(e.to_string()))?
+        .map_err(|e| StoreError::new("internal", "Uninstall task crashed").detail(e.to_string()))?;
+    if result.is_ok() {
+        permissions::forget(kind, &forget_id); // a reinstall must ask again
+    }
+    result
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -312,7 +399,7 @@ pub async fn store_resolve(url: String) -> Result<ResolvedPackage, StoreError> {
 }
 
 #[tauri::command]
-pub async fn store_install(app: tauri::AppHandle, url: String, expected_kind: Option<String>, op_id: String) -> Result<Receipt, StoreError> {
+pub async fn store_install(app: tauri::AppHandle, url: String, expected_kind: Option<String>, op_id: String, granted_permissions: Option<Vec<String>>) -> Result<Receipt, StoreError> {
     let expected = match expected_kind {
         Some(k) => Some(parse_kind(&k)?),
         None => None,
@@ -322,7 +409,7 @@ pub async fn store_install(app: tauri::AppHandle, url: String, expected_kind: Op
     let progress: ProgressFn = Arc::new(move |pct, msg| {
         let _ = handle.emit("store-progress", serde_json::json!({"opId": op, "pct": pct, "message": msg}));
     });
-    let result = install_package(&url, expected, progress).await;
+    let result = install_package(&url, expected, progress, granted_permissions).await;
     let _ = app.emit("store-changed", serde_json::json!({"opId": op_id, "ok": result.is_ok()}));
     result
 }
@@ -336,7 +423,15 @@ pub async fn store_uninstall(app: tauri::AppHandle, kind: String, id: String) ->
 
 #[tauri::command(async)]
 pub fn store_list_installed(kind: String) -> Result<Vec<Receipt>, StoreError> {
-    Ok(install::list_installed(parse_kind(&kind)?))
+    // `permissions` is what the person *granted* (≤ what the package declared):
+    // the runtimes gate every API call on it.
+    Ok(install::list_installed(parse_kind(&kind)?)
+        .into_iter()
+        .map(|mut r| {
+            r.permissions = permissions::effective(r.kind, &r.id, &r.permissions);
+            r
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -396,10 +491,18 @@ pub fn run_cli(args: &[String]) -> i32 {
     match sub {
         "install" => {
             let Some(url) = args.get(1) else {
-                eprintln!("usage: --store install <URL of blue.hk>");
+                eprintln!("usage: --store install <URL of blue.hk> [--grant-all | --grant <a,b> | --no-permissions]");
                 return 2;
             };
-            match rt.block_on(install_package(url, None, progress)) {
+            let flags = &args[2..];
+            let granted = match cli_grant(&rt, url, flags) {
+                Ok(g) => g,
+                Err(e) => {
+                    print_err(&e);
+                    return 1;
+                }
+            };
+            match rt.block_on(install_package(url, None, progress, granted)) {
                 Ok(r) => {
                     println!("Installed {} {} ({})", r.name, r.version, r.kind.as_str());
                     0
@@ -450,7 +553,7 @@ pub fn run_cli(args: &[String]) -> i32 {
             for k in [PackageKind::App, PackageKind::Plugin, PackageKind::Theme] {
                 for u in rt.block_on(check_updates(k)) {
                     println!("Updating {} {} -> {}", u.id, u.installed_version, u.latest_version);
-                    if let Err(e) = rt.block_on(install_package(&u.manifest_url, Some(k), progress.clone())) {
+                    if let Err(e) = rt.block_on(install_package(&u.manifest_url, Some(k), progress.clone(), None)) {
                         print_err(&e);
                         code = 1;
                     }
@@ -463,4 +566,46 @@ pub fn run_cli(args: &[String]) -> i32 {
             2
         }
     }
+}
+
+
+/// Permission decision for the command line: explicit flags win; otherwise the
+/// permission list is printed and, on a terminal, confirmed with y/N. Without a
+/// terminal and without flags nothing is granted silently (`None` → the install
+/// fails with `consent_required` when the package needs permissions).
+fn cli_grant(rt: &tokio::runtime::Runtime, url: &str, flags: &[String]) -> StoreResult<Option<Vec<String>>> {
+    use std::io::{BufRead, IsTerminal, Write};
+    let resolved = rt.block_on(resolve(url))?;
+    let declared = &resolved.manifest.permissions;
+    if flags.iter().any(|f| f == "--no-permissions") {
+        return Ok(Some(Vec::new()));
+    }
+    if flags.iter().any(|f| f == "--grant-all") {
+        return Ok(Some(declared.clone()));
+    }
+    if let Some(i) = flags.iter().position(|f| f == "--grant") {
+        let list = flags.get(i + 1).map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()).unwrap_or_default();
+        return Ok(Some(list));
+    }
+    if declared.is_empty() {
+        return Ok(None);
+    }
+    println!("{} {} asks for permissions:", resolved.manifest.name, resolved.manifest.version);
+    for p in &resolved.permissions {
+        println!("  [{:?}] {} — {}", p.risk, p.title, p.description);
+    }
+    match &resolved.signature {
+        signature::SignatureStatus::Trusted { name, .. } => println!("Signed by {name}."),
+        signature::SignatureStatus::Unsigned => println!("WARNING: this package is not signed."),
+        signature::SignatureStatus::UnknownSigner { signer } => println!("WARNING: signed by \"{signer}\", who is not in your trusted publishers."),
+        signature::SignatureStatus::Invalid { reason } => println!("WARNING: invalid signature: {reason}"),
+    }
+    if !std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+    print!("Grant these permissions? [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    let _ = std::io::stdin().lock().read_line(&mut line);
+    Ok(Some(if line.trim().eq_ignore_ascii_case("y") { declared.clone() } else { Vec::new() }))
 }
