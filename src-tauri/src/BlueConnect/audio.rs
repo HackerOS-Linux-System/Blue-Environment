@@ -1,7 +1,10 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use crate::lock_ext::LockExt;
 
 fn sessions() -> &'static Mutex<HashMap<String, Child>> {
     static S: OnceLock<Mutex<HashMap<String, Child>>> = OnceLock::new();
@@ -73,7 +76,7 @@ pub fn phone_audio_supported() -> bool {
 /// Drops finished sessions and returns the serials that are still streaming audio.
 #[tauri::command(async)]
 pub fn phone_audio_status() -> Vec<String> {
-    let mut map = sessions().lock().unwrap();
+    let mut map = sessions().lock_safe();
     map.retain(|_, c| matches!(c.try_wait(), Ok(None)));
     let mut v: Vec<String> = map.keys().cloned().collect();
     v.sort();
@@ -94,7 +97,7 @@ pub fn phone_audio_start(serial: String, source: Option<String>) -> Result<(), S
         Some(v) if !version_supports_audio(v) => return Err("scrcpy 2.0 or newer is required for audio".into()),
         _ => {}
     }
-    let mut map = sessions().lock().unwrap();
+    let mut map = sessions().lock_safe();
     if let Some(c) = map.get_mut(&serial) {
         if matches!(c.try_wait(), Ok(None)) {
             return Ok(()); // already running
@@ -125,7 +128,7 @@ pub fn phone_audio_start(serial: String, source: Option<String>) -> Result<(), S
 
 #[tauri::command(async)]
 pub fn phone_audio_stop(serial: String) -> Result<(), String> {
-    if let Some(mut c) = sessions().lock().unwrap().remove(&serial) {
+    if let Some(mut c) = sessions().lock_safe().remove(&serial) {
         let _ = c.kill();
         let _ = c.wait();
     }
@@ -135,7 +138,7 @@ pub fn phone_audio_stop(serial: String) -> Result<(), String> {
 /// Stops every audio session (called when the panel closes).
 #[tauri::command(async)]
 pub fn phone_audio_stop_all() -> Result<(), String> {
-    for (_, mut c) in sessions().lock().unwrap().drain() {
+    for (_, mut c) in sessions().lock_safe().drain() {
         let _ = c.kill();
         let _ = c.wait();
     }
@@ -146,7 +149,7 @@ pub fn phone_audio_stop_all() -> Result<(), String> {
 #[tauri::command(async)]
 pub fn phone_audio_volume(serial: String, percent: u32) -> Result<(), String> {
     let pid = {
-        let map = sessions().lock().unwrap();
+        let map = sessions().lock_safe();
         map.get(&serial).map(|c| c.id()).ok_or("Audio is not running")?
     };
     let out = Command::new("pactl")
