@@ -1,8 +1,11 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 pub mod phone;
 pub mod audio;
 pub mod plugin_proto;
 pub mod plugins;
 pub mod kdeconnect;
+pub mod sync_transport;
 pub mod remote;
 pub(crate) mod tls;
 
@@ -15,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tauri::{AppHandle, Emitter};
+use crate::lock_ext::LockExt;
 
 /// A pairing request currently waiting on this device's own person to
 /// accept/reject it — set by `bc_listen_for_pairing` right after it
@@ -155,11 +159,8 @@ fn this_device_name() -> String {
 static KNOWN_DEVICES: Mutex<Option<HashMap<String, DiscoveredDevice>>> = Mutex::new(None);
 
 fn with_known_devices<T>(f: impl FnOnce(&mut HashMap<String, DiscoveredDevice>) -> T) -> T {
-    let mut guard = KNOWN_DEVICES.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(load_devices());
-    }
-    f(guard.as_mut().unwrap())
+    let mut guard = KNOWN_DEVICES.lock_safe();
+    f(guard.get_or_insert_with(load_devices))
 }
 
 fn load_devices() -> HashMap<String, DiscoveredDevice> {
@@ -230,6 +231,19 @@ pub fn get_paired_device(device_id: &str) -> Option<PairedDeviceHandle> {
     })
 }
 
+/// This computer's Blue Connect device id (what peers know it as).
+pub fn local_device_id() -> String {
+    this_device_id()
+}
+
+/// The paired device whose pinned certificate has this SHA-256 fingerprint.
+/// Used by servers to decide who a TLS client is — never by name or address.
+pub fn paired_device_for_fingerprint(fingerprint: &str) -> Option<(String, String)> {
+    with_known_devices(|devices| {
+        devices.values().find(|d| d.paired && d.pinned_cert_sha256.as_deref() == Some(fingerprint)).map(|d| (d.id.clone(), d.name.clone()))
+    })
+}
+
 /// Lists every currently paired device — used by other modules to
 /// offer a "relay through..." picker (e.g. Blue Messages' "new SMS
 /// conversation" flow choosing which paired phone to send through)
@@ -264,7 +278,12 @@ pub fn list_paired_devices() -> Vec<PairedDeviceHandle> {
 /// `kdeconnect.sms.*` packets) — this function only owns the
 /// transport/trust layer, not any particular packet format.
 pub async fn open_authenticated_connection(handle: &PairedDeviceHandle) -> Result<tokio_rustls::client::TlsStream<TcpStream>, String> {
-    let addr = format!("{}:{}", handle.address, handle.tcp_port);
+    open_authenticated_connection_on(handle, handle.tcp_port).await
+}
+
+/// Same trust checks, to a different port of the same device (settings sync uses its own).
+pub async fn open_authenticated_connection_on(handle: &PairedDeviceHandle, port: u16) -> Result<tokio_rustls::client::TlsStream<TcpStream>, String> {
+    let addr = format!("{}:{}", handle.address, port);
     let tcp = TcpStream::connect(&addr).await.map_err(|e| format!("failed to connect to {addr}: {e}"))?;
 
     let captured = Arc::new(Mutex::new(None));
@@ -280,7 +299,7 @@ pub async fn open_authenticated_connection(handle: &PairedDeviceHandle) -> Resul
         .await
         .map_err(|e| format!("TLS handshake with {addr} failed: {e}"))?;
 
-    let peer_fingerprint = captured.lock().unwrap().clone().ok_or("TLS handshake completed without a peer certificate")?;
+    let peer_fingerprint = captured.lock_safe().clone().ok_or("TLS handshake completed without a peer certificate")?;
     if peer_fingerprint != handle.pinned_cert_sha256 {
         return Err(format!(
             "Refusing to talk to {}: it presented a different certificate than the one pinned when it was paired. \
@@ -315,7 +334,7 @@ pub async fn bc_start_discovery(timeout_secs: u64) -> Result<Vec<DiscoveredDevic
     };
     let payload = serde_json::to_vec(&identity).map_err(|e| e.to_string())?;
 
-    let broadcast_addr: SocketAddr = format!("255.255.255.255:{DISCOVERY_PORT}").parse().unwrap();
+    let broadcast_addr = SocketAddr::from((std::net::Ipv4Addr::BROADCAST, DISCOVERY_PORT));
     socket.send_to(&payload, broadcast_addr).await.map_err(|e| format!("failed to send broadcast: {e}"))?;
 
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs.max(1));
@@ -412,7 +431,7 @@ pub async fn bc_request_pairing(app: AppHandle, device_id: String) -> Result<(),
         .await
         .map_err(|e| format!("TLS handshake with {addr} failed: {e}"))?;
 
-    let peer_fingerprint = captured.lock().unwrap().clone().ok_or("TLS handshake completed without a peer certificate")?;
+    let peer_fingerprint = captured.lock_safe().clone().ok_or("TLS handshake completed without a peer certificate")?;
     if device.paired {
         if let Some(pinned) = &device.pinned_cert_sha256 {
             if pinned != &peer_fingerprint {
@@ -505,7 +524,7 @@ pub async fn bc_listen_for_pairing(app: AppHandle, timeout_secs: u64) -> Result<
         .accept(tcp)
         .await
         .map_err(|e| format!("TLS handshake with {} failed: {e}", peer_addr.ip()))?;
-    let peer_fingerprint = captured.lock().unwrap().clone().ok_or("TLS handshake completed without a peer certificate")?;
+    let peer_fingerprint = captured.lock_safe().clone().ok_or("TLS handshake completed without a peer certificate")?;
 
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
@@ -544,7 +563,7 @@ pub async fn bc_listen_for_pairing(app: AppHandle, timeout_secs: u64) -> Result<
     let sas = tls::compute_sas(&my_fingerprint, &peer_fingerprint);
 
     let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
-    *pending_incoming_pairing().lock().unwrap() = Some(tx);
+    *pending_incoming_pairing().lock_safe() = Some(tx);
     let _ = app.emit("blue-connect://pairing-request", serde_json::json!({
         "deviceId": device_id,
         "deviceName": device_name,
@@ -559,7 +578,7 @@ pub async fn bc_listen_for_pairing(app: AppHandle, timeout_secs: u64) -> Result<
         Ok(Err(_)) => false, // sender dropped without deciding — treat as reject
         Err(_) => false,     // timed out waiting for a decision — treat as reject
     };
-    *pending_incoming_pairing().lock().unwrap() = None;
+    *pending_incoming_pairing().lock_safe() = None;
 
     let response_packet = serde_json::json!({
         "type": "kdeconnect.pair",
@@ -600,7 +619,7 @@ pub async fn bc_listen_for_pairing(app: AppHandle, timeout_secs: u64) -> Result<
 /// timed out before the person clicked anything.
 #[tauri::command(async)]
 pub fn bc_confirm_incoming_pairing(accept: bool) -> Result<(), String> {
-    let sender = pending_incoming_pairing().lock().unwrap().take();
+    let sender = pending_incoming_pairing().lock_safe().take();
     match sender {
         Some(tx) => tx.send(accept).map_err(|_| "The pairing request is no longer waiting (it may have already timed out)".to_string()),
         None => Err("No pairing request is currently waiting for a decision".to_string()),
