@@ -49,8 +49,9 @@
   let cloneKind = $state<'builtin' | 'external'>('builtin');
   let installedApps = $state<DesktopEntry[]>([]);
   let selectedExternalId = $state('');
-  let isolation = $state<'env' | 'bwrap' | 'none'>('env');
+  let isolation = $state<'env' | 'bwrap' | 'none'>('bwrap');
   let bwrapAvailable = $state(false);
+  let dbusProxyAvailable = $state(false);
   let profileRoot = $state('~/.local/share/blue-clones');
 
   onMount(async () => {
@@ -58,6 +59,9 @@
       const [apps, st] = await Promise.all([SystemBridge.getSystemApps(false), SystemBridge.cloneIsolationStatus()]);
       installedApps = apps.filter((a) => !a.noDisplay).sort((a, b) => a.name.localeCompare(b.name));
       bwrapAvailable = st.bwrapAvailable;
+      dbusProxyAvailable = st.dbusProxyAvailable;
+      // secure by default; fall back to the weak mode only when bubblewrap is not installed
+      if (!bwrapAvailable && isolation === 'bwrap') isolation = 'env';
       profileRoot = st.root;
     } catch { /* browser preview — keep defaults */ }
   });
@@ -75,7 +79,7 @@
     selectedBaseId = cloneableApps[0]?.id ?? '';
     selectedExternalId = installedApps[0]?.id ?? '';
     cloneKind = 'builtin';
-    isolation = 'env';
+    isolation = bwrapAvailable ? 'bwrap' : 'env';
     label = '';
   }
 
@@ -131,7 +135,7 @@
         <div class="flex-1 min-w-0">
           <div class="text-white font-medium truncate">{entry.label}</div>
           <div class="text-xs text-slate-500 truncate">
-            {$t('settings.cloned_apps.based_on')} {base?.title ?? entry.baseAppId}{#if entry.kind === 'external'} · {$t(ISOLATION_KEY[entry.isolation ?? 'env'])}{/if}
+            {$t('settings.cloned_apps.based_on')} {base?.title ?? entry.baseAppId}{#if entry.kind === 'external'} · {$t(ISOLATION_KEY[entry.isolation ?? 'bwrap'])}{/if}
           </div>
         </div>
         <button
@@ -169,10 +173,17 @@
         <div>
           <label for="clone-isolation" class="block text-xs font-medium text-slate-400 mb-1.5">{$t('settings.cloned_apps.isolation')}</label>
           <select id="clone-isolation" bind:value={isolation} class="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-sm">
-            <option value="env">{$t('settings.cloned_apps.isolation_env')}</option>
             <option value="bwrap" disabled={!bwrapAvailable}>{$t('settings.cloned_apps.isolation_bwrap')}{bwrapAvailable ? '' : ' — ' + $t('settings.cloned_apps.bwrap_missing')}</option>
+            <option value="env">{$t('settings.cloned_apps.isolation_env')}</option>
             <option value="none">{$t('settings.cloned_apps.isolation_none')}</option>
           </select>
+          {#if !bwrapAvailable}
+            <p class="text-xs text-amber-400 mt-1.5" role="alert">{$t('settings.cloned_apps.bwrap_missing_warning')}</p>
+          {:else if isolation !== 'bwrap'}
+            <p class="text-xs text-amber-400 mt-1.5" role="alert">{$t('settings.cloned_apps.isolation_weak_warning')}</p>
+          {:else if !dbusProxyAvailable}
+            <p class="text-xs text-slate-400 mt-1.5">{$t('settings.cloned_apps.dbus_proxy_missing')}</p>
+          {/if}
           <p class="text-xs text-slate-500 mt-1.5">{$t('settings.cloned_apps.isolation_hint')} <code class="text-slate-400">{profileRoot}/&lt;id&gt;</code></p>
         </div>
       {:else}
