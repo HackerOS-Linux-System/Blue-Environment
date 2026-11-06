@@ -30,13 +30,11 @@
    * sent back, not a silently-ignored call and not access anyway.
    *
    * ── What this doesn't cover yet ──────────────────────────────────
-   * - Permissions are enforced against what the plugin *declared* in
-   *   its own manifest, not yet against an explicit person-facing
-   *   "allow this plugin to use your clipboard?" grant — a
-   *   consent step per permission (with persisted grants) is the
-   *   natural next layer on top of this, analogous to how declaring
-   *   `permissions` in this file today is informational-turned-
-   *   enforced but still self-declared by the plugin author.
+   * - Permissions are enforced against what the person *granted*: the
+   *   install dialog (PermissionConsentDialog, BlueStore/permissions.rs)
+   *   shows what the plugin asks for, and `store_list_installed` hands this
+   *   component only `granted ∩ declared`. Updates that widen the
+   *   permission list ask again.
    * - Only three capabilities exist (`notify`, clipboard read/write,
    *   namespaced storage) — enough to prove the sandbox and permission
    *   gate both genuinely work (see `EXAMPLE_PLUGIN`), not a complete
