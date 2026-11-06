@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use lsp_types::notification::{self, Notification};
 use lsp_types::request::{self, Request};
 use lsp_types::*;
@@ -11,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
+use crate::lock_ext::LockExt;
 
 #[derive(Default)]
 struct Session {
@@ -28,12 +31,12 @@ fn key_of(language: &str, root: &str) -> String {
 }
 
 fn session(key: &str) -> Arc<Session> {
-    SESSIONS.lock().unwrap().entry(key.to_string()).or_default().clone()
+    SESSIONS.lock_safe().entry(key.to_string()).or_default().clone()
 }
 
 /// Wołane po zatrzymaniu serwera — czyści stan, a oczekujące żądania kończą się błędem.
 pub fn drop_session(key: &str) {
-    SESSIONS.lock().unwrap().remove(key);
+    SESSIONS.lock_safe().remove(key);
 }
 
 // ───────────────────────── URI ─────────────────────────
@@ -92,16 +95,16 @@ where
     let s = session(key);
     let id = s.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let (tx, rx) = oneshot::channel();
-    s.pending.lock().unwrap().insert(id, tx);
+    s.pending.lock_safe().insert(id, tx);
     if let Err(e) = send(key, &json!({ "jsonrpc": "2.0", "id": id, "method": R::METHOD, "params": params })) {
-        s.pending.lock().unwrap().remove(&id);
+        s.pending.lock_safe().remove(&id);
         return Err(e);
     }
     match tokio::time::timeout(Duration::from_secs(30), rx).await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(_)) => Err("serwer języka został zatrzymany".into()),
         Err(_) => {
-            s.pending.lock().unwrap().remove(&id);
+            s.pending.lock_safe().remove(&id);
             Err(format!("{}: serwer nie odpowiedział w 30 s", R::METHOD))
         }
     }
@@ -136,7 +139,7 @@ pub fn on_message(app: &AppHandle, key: &str, msg: &Value) {
         // odpowiedź na nasze żądanie
         (None, Some(id)) => {
             if let Some(id) = id.as_i64() {
-                if let Some(tx) = session(key).pending.lock().unwrap().remove(&id) {
+                if let Some(tx) = session(key).pending.lock_safe().remove(&id) {
                     let _ = tx.send(msg.clone());
                 }
             }
@@ -355,7 +358,7 @@ pub async fn lsp_initialize(language: String, root_path: String) -> Result<(), S
 pub fn lsp_did_open(language: String, root_path: String, path: String, language_id: String, text: String) -> Result<(), String> {
     let key = key_of(&language, &root_path);
     let u = uri(&path)?;
-    session(&key).versions.lock().unwrap().insert(u.as_str().to_string(), 1);
+    session(&key).versions.lock_safe().insert(u.as_str().to_string(), 1);
     notify::<notification::DidOpenTextDocument>(&key, DidOpenTextDocumentParams {
         text_document: TextDocumentItem { uri: u, language_id, version: 1, text },
     })
@@ -368,7 +371,7 @@ pub fn lsp_did_change(language: String, root_path: String, path: String, text: S
     let u = uri(&path)?;
     let version = {
         let s = session(&key);
-        let mut v = s.versions.lock().unwrap();
+        let mut v = s.versions.lock_safe();
         let e = v.entry(u.as_str().to_string()).or_insert(1);
         *e += 1;
         *e
@@ -383,7 +386,7 @@ pub fn lsp_did_change(language: String, root_path: String, path: String, text: S
 pub fn lsp_did_close(language: String, root_path: String, path: String) -> Result<(), String> {
     let key = key_of(&language, &root_path);
     let u = uri(&path)?;
-    session(&key).versions.lock().unwrap().remove(u.as_str());
+    session(&key).versions.lock_safe().remove(u.as_str());
     notify::<notification::DidCloseTextDocument>(&key, DidCloseTextDocumentParams { text_document: TextDocumentIdentifier { uri: u } })
 }
 
