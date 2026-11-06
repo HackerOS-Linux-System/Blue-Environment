@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use serde::Serialize;
 use std::os::fd::AsRawFd;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -10,6 +12,7 @@ use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1::{self as handle_ev, ZwlrForeignToplevelHandleV1},
     zwlr_foreign_toplevel_manager_v1::{self as manager_ev, ZwlrForeignToplevelManagerV1},
 };
+use crate::lock_ext::LockExt;
 
 /// One window as reported by the compositor.
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -54,7 +57,7 @@ fn tx() -> &'static Mutex<Option<Sender<Cmd>>> {
 /// [`is_running`] to see whether the compositor really offered the
 /// protocol.
 pub fn start() {
-    let mut guard = tx().lock().unwrap();
+    let mut guard = tx().lock_safe();
     if guard.is_some() {
         return;
     }
@@ -71,7 +74,7 @@ pub fn start() {
                 match run(&receiver) {
                     Ok(()) => break,
                     Err(e) => {
-                        shared().lock().unwrap().running = false;
+                        shared().lock_safe().running = false;
                         attempts += 1;
                         if attempts == 1 || attempts % 30 == 0 {
                             eprintln!("[blue-toplevels] {e} (retrying)");
@@ -96,7 +99,7 @@ pub fn list() -> Vec<Toplevel> {
 }
 
 pub fn send(cmd: Cmd) {
-    if let Some(sender) = tx().lock().unwrap().as_ref() {
+    if let Some(sender) = tx().lock_safe().as_ref() {
         let _ = sender.send(cmd);
     }
 }
@@ -292,7 +295,7 @@ fn run(rx: &Receiver<Cmd>) -> Result<(), String> {
     let seat: Option<wl_seat::WlSeat> = globals.bind(&qh, 1..=7, ()).ok();
 
     let mut state = State { seat, entries: Vec::new(), next_id: 0, dirty: false };
-    shared().lock().unwrap().running = true;
+    shared().lock_safe().running = true;
 
     let mut last_list: Vec<Toplevel> = Vec::new();
     let mut last_active: Option<u64> = None;
@@ -326,7 +329,7 @@ fn run(rx: &Receiver<Cmd>) -> Result<(), String> {
             let snap = state.snapshot();
             if snap != last_list {
                 last_list = snap.clone();
-                shared().lock().unwrap().list = snap.clone();
+                shared().lock_safe().list = snap.clone();
                 publish(&snap, &mut last_active);
             }
         }
