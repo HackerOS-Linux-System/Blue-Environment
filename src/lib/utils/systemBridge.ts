@@ -60,7 +60,8 @@ export interface ClonedAppEntry {
     /** External clones: the desktop entry's Exec line. */
     exec?: string;
     /** External clones: what is isolated. 'env' = own HOME/XDG_* dirs, 'bwrap' = bubblewrap container,
-     * 'none' = shared profile. Default 'env'. */
+     * 'none' = shared profile. Default 'bwrap' (a real sandbox: read-only system,
+     * private home, filtered D-Bus, seccomp). 'env' only swaps HOME/XDG_* and isolates nothing else. */
     isolation?: 'none' | 'env' | 'bwrap';
 }
 
@@ -680,12 +681,12 @@ export const SystemBridge = {
         console.log(`[Mock] Launch clone ${cloneId} (${mode}): ${exec}`);
         return mode;
     },
-    cloneIsolationStatus: async (): Promise<{ bwrapAvailable: boolean; root: string }> => {
+    cloneIsolationStatus: async (): Promise<{ bwrapAvailable: boolean; root: string; dbusProxyAvailable: boolean; seccompAvailable: boolean }> => {
         if (isTauri) {
-            const r = await invoke<{ bwrap_available: boolean; root: string }>('clone_isolation_status');
-            return { bwrapAvailable: r.bwrap_available, root: r.root };
+            const r = await invoke<{ bwrap_available: boolean; root: string; dbus_proxy_available: boolean; seccomp_available: boolean }>('clone_isolation_status');
+            return { bwrapAvailable: r.bwrap_available, root: r.root, dbusProxyAvailable: r.dbus_proxy_available, seccompAvailable: r.seccomp_available };
         }
-        return { bwrapAvailable: false, root: '~/.local/share/blue-clones' };
+        return { bwrapAvailable: false, root: '~/.local/share/blue-clones', dbusProxyAvailable: false, seccompAvailable: false };
     },
     deleteCloneProfile: async (cloneId: string): Promise<void> => {
         if (isTauri) await invoke('clone_profile_delete', { cloneId });
@@ -1337,6 +1338,17 @@ export const SystemBridge = {
     async lspIsRunning(language: string, rootPath: string): Promise<boolean> {
         if (isTauri) { try { return await invoke('lsp_is_running', { language, rootPath }); } catch { return false; } }
         return false;
+    },
+
+    // --- Blue Code: Linguist (language statistics) ---
+    async codeLinguistScan(root: string): Promise<import('../components/apps/Blue-Code-App/linguist').LinguistReport | null> {
+        if (isTauri) { try { return await invoke('code_linguist_scan', { root }); } catch (e) { throw new Error(String(e)); } }
+        return null;
+    },
+
+    async codeLinguistInitConfig(root: string): Promise<string | null> {
+        if (isTauri) { try { return await invoke('code_linguist_init_config', { root }); } catch (e) { throw new Error(String(e)); } }
+        return null;
     },
 
     // --- Blue Calendar ---
