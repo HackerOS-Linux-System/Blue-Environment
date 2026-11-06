@@ -11,10 +11,13 @@ pub enum Mode {
 }
 
 impl Mode {
+    /// The default is **bwrap** (a real sandbox). Only an explicit `"env"` opts
+    /// into the weak mode that merely swaps `HOME` / `XDG_*` — an unknown or
+    /// missing value must never silently downgrade isolation.
     pub fn parse(s: &str) -> Mode {
         match s {
-            "bwrap" => Mode::Bwrap,
-            _ => Mode::Env,
+            "env" => Mode::Env,
+            _ => Mode::Bwrap,
         }
     }
     pub fn as_str(self) -> &'static str {
@@ -47,9 +50,7 @@ pub fn clone_home(real_home: &Path, id: &str) -> PathBuf {
 }
 
 /// POSIX single-quote escaping.
-pub fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
+pub use crate::sandbox::sh_quote;
 
 /// Environment overrides for `env` mode.
 pub fn profile_env(real_home: &Path, id: &str, has_xauthority: bool) -> Vec<(String, String)> {
@@ -76,33 +77,22 @@ pub fn profile_env(real_home: &Path, id: &str, has_xauthority: bool) -> Vec<(Str
     v
 }
 
-/// Arguments for `bwrap` (everything before the program to run).
-pub fn bwrap_args(real_home: &Path, id: &str) -> Vec<String> {
-    let rh = real_home.to_string_lossy().into_owned();
-    let ch = clone_home(real_home, id).to_string_lossy().into_owned();
-    let mut a: Vec<String> = vec![
-        "--dev-bind".into(), "/".into(), "/".into(),
-        // the clone's private home hides the real one
-        "--bind".into(), ch, rh.clone(),
-    ];
-    // Things the app still needs from the real profile (read-only, only if present).
-    for rel in [".local/share/flatpak", ".Xauthority", ".local/share/fonts", ".config/fontconfig"] {
-        let path = real_home.join(rel).to_string_lossy().into_owned();
-        a.extend(["--ro-bind-try".into(), path.clone(), path]);
-    }
-    a.push("--die-with-parent".into());
-    a
-}
-
 /// Builds the full `sh` command line that launches `exec` isolated.
 /// `bwrap_available` decides whether `Mode::Bwrap` can be honoured; returns the effective mode.
-pub fn build_command_line(
+#[allow(dead_code)] // the tested entry point; production code uses `build_command_line_ctx`
+pub fn build_command_line(exec: &str, mode: Mode, real_home: &Path, id: &str, bwrap_available: bool, has_xauthority: bool) -> (String, Mode) {
+    build_command_line_ctx(exec, mode, real_home, id, bwrap_available, has_xauthority, &crate::sandbox::SandboxCtx::default())
+}
+
+/// Same, with the sandbox's runtime context (sockets, D-Bus proxy, seccomp filter).
+pub fn build_command_line_ctx(
     exec: &str,
     mode: Mode,
     real_home: &Path,
     id: &str,
     bwrap_available: bool,
     has_xauthority: bool,
+    ctx: &crate::sandbox::SandboxCtx,
 ) -> (String, Mode) {
     let effective = if mode == Mode::Bwrap && !bwrap_available { Mode::Env } else { mode };
     let inner = format!("sh -c {}", sh_quote(exec));
@@ -114,10 +104,7 @@ pub fn build_command_line(
                 .collect();
             format!("env {} {}", envs.join(" "), inner)
         }
-        Mode::Bwrap => {
-            let args: Vec<String> = bwrap_args(real_home, id).iter().map(|s| sh_quote(s)).collect();
-            format!("bwrap {} {}", args.join(" "), inner)
-        }
+        Mode::Bwrap => crate::sandbox::wrapper_script(exec, real_home, &clone_home(real_home, id), id, ctx),
     };
     (line, effective)
 }
@@ -139,6 +126,50 @@ fn bwrap_installed() -> bool {
 pub struct IsolationStatus {
     pub bwrap_available: bool,
     pub root: String,
+    /// What a clone gets when nothing is chosen: always `bwrap`.
+    pub default_mode: &'static str,
+    /// `xdg-dbus-proxy` is installed → sandboxed apps get a *filtered* session
+    /// bus (portals work); without it they get no bus at all.
+    pub dbus_proxy_available: bool,
+    /// A seccomp filter exists for this CPU architecture.
+    pub seccomp_available: bool,
+}
+
+fn command_exists(name: &str) -> bool {
+    Command::new("sh").arg("-c").arg(format!("command -v {name} >/dev/null 2>&1")).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Writes (if needed) the compiled seccomp deny-list and returns its path.
+fn ensure_seccomp_file() -> Option<PathBuf> {
+    let bytes = crate::sandbox::seccomp::native_filter()?;
+    let dir = dirs::cache_dir()?.join("Blue-Environment/seccomp");
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(format!("blue-app-{}.bpf", std::env::consts::ARCH));
+    if std::fs::read(&file).ok().as_deref() != Some(bytes.as_slice()) {
+        let tmp = file.with_extension("tmp");
+        std::fs::write(&tmp, &bytes).ok()?;
+        std::fs::rename(&tmp, &file).ok()?;
+    }
+    Some(file)
+}
+
+/// Runtime context for a sandboxed launch, read from the current session.
+fn detect_ctx(id: &str) -> crate::sandbox::SandboxCtx {
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_dir());
+    let have_bus = std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some();
+    let dbus_proxy_sock = match (&runtime_dir, have_bus && command_exists("xdg-dbus-proxy")) {
+        (Some(rt), true) => Some(rt.join(format!("blue-clone-{id}.bus"))),
+        _ => None,
+    };
+    crate::sandbox::SandboxCtx {
+        runtime_dir,
+        wayland_display: std::env::var("WAYLAND_DISPLAY").ok(),
+        x11: std::env::var_os("DISPLAY").is_some(),
+        dbus_proxy_sock,
+        seccomp_file: ensure_seccomp_file(),
+        share_net: true,
+        hide: crate::sandbox::existing_hide_dirs(),
+    }
 }
 
 #[tauri::command(async)]
@@ -147,11 +178,14 @@ pub fn clone_isolation_status() -> Result<IsolationStatus, String> {
     Ok(IsolationStatus {
         bwrap_available: bwrap_installed(),
         root: home.join(CLONES_DIR).to_string_lossy().into_owned(),
+        default_mode: Mode::parse("").as_str(),
+        dbus_proxy_available: command_exists("xdg-dbus-proxy"),
+        seccomp_available: crate::sandbox::seccomp::NATIVE_AUDIT_ARCH.is_some(),
     })
 }
 
 /// Launches `command` with the clone's private profile. Returns the mode that was actually used
-/// (`bwrap` silently degrades to `env` when bubblewrap is missing).
+/// (`bwrap` degrades to `env` when bubblewrap is missing — the UI shows a warning when that happens).
 #[tauri::command(async)]
 pub fn launch_clone_process(
     command: String,
@@ -165,13 +199,14 @@ pub fn launch_clone_process(
     for sub in [".config", ".local/share", ".local/state", ".cache"] {
         std::fs::create_dir_all(profile.join(sub)).map_err(|e| format!("create profile dir: {e}"))?;
     }
-    let (line, effective) = build_command_line(
+    let (line, effective) = build_command_line_ctx(
         &command,
         Mode::parse(&mode),
         &home,
         &id,
         bwrap_installed(),
         home.join(".Xauthority").exists(),
+        &detect_ctx(&id),
     );
     crate::commands::session::launch_process(line, app_id);
     Ok(effective.as_str().to_string())
@@ -214,11 +249,21 @@ mod tests {
     }
 
     #[test]
-    fn bwrap_binds_clone_home_over_real_home() {
+    fn isolation_is_bwrap_unless_env_is_asked_for_explicitly() {
+        assert_eq!(Mode::parse(""), Mode::Bwrap);
+        assert_eq!(Mode::parse("bwrap"), Mode::Bwrap);
+        assert_eq!(Mode::parse("garbage"), Mode::Bwrap, "an unknown value must not downgrade isolation");
+        assert_eq!(Mode::parse("env"), Mode::Env);
+    }
+
+    #[test]
+    fn bwrap_mode_is_the_hardened_profile() {
         let (line, mode) = build_command_line("app", Mode::Bwrap, Path::new("/home/u"), "abc", true, false);
         assert_eq!(mode, Mode::Bwrap);
-        assert!(line.starts_with("bwrap "));
+        assert!(line.starts_with("bwrap '--ro-bind' '/' '/'"), "system must be read-only: {line}");
+        assert!(!line.contains("--dev-bind' '/' '/'"));
         assert!(line.contains("'--bind' '/home/u/.local/share/blue-clones/abc/home' '/home/u'"));
+        assert!(line.contains("'--cap-drop' 'ALL'") && line.contains("'--unshare-pid'"));
         assert!(line.contains("'--ro-bind-try' '/home/u/.local/share/flatpak'"));
     }
 
