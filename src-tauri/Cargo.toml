@@ -103,6 +103,11 @@ rand                           = "0.8"
 # `thiserror`" build error this comment is now next to).
 thiserror                      = "1"
 sha2                           = "0.10"
+# Blue Accounts: the Secret Service bridge keeps the unlocked vault's master
+# password in a buffer that is overwritten on lock (see vault.rs).
+zeroize                        = "1"
+# Blue Store: ed25519 package signatures (BlueStore/signature.rs).
+ed25519-dalek                  = { version = "2", default-features = false, features = ["std"] }
 blue-auth                      = { path = "../auth" }
 chrono                         = { version = "0.4", features = ["serde"] }
 urlencoding                    = "2"
