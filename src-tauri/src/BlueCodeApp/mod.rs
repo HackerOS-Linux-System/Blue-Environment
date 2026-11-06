@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter};
 
 pub mod git;
+pub mod linguist;
 pub mod lsp_client;
 
 #[derive(Serialize)]
@@ -187,4 +188,23 @@ pub fn lsp_send_message(language: String, root_path: String, message: Value) -> 
 pub fn lsp_is_running(language: String, root_path: String) -> bool {
     let key = format!("{}::{}", language, root_path);
     LSP_PROCESSES.lock().unwrap().contains_key(&key)
+}
+
+
+// ── Linguist (language statistics, bottom-right widget) ────────────────────
+
+/// Scans the open project folder and returns the GitHub-style language breakdown.
+/// Runs on the blocking pool: it walks the tree and reads file heads.
+#[tauri::command]
+pub async fn code_linguist_scan(root: String) -> Result<linguist::LinguistReport, String> {
+    tauri::async_runtime::spawn_blocking(move || linguist::scan(std::path::Path::new(&root)))
+        .await
+        .map_err(|e| format!("language scan failed: {e}"))?
+}
+
+/// Creates `<root>/.blue/languages.json` (custom languages) from a template if
+/// it does not exist yet and returns its path, so the editor can open it.
+#[tauri::command]
+pub fn code_linguist_init_config(root: String) -> Result<String, String> {
+    linguist::init_project_config(std::path::Path::new(&root)).map(|p| p.to_string_lossy().into_owned())
 }
