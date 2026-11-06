@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createManagedStyle } from '../utils/managedStyle';
   import { run } from 'svelte/legacy';
 
   // Applies a filesystem theme package (`/usr/share/themes/<id>/`, see
@@ -21,7 +22,8 @@
 
   let { systemThemeId }: Props = $props();
 
-  let injectedStyleEl: HTMLStyleElement | null = null;
+  // Constructed stylesheet instead of a <style> element: works under a CSP without 'unsafe-inline' for style elements.
+  const themeStyle = createManagedStyle('blue-system-theme-style');
   let currentlyAppliedId: string | null = null;
 
   async function applyTheme(id: string | null | undefined) {
@@ -40,21 +42,14 @@
       return;
     }
 
-    if (!injectedStyleEl) {
-      injectedStyleEl = document.createElement('style');
-      injectedStyleEl.id = 'blue-system-theme-style';
-      document.head.appendChild(injectedStyleEl);
-    }
-    injectedStyleEl.textContent = theme.css;
+    themeStyle.set(theme.css);
     document.documentElement.setAttribute('data-system-theme', theme.id);
     currentlyAppliedId = id;
   }
 
   function clearTheme() {
     document.documentElement.removeAttribute('data-system-theme');
-    if (injectedStyleEl) {
-      injectedStyleEl.textContent = '';
-    }
+    themeStyle.clear();
     currentlyAppliedId = null;
   }
 
@@ -66,6 +61,6 @@
     // Cleanup on unmount (shell restart, hot-reload during
     // development) — an orphaned `<style>` tag with no owning
     // component would otherwise keep overriding styles forever.
-    injectedStyleEl?.remove();
+    themeStyle.remove();
   });
 </script>
