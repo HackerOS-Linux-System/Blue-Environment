@@ -1,6 +1,25 @@
-export const KNOWN_PERMISSIONS = ['notifications', 'clipboard', 'storage', 'network', 'files', 'system'] as const;
+export const KNOWN_PERMISSIONS = ['notifications', 'storage', 'clipboard', 'network', 'files', 'system', 'camera', 'microphone', 'screen_capture'] as const;
 
 export type BluePermission = (typeof KNOWN_PERMISSIONS)[number];
+
+export type PermissionRisk = 'low' | 'medium' | 'high';
+
+/**
+ * What the person sees in the install dialog for each permission. The
+ * authoritative copy lives in the shell (`BlueStore/permissions.rs`); this
+ * mirror is for your own UI and docs.
+ */
+export const PERMISSION_INFO: Record<BluePermission, { risk: PermissionRisk; title: string }> = {
+    notifications: { risk: 'low', title: 'Show notifications' },
+    storage: { risk: 'low', title: 'Store its own data' },
+    clipboard: { risk: 'medium', title: 'Use the clipboard' },
+    network: { risk: 'medium', title: 'Use the network' },
+    files: { risk: 'high', title: 'Access your files' },
+    system: { risk: 'high', title: 'Control the system' },
+    camera: { risk: 'high', title: 'Use the camera' },
+    microphone: { risk: 'high', title: 'Use the microphone' },
+    screen_capture: { risk: 'high', title: 'Capture the screen' },
+};
 
 /** The three kinds of package `blue.hk`'s `[package] -> type` accepts. */
 export type PackageKind = 'app' | 'plugin' | 'theme';
@@ -55,6 +74,18 @@ export interface BlueSystemApi {
 }
 
 /**
+ * Camera, microphone and screen capture. Each call needs its own permission
+ * (`camera`, `microphone`, `screen_capture`) — declared in `blue.hk` *and*
+ * granted by the person in the install dialog. Screen capture goes through the
+ * desktop's ScreenCast portal, so the system's own picker decides what is shared.
+ */
+export interface BlueMediaApi {
+    camera(constraints?: MediaTrackConstraints | boolean): Promise<MediaStream>;
+    microphone(constraints?: MediaTrackConstraints | boolean): Promise<MediaStream>;
+    screen(): Promise<MediaStream>;
+}
+
+/**
  * The object your `mount(root, api)` receives. Every method beyond
  * `app`/`system.isTauri()`/`close()` is gated by the permission noted on
  * its own interface — see this file's module doc for the full rule.
@@ -66,6 +97,7 @@ export interface BlueApi {
     clipboard: BlueClipboardApi;
     storage: BlueStorageApi;
     system: BlueSystemApi;
+    media: BlueMediaApi;
     /** Closes the window hosting your app — same effect as the person
      * clicking the titlebar's close button. Always available, no
      * permission needed: closing your own window can't affect anything
@@ -94,6 +126,23 @@ export type BlueMount = (root: HTMLElement, api: BlueApi) => (() => void) | void
  */
 export function defineBlueApp(mount: BlueMount): BlueMount {
     return mount;
+}
+
+/**
+ * Handles the shell's "Back" gesture (Esc/Backspace/B on the TV UI, the Back
+ * button on the phone UI). Return `true` when you handled it (closed a dialog,
+ * went up a level) — the shell then does nothing more; return `false` and the
+ * shell performs its default (leaving the app). Returns an unsubscribe function.
+ *
+ * Under the hood this is the cancelable `blue:back` window event; see
+ * docs/sdk/blue-back.md.
+ */
+export function onBack(handler: () => boolean | void): () => void {
+    const listener = (e: Event) => {
+        if (handler() === true) e.preventDefault();
+    };
+    window.addEventListener('blue:back', listener);
+    return () => window.removeEventListener('blue:back', listener);
 }
 
 /**
@@ -145,6 +194,13 @@ export interface BlueManifestPackage {
     homepage?: string;
     license?: string;
     category?: string;
+    /** Publisher key id (matches an entry in the person's / system's
+     * `trusted-publishers.json`). Added together with `signature`. */
+    signer?: string;
+    /** Base64 ed25519 signature over `blue-package-v1\n<kind>\n<id>\n<version>\n<sha256>`.
+     * Make it with `scripts/blue-package-sign.mjs`; a signed package must also
+     * publish `sha256`. See docs/sdk/signing.md. */
+    signature?: string;
 }
 
 /** `blue.hk`'s `[app]` (or `[plugin]`) section. */
