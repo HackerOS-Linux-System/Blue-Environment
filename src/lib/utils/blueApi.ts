@@ -27,6 +27,17 @@ export interface BlueApi {
         isTauri(): boolean;
         platform(): Promise<string>;
     };
+    /**
+     * Camera, microphone and screen capture. Each call needs its own permission
+     * (`camera`, `microphone`, `screen_capture`) *and* the person's consent at
+     * install time. Screen capture goes through the desktop's ScreenCast portal
+     * (xdg-desktop-portal-wlr), so the system's own chooser decides what is shared.
+     */
+    media: {
+        camera(constraints?: MediaTrackConstraints | boolean): Promise<MediaStream>;
+        microphone(constraints?: MediaTrackConstraints | boolean): Promise<MediaStream>;
+        screen(): Promise<MediaStream>;
+    };
     /** Requests the host window close itself (same as the titlebar ✕). */
     close(): void;
 }
@@ -98,6 +109,20 @@ export function createBlueApi(app: BlueAppInfo, onClose: () => void): BlueApi {
                 // Blue Environment only ever runs on Linux (HackerOS) today —
                 // no need for an extra plugin/round-trip just for this.
                 return SystemBridge.isTauri() ? 'linux' : 'web';
+            },
+        },
+        media: {
+            async camera(constraints: MediaTrackConstraints | boolean = true) {
+                requires(app, 'camera');
+                return navigator.mediaDevices.getUserMedia({ video: constraints });
+            },
+            async microphone(constraints: MediaTrackConstraints | boolean = true) {
+                requires(app, 'microphone');
+                return navigator.mediaDevices.getUserMedia({ audio: constraints });
+            },
+            async screen() {
+                requires(app, 'screen_capture');
+                return navigator.mediaDevices.getDisplayMedia({ video: true });
             },
         },
         close: onClose,
