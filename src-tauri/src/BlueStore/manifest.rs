@@ -10,8 +10,8 @@ pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
 /// Permission vocabulary understood by the Blue API bridge. Anything else in
 /// a manifest is rejected so a typo can't silently mean "no restriction".
-pub const KNOWN_PERMISSIONS: &[&str] =
-    &["notifications", "clipboard", "storage", "network", "files", "system"];
+/// (The catalogue — with risk levels and descriptions — lives in `permissions.rs`.)
+pub use super::permissions::known_ids as known_permissions;
 
 /// Ids the shell itself uses (`AppId` in src/lib/types.ts). A community
 /// package must never shadow a built-in application.
@@ -93,6 +93,12 @@ pub struct Manifest {
     /// plugin sub-kind ("panel-widget", "extension", ...), free text.
     pub plugin_kind: Option<String>,
     pub permissions: Vec<String>,
+    /// Base64 ed25519 signature over the package identity + archive hash (see `signature.rs`).
+    #[serde(default)]
+    pub signature: Option<String>,
+    /// Id of the publisher key that made `signature`.
+    #[serde(default)]
+    pub signer: Option<String>,
 }
 
 // ── field helpers ──────────────────────────────────────────────────────────
@@ -368,9 +374,9 @@ pub fn parse_manifest(text: &str, source: Option<&Url>) -> StoreResult<Manifest>
 
     let permissions = get_list(&cfg, "permissions", "list");
     for p in &permissions {
-        if !KNOWN_PERMISSIONS.contains(&p.as_str()) {
+        if !known_permissions().contains(&p.as_str()) {
             return Err(StoreError::new("manifest_bad_permission", format!("blue.hk: unknown permission \"{p}\""))
-                .hint(format!("Known permissions: {}.", KNOWN_PERMISSIONS.join(", "))));
+                .hint(format!("Known permissions: {}.", known_permissions().join(", "))));
         }
     }
 
@@ -396,6 +402,8 @@ pub fn parse_manifest(text: &str, source: Option<&Url>) -> StoreResult<Manifest>
         min_height: get_u32(&cfg, "app", "min_height"),
         plugin_kind: get_str(&cfg, "plugin", "kind"),
         permissions,
+        signature: get_str(&cfg, "package", "signature"),
+        signer: get_str(&cfg, "package", "signer"),
     })
 }
 
