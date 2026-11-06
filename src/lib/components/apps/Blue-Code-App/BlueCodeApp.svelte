@@ -18,6 +18,8 @@
   import { languageLabel } from './cmLanguages';
   import SettingsPanel from './SettingsPanel.svelte';
   import { blueCodeSettings } from './blueCodeSettings';
+  import { createLinguist } from './linguist';
+  import LinguistWidget from './LinguistWidget.svelte';
 
   
   interface Props {
@@ -34,7 +36,24 @@
   const { rootPath, fileTree } = tree;
   const { openFiles, activeIdx, activeFile, fileDiagnostics, errors, warnings, lspStatus, editorTheme, fontSize, cursorPos, revealLine } = editor;
 
+  // Language statistics (bottom-right card). Re-scans after a save (modified → clean) and on window focus.
+  const linguist = createLinguist(rootPath);
+  let lastModifiedCount = 0;
+  $effect(() => {
+    const n = $openFiles.filter((f) => f.modified).length;
+    if (n < lastModifiedCount) linguist.schedule();
+    lastModifiedCount = n;
+  });
+  async function customizeLanguages() {
+    try {
+      const path = await linguist.initConfig();
+      if (path) { await editor.openFile(path); linguist.schedule(); }
+    } catch { /* no folder open */ }
+  }
+
   onMount(() => {
+    const onFocus = () => linguist.schedule(800);
+    window.addEventListener('focus', onFocus);
     if (openPath) editor.openFile(openPath);
 
     // Window-level fallback for Ctrl+P/Ctrl+Shift+P: the editor's own
@@ -49,7 +68,7 @@
       if (e.shiftKey) showCommandPalette = true; else showQuickOpen = true;
     };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    return () => { window.removeEventListener('keydown', handler); window.removeEventListener('focus', onFocus); linguist.destroy(); };
   });
 
   let sidebarTab = $state<SidebarTab>('files');
@@ -77,6 +96,9 @@
     { id: 'terminal', label: 'Toggle Terminal', shortcut: 'Ctrl+`', action: () => (showTerminal = !showTerminal) },
     { id: 'sidebar', label: 'Toggle Sidebar', shortcut: 'Ctrl+B', action: () => (sidebarCollapsed = !sidebarCollapsed) },
     { id: 'refresh', label: 'Refresh Explorer', shortcut: '', action: () => tree.loadTree($rootPath) },
+    { id: 'linguist-toggle', label: 'Toggle: Language Statistics (Linguist)', shortcut: '', action: () => blueCodeSettings.patch({ showLinguist: !$blueCodeSettings.showLinguist }) },
+    { id: 'linguist-scan', label: 'Rescan Project Languages', shortcut: '', action: () => linguist.scan() },
+    { id: 'linguist-custom', label: 'Custom Languages (.blue/languages.json)…', shortcut: '', action: customizeLanguages },
     { id: 'lint', label: 'Run Linter', shortcut: '', action: () => editor.runLint($activeIdx) },
     { id: 'search', label: 'Search in Files', shortcut: 'Ctrl+F', action: () => (sidebarTab = 'search') },
     { id: 'dev', label: 'Active Dev Mode', shortcut: '', action: () => (sidebarTab = 'dev') },
@@ -205,6 +227,10 @@
       {/if}
     </div>
   </div>
+
+  {#if $blueCodeSettings.showLinguist && $rootPath}
+    <LinguistWidget {linguist} lifted={showTerminal} oncustomize={customizeLanguages} />
+  {/if}
 
   <StatusBar
     languageLabel={$activeFile ? languageLabel($activeFile.language) : '—'}
