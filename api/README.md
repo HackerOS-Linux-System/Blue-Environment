@@ -95,13 +95,16 @@ automatically. See that tool's own README for the full manifest reference.
 
 | Member | Permission required | Notes |
 |---|---|---|
-| `app` | — | Static identity: `id`, `name`, `version`, `kind`, `permissions` — straight from your `blue.hk`. |
+| `app` | — | Static identity: `id`, `name`, `version`, `kind`, `permissions` — `permissions` is what the person **granted** (never more than you declared). |
 | `notify(title, message?)` | `notifications` | Desktop notification. |
 | `clipboard.readText()` / `.writeText(text)` | `clipboard` | System clipboard. |
 | `storage.get/set/remove/keys` | `storage` | Small JSON key-value store, private to your package. |
 | `system.isTauri()` | — | Always available. |
 | `system.platform()` | `system` | Currently always `"linux"` (Blue Environment is Linux-only). |
+| `media.camera()` / `.microphone()` / `.screen()` | `camera` / `microphone` / `screen_capture` | Media streams; screen capture goes through the desktop's ScreenCast portal. |
 | `close()` | — | Closes your own window. |
+
+Helpers: `onBack(handler)` handles the shell's "Back" gesture (see [blue:back](../docs/sdk/blue-back.md)); `hasPermission(api, p)` checks a grant first.
 
 Declare exactly what you use in `blue.hk`:
 
@@ -116,6 +119,13 @@ your own fallback UI. The full permission list is exported as
 `KNOWN_PERMISSIONS`; anything else in `blue.hk` fails validation when the
 package is installed, so there's no way to end up with a permission that
 silently does nothing.
+
+## More documentation
+
+* [Getting started](../docs/sdk/getting-started.md) · [`blue.hk` reference](../docs/sdk/blue-hk.md)
+* [Permissions & consent](../docs/sdk/permissions.md) · [Signing](../docs/sdk/signing.md)
+* [`blue:back`](../docs/sdk/blue-back.md) · [Plugins](../docs/sdk/plugins.md)
+* Templates: [`templates/app`](templates/app) and [`templates/plugin`](templates/plugin)
 
 ## Why no sandbox?
 
