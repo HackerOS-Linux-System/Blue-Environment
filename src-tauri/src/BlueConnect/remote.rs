@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 use rand::{rngs::OsRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,6 +12,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, Semaphore};
+use crate::lock_ext::LockExt;
 
 pub const REMOTE_PORT: u16 = 1718;
 const REMOTE_PAGE: &str = include_str!("remote.html");
@@ -460,7 +463,7 @@ pub fn route(app: &AppHandle, req: &Req) -> Vec<u8> {
             &[("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'".into())],
         ),
         ("GET", "/api/info") => {
-            let mut st = state().lock().unwrap();
+            let mut st = state().lock_safe();
             let authorized = token_from(req).map(|t| st.authenticate(&t, now).is_some()).unwrap_or(false);
             json_response(200, serde_json::json!({"name": hostname(), "pairingOpen": st.pairing_open(now), "authorized": authorized}), &[])
         }
@@ -468,7 +471,7 @@ pub fn route(app: &AppHandle, req: &Req) -> Vec<u8> {
             #[derive(Deserialize)]
             struct P { code: String, #[serde(default)] name: String }
             let Ok(p) = serde_json::from_slice::<P>(&req.body) else { return json_response(400, serde_json::json!({"error": "bad request"}), &[]) };
-            let mut st = state().lock().unwrap();
+            let mut st = state().lock_safe();
             match st.try_pair(&p.code, &p.name, now) {
                 Ok((rec, token)) => {
                     save_state(&st);
@@ -484,7 +487,7 @@ pub fn route(app: &AppHandle, req: &Req) -> Vec<u8> {
         }
         ("POST", "/api/input") => {
             let (ok, sys) = {
-                let mut st = state().lock().unwrap();
+                let mut st = state().lock_safe();
                 let ok = token_from(req).and_then(|t| st.authenticate(&t, now)).is_some();
                 (ok, st.settings.system_input)
             };
@@ -501,7 +504,7 @@ pub fn route(app: &AppHandle, req: &Req) -> Vec<u8> {
             }
         }
         ("POST", "/api/unpair") => {
-            let mut st = state().lock().unwrap();
+            let mut st = state().lock_safe();
             if let Some(t) = token_from(req) {
                 let h = sha256_hex(&t);
                 if let Some(id) = st.records.iter().find(|r| ct_eq(&r.token_hash, &h)).map(|r| r.id.clone()) {
@@ -552,7 +555,7 @@ async fn run_server(app: AppHandle) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("[blue-remote] cannot listen on {REMOTE_PORT}: {e}");
-            state().lock().unwrap().running = false;
+            state().lock_safe().running = false;
             return;
         }
     };
@@ -568,11 +571,11 @@ async fn run_server(app: AppHandle) {
             _ = stop_signal().notified() => break,
         }
     }
-    state().lock().unwrap().running = false;
+    state().lock_safe().running = false;
 }
 
 fn ensure_running(app: &AppHandle) {
-    let mut st = state().lock().unwrap();
+    let mut st = state().lock_safe();
     if st.running {
         return;
     }
@@ -583,7 +586,7 @@ fn ensure_running(app: &AppHandle) {
 
 /// Called once at start-up: restarts the server when it was enabled.
 pub fn autostart(app: AppHandle) {
-    if state().lock().unwrap().settings.enabled {
+    if state().lock_safe().settings.enabled {
         ensure_running(&app);
     }
 }
@@ -635,7 +638,7 @@ pub struct RemoteInfo {
 }
 
 fn status_now() -> RemoteStatus {
-    let st = state().lock().unwrap();
+    let st = state().lock_safe();
     let now = now_secs();
     let open = st.pairing_open(now);
     RemoteStatus {
@@ -660,7 +663,7 @@ pub fn remote_server_status() -> RemoteStatus {
 #[tauri::command(async)]
 pub fn remote_set_enabled(app: AppHandle, enabled: bool, system_input: bool) -> RemoteStatus {
     {
-        let mut st = state().lock().unwrap();
+        let mut st = state().lock_safe();
         st.settings = RemoteSettings { enabled, system_input };
         if !enabled {
             st.pairing = None;
@@ -680,7 +683,7 @@ pub fn remote_set_enabled(app: AppHandle, enabled: bool, system_input: bool) -> 
 #[tauri::command(async)]
 pub fn remote_pairing_open(app: AppHandle, minutes: Option<u64>) -> RemoteStatus {
     {
-        let mut st = state().lock().unwrap();
+        let mut st = state().lock_safe();
         st.settings.enabled = true;
         st.open_pairing(minutes.unwrap_or(5), now_secs());
         save_state(&st);
@@ -692,14 +695,14 @@ pub fn remote_pairing_open(app: AppHandle, minutes: Option<u64>) -> RemoteStatus
 
 #[tauri::command(async)]
 pub fn remote_pairing_close() -> RemoteStatus {
-    state().lock().unwrap().pairing = None;
+    state().lock_safe().pairing = None;
     status_now()
 }
 
 #[tauri::command(async)]
 pub fn remote_revoke(id: String) -> RemoteStatus {
     {
-        let mut st = state().lock().unwrap();
+        let mut st = state().lock_safe();
         st.revoke(&id);
         save_state(&st);
     }
