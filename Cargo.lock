@@ -613,6 +613,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "docx-rs",
+ "ed25519-dalek",
  "ffmpeg-sidecar",
  "futures-util",
  "gio",
@@ -676,6 +677,7 @@ dependencies = [
  "windows 0.58.0",
  "xmpp-parsers",
  "zbus 4.4.0",
+ "zeroize",
 ]
 
 [[package]]
