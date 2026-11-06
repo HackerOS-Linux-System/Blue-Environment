@@ -12,10 +12,12 @@
   import { onMount } from 'svelte';
   import {
     KeyRound, Plus, Trash2, Eye, EyeOff, Copy, Check, Lock, Unlock,
-    Search, RefreshCw, Loader2, Shield, X,
+    Search, RefreshCw, Loader2, Shield, X, ShieldCheck,
   } from 'lucide-svelte';
   import { SystemBridge } from '../../../utils/systemBridge';
+  import { t } from '../../../stores/language';
   import LoadingSpinner from '../../LoadingSpinner.svelte';
+  import SecurityPanel from './SecurityPanel.svelte';
   import { newEntry, type VaultEntry } from './types';
 
   /// Focuses an element on mount without using the `autofocus`
@@ -52,6 +54,7 @@
   // module doc's "Session model" — the backend itself never caches
   // this either).
   let sessionPassword = '';
+  let showSecurity = $state(false);
 
   let entries = $state<VaultEntry[]>([]);
   let search = $state('');
@@ -71,6 +74,17 @@
     (e) => !search.trim() || e.title.toLowerCase().includes(search.toLowerCase()) || e.username.toLowerCase().includes(search.toLowerCase())
   ));
   let selectedEntry = $derived(entries.find((e) => e.id === selectedId) ?? null);
+
+  onMount(() => {
+    // the backend locks the vault after the idle timeout (BlueAccounts/idle.rs): follow it
+    let un: (() => void) | undefined;
+    if (SystemBridge.isTauri()) {
+      import('@tauri-apps/api/event').then(({ listen }) => listen('accounts:auto-locked', () => {
+        sessionPassword = ''; entries = []; selectedId = null; editing = null; showSecurity = false; screen = 'unlock';
+      })).then((u) => { un = u; }).catch(() => {});
+    }
+    return () => un?.();
+  });
 
   onMount(async () => {
     const exists = await SystemBridge.accountsVaultExists();
@@ -199,6 +213,7 @@
 </script>
 
 <div class="relative flex h-full bg-slate-950 text-slate-100 text-sm">
+  {#if showSecurity}<SecurityPanel {entries} onclose={() => (showSecurity = false)} />{/if}
   {#if screen === 'loading'}
     <LoadingSpinner label="Checking vault status…" />
 
@@ -284,12 +299,15 @@
               onclick={() => { selectedId = entry.id; editing = null; }}
             >
               <div class="font-medium truncate">{entry.title || '(untitled)'}</div>
-              <div class="text-xs text-slate-500 truncate">{entry.username}</div>
+              <div class="text-xs text-slate-500 truncate">{entry.source === 'secret-service' ? `${entry.createdBy || 'app'} · ${$t('accounts.security.stored_by_app')}` : entry.username}</div>
             </button>
           {/each}
         {/if}
       </div>
-      <div class="p-2 border-t border-white/10">
+      <div class="p-2 border-t border-white/10 space-y-1">
+        <button onclick={() => (showSecurity = true)} class="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-slate-400 hover:bg-white/5">
+          <ShieldCheck class="w-3.5 h-3.5" /> {$t('accounts.security.title')}
+        </button>
         <button onclick={lockVault} class="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-slate-400 hover:bg-white/5">
           <Lock class="w-3.5 h-3.5" /> Lock vault
         </button>
