@@ -1,0 +1,18 @@
+[package]
+-> id          => com.example.counter
+-> name        => Counter
+-> type        => app
+-> version     => 1.0.0
+-> author      => Your Name
+-> description => A tiny counter that remembers its value.
+-> icon        => Sparkles
+-> license     => MIT
+
+[app]
+-> entry  => index.js
+-> width  => 360
+-> height => 320
+
+# Ask only for what you use — people see this list before installing.
+[permissions]
+-> list => ["storage"]
