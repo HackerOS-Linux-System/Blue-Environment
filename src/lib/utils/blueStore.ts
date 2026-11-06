@@ -1,4 +1,5 @@
 import { SystemBridge } from './systemBridge';
+import { needsConsent, requestPermissionConsent, type ConsentPreview } from '../stores/permissionConsent';
 import { bundledCatalog, sanitizeCatalog, type CatalogResult } from '../widgets/widgetCatalog';
 
 export type PackageKind = 'app' | 'plugin' | 'theme';
@@ -68,6 +69,15 @@ export interface ResolvedPackage {
     manifestUrl: string;
     installedVersion?: string;
     updateAvailable: boolean;
+    /** What the package asks for, riskiest first (see `permissions.rs`). */
+    permissions: import('../stores/permissionConsent').PermissionInfo[];
+    risk: import('../stores/permissionConsent').Risk;
+    /** Permissions the installed version did not have. */
+    newPermissions: string[];
+    /** What the person granted earlier (updates), else null. */
+    previousGranted: string[] | null;
+    signature: import('../stores/permissionConsent').SignatureStatus;
+    signaturePolicy: 'warn' | 'require';
 }
 
 /** Mirrors `BlueStore::install::Receipt` — what's written as
@@ -146,7 +156,15 @@ export async function installPackage(
         });
     }
     try {
-        return await SystemBridge.invoke<Receipt>('store_install', { url, expectedKind: expectedKind ?? undefined, opId });
+        // Show what the package asks for and let the person decide — before anything is downloaded.
+        const preview = (await resolvePackage(url)) as unknown as ConsentPreview;
+        let grantedPermissions: string[] | undefined;
+        if (needsConsent(preview)) {
+            const granted = await requestPermissionConsent(preview);
+            if (granted === null) throw { code: 'cancelled', message: 'Installation cancelled' } satisfies StoreError;
+            grantedPermissions = granted;
+        }
+        return await SystemBridge.invoke<Receipt>('store_install', { url, expectedKind: expectedKind ?? undefined, opId, grantedPermissions });
     } finally {
         unlisten?.();
     }
